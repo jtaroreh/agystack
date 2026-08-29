@@ -27,19 +27,19 @@ Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspell
 
 ## Models
 
-Antigravity subagents use model tiers/options: `flash`, `thinking` (or `flash-thinking`), and `inherit` (or `auto` to inherit the parent chat model), or specific model identifiers.
+Antigravity subagents primarily use `gemini-3.7-flash-high` (Gemini 3.7 Flash with High Thinking) for complex reasoning and coding, `flash` for fast mechanical passes, or `inherit` (parent chat model).
 
 | Cursor default | Antigravity choice |
 | --- | --- |
 | `grok-4.6-fast-xhigh` (fast mechanical code) | `flash` |
-| `gpt-5.6-sol-max` (precise instruction following) | `inherit` |
-| `claude-fable-5-thinking-max` (judgment and prose) | `inherit` |
-| `claude-opus-5-thinking-xhigh` (hardest tasks) | `inherit` |
+| `gpt-5.6-sol-max` (precise instruction following) | `gemini-3.7-flash-high` |
+| `claude-fable-5-thinking-max` (judgment and prose) | `gemini-3.7-flash-high` |
+| `claude-opus-5-thinking-xhigh` (hardest tasks) | `gemini-3.7-flash-high` |
 | `inherit-parent` or `auto` | `inherit` (omit model / inherit parent) |
 
 Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the table above.
 
-Keep panels diverse across available tiers (`inherit`, `flash`, `inherit` or `thinking`). One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available model and continue. Do not block the task on the slug.
+Keep panels diverse across available options (`gemini-3.7-flash-high`, `flash`, `inherit`). One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available model and continue. Do not block the task on the slug.
 
 ## Paths
 

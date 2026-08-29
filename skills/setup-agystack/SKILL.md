@@ -35,27 +35,26 @@ Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` with one line
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
-# Values are Antigravity subagent models/tiers: flash, thinking, inherit (or auto).
-# `inherit` or `auto` as a value: the role runs on the parent chat model.
-# Alias entries in a panel list still count toward its fan-out.
-feature, refactoring: inherit
-bug-fix: inherit
-perf-issue: inherit
-hillclimb: inherit
-judgment and prose: inherit
-hardest tasks: inherit
+# Primary model: gemini-3.7-flash-high (Gemini 3.7 Flash with High Thinking)
+# Values: gemini-3.7-flash-high, flash, thinking, inherit (or auto)
+feature, refactoring: gemini-3.7-flash-high
+bug-fix: gemini-3.7-flash-high
+perf-issue: gemini-3.7-flash-high
+hillclimb: gemini-3.7-flash-high
+judgment and prose: gemini-3.7-flash-high
+hardest tasks: gemini-3.7-flash-high
 how explorer: flash
-how explainer: inherit
-how critics: inherit, flash, inherit
+how explainer: gemini-3.7-flash-high
+how critics: gemini-3.7-flash-high, flash, inherit
 why investigators: flash
-why synthesizer: inherit
-reflect tooling: inherit
-reflect judgment, divergent, synthesizer: inherit
-arena runners: inherit, flash, inherit
-arena cross-judge pool: inherit, flash, inherit
+why synthesizer: gemini-3.7-flash-high
+reflect tooling: gemini-3.7-flash-high
+reflect judgment, divergent, synthesizer: gemini-3.7-flash-high
+arena runners: gemini-3.7-flash-high, flash, inherit
+arena cross-judge pool: gemini-3.7-flash-high, flash, inherit
 swarm workers: flash
-architect runners: inherit, flash, inherit
-interrogate reviewers: inherit, flash, inherit
+architect runners: gemini-3.7-flash-high, flash, inherit
+interrogate reviewers: gemini-3.7-flash-high, flash, inherit
 ```
 
 ### 6. Confirm
