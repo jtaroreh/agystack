@@ -7,13 +7,20 @@ description: Configure which models agystack uses per role. Detects your availab
 
 Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or workspace `.agents/plugins/agystack/rules/agystack-models.md`), an always-applied rule that sets agystack's model per role. The skills read it and fall back to their inline defaults (mapped through `skills/poteto-mode/references/antigravity-tools.md`) when a line is absent, so this is an override layer, not a requirement.
 
-On Antigravity, subagent values are models/tiers such as `flash`, `thinking` (or `flash-thinking`), and `inherit` (or `auto`). Legacy Cursor slugs (e.g. `grok-4.6-fast-xhigh`, `claude-fable-5-thinking-max`) and outdated model tiers are invalid.
+On Antigravity, subagent values use official Gemini 3.7 Flash thinking tiers (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low`, `gemini-3.7-flash-fast`) or `inherit` (parent session model). Legacy Cursor slugs (e.g. `grok-4.6-fast-xhigh`, `claude-fable-5-thinking-max`) and outdated model tiers are invalid.
 
 ## Steps
 
 ### 1. Detect available models
 
-Enumerate the model tiers or model identifiers you can pass to `invoke_subagent` in this session. Antigravity's primary options are `flash`, `thinking`, and `inherit` (parent model). If the session exposes specific Gemini or Claude identifiers (for example Gemini Flash, Gemini Next, Claude 3.7 Sonnet), record those too. Never write a real slug you have not confirmed is available. The aliases `inherit`, `inherit-parent`, and `auto` are always valid and mean: this role runs on the parent chat model.
+Enumerate the model tiers or model identifiers you can pass to `invoke_subagent` in this session. The official options are:
+- `gemini-3.7-flash-high`: High thinking level (maximum reasoning budget)
+- `gemini-3.7-flash-medium`: Medium thinking level (balanced reasoning budget)
+- `gemini-3.7-flash-low`: Low thinking level (lightweight reasoning check)
+- `gemini-3.7-flash-fast`: Fast / No thinking (zero latency token generation)
+- `inherit` (or `auto`): Inherit parent chat model
+
+Never write a real slug you have not confirmed is available.
 
 ### 2. Load current state
 
@@ -21,9 +28,9 @@ The default role-to-model mapping is the rule shape shown in step 5 below. If `~
 
 ### 3. Map and confirm
 
-Show every role with its current model, marking any unknown or outdated slug not in the detected set as needing a choice. Ask whether to accept as-is or change specific roles, offering the detected options (`flash`, `thinking`, `inherit`, `auto`) as choices. Ask with numbered options in the reply. For panel roles (how critics, arena runners, architect runners, interrogate reviewers) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. `arena cross-judge pool` is also a list, but Arena selects one value from it whose tier differs from the parent's when possible. `swarm workers` is the default model for every worker unless a race or comparison assigns another model per arm.
+Show every role with its current model, marking any unknown or outdated slug not in the detected set as needing a choice. Ask whether to accept as-is or change specific roles, offering the official thinking tiers (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low`, `gemini-3.7-flash-fast`, `inherit`, `auto`) as choices. Ask with numbered options in the reply. For panel roles (how critics, arena runners, architect runners, interrogate reviewers) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. `arena cross-judge pool` is also a list, but Arena selects one value from it whose tier differs from the parent's when possible. `swarm workers` is the default model for every worker unless a race or comparison assigns another model per arm.
 
-Keep panels diverse across available tiers (e.g. `inherit`, `flash`, `inherit` or `thinking`) rather than repeating the exact same model four times.
+Keep panels diverse across available tiers (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`) rather than repeating the exact same model four times.
 
 ### 4. Validate
 
@@ -35,26 +42,31 @@ Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` with one line
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
-# Primary model: gemini-3.7-flash-high (Gemini 3.7 Flash with High Thinking)
-# Values: gemini-3.7-flash-high, flash, thinking, inherit (or auto)
+# Gemini 3.7 Flash thinking tiers:
+# - gemini-3.7-flash-high   (High thinking: maximum reasoning budget)
+# - gemini-3.7-flash-medium (Medium thinking: balanced reasoning budget)
+# - gemini-3.7-flash-low    (Low thinking: lightweight reasoning check)
+# - gemini-3.7-flash-fast   (Fast / No thinking: zero-latency token generation)
+# - inherit / auto          (Runs on the active parent chat session model)
+
 feature, refactoring: gemini-3.7-flash-high
 bug-fix: gemini-3.7-flash-high
 perf-issue: gemini-3.7-flash-high
 hillclimb: gemini-3.7-flash-high
 judgment and prose: gemini-3.7-flash-high
 hardest tasks: gemini-3.7-flash-high
-how explorer: flash
+how explorer: gemini-3.7-flash-fast
 how explainer: gemini-3.7-flash-high
-how critics: gemini-3.7-flash-high, flash, inherit
-why investigators: flash
+how critics: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
+why investigators: gemini-3.7-flash-fast
 why synthesizer: gemini-3.7-flash-high
 reflect tooling: gemini-3.7-flash-high
 reflect judgment, divergent, synthesizer: gemini-3.7-flash-high
-arena runners: gemini-3.7-flash-high, flash, inherit
-arena cross-judge pool: gemini-3.7-flash-high, flash, inherit
-swarm workers: flash
-architect runners: gemini-3.7-flash-high, flash, inherit
-interrogate reviewers: gemini-3.7-flash-high, flash, inherit
+arena runners: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
+arena cross-judge pool: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
+swarm workers: gemini-3.7-flash-fast
+architect runners: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
+interrogate reviewers: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
 ```
 
 ### 6. Confirm

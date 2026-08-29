@@ -27,11 +27,17 @@ Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspell
 
 ## Models
 
-Antigravity subagents primarily use `gemini-3.7-flash-high` (Gemini 3.7 Flash with High Thinking) for complex reasoning and coding, `flash` for fast mechanical passes, or `inherit` (parent chat model).
+Antigravity subagents use the official Gemini 3.7 Flash thinking tiers:
+
+- `gemini-3.7-flash-high` (High thinking: max reasoning for complex coding, architecture, and difficult bugs)
+- `gemini-3.7-flash-medium` (Medium thinking: balanced reasoning for reviews and explanations)
+- `gemini-3.7-flash-low` (Low thinking: fast with light reasoning checks)
+- `gemini-3.7-flash-fast` (Fast / No thinking: zero-latency token generation for bulk scanning)
+- `inherit` / `auto` (Inherits active model from parent chat session)
 
 | Cursor default | Antigravity choice |
 | --- | --- |
-| `grok-4.6-fast-xhigh` (fast mechanical code) | `flash` |
+| `grok-4.6-fast-xhigh` (fast mechanical code) | `gemini-3.7-flash-fast` |
 | `gpt-5.6-sol-max` (precise instruction following) | `gemini-3.7-flash-high` |
 | `claude-fable-5-thinking-max` (judgment and prose) | `gemini-3.7-flash-high` |
 | `claude-opus-5-thinking-xhigh` (hardest tasks) | `gemini-3.7-flash-high` |
@@ -39,7 +45,7 @@ Antigravity subagents primarily use `gemini-3.7-flash-high` (Gemini 3.7 Flash wi
 
 Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the table above.
 
-Keep panels diverse across available options (`gemini-3.7-flash-high`, `flash`, `inherit`). One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available model and continue. Do not block the task on the slug.
+Keep panels diverse across available options (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`). One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available model and continue. Do not block the task on the slug.
 
 ## Paths
 
