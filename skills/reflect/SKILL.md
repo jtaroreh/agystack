@@ -61,9 +61,9 @@ Backlog items file to whatever devex / backlog tracker your team uses automatica
 For each approved Accepted item, follow the Routing field exactly:
 
 - Trivial existing-skill edit (a one-line bullet, a tightened sentence, a stale fact corrected): parent does directly.
-- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): hand to Cursor's built-in `create-skill` skill and run its draft / test / iterate loop.
-- `tune description: <skill path>` (the skill exists but didn't trigger when it should have): hand to `create-skill` and run its description-optimization loop.
-- `new skill via create-skill: <kebab-name>`: hand creation to `create-skill`. Do not invent the shape ad hoc.
+- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): draft the new section following the unslop skill and validate frontmatter/links.
+- `tune description: <skill path>` (the skill exists but didn't trigger when it should have): update the YAML frontmatter `description` scalar with precise trigger keywords.
+- `new skill: <kebab-name>`: create a new skill directory under `.agents/skills/<kebab-name>/SKILL.md` (or in this plugin) with valid YAML frontmatter.
 
 If your environment ships a SKILL.md validator, run it on every touched skill before declaring done. Skip this step if it doesn't.
 

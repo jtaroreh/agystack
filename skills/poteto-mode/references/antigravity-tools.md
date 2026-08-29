@@ -17,8 +17,11 @@ pstack was written for Cursor. On Antigravity, resolve every Cursor name in a sk
 | `environment: "local"` | `workspace: inherit` |
 | Parallel fan-out (several `Task` calls in one message) | Several `invoke_subagent` calls in one turn |
 | `AskQuestion` | Ask in the reply with numbered options. No structured picker exists |
-| Cursor `/loop` | Keep going in this session, or use Antigravity scheduled tasks |
-| `cursor-team-kit` skills (`deslop`, `control-cli`, `control-ui`) | Skip. They are not installed here. Unslop covers prose. Browser tools cover UI proof |
+| Cursor `/loop` | Keep going in this session, or use Antigravity scheduled tasks (`/schedule`) |
+| `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
+| `control-cli` (CLI/TUI proof) | `run_command` / `manage_task` or project-local verify skill (`/create-verification-skill`) |
+| `control-ui` (Web/UI proof) | Native `browser_subagent` / Chrome DevTools MCP or project-local verify skill |
+| `/create-skill` | Standard Antigravity skill structure (`skills/<name>/SKILL.md`) guided by `agy-customizations` |
 
 Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspelled tool name can hang the subagent.
 

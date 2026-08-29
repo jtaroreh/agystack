@@ -4,7 +4,17 @@ In this page you install the plugin, pick which models pstack uses, and run your
 
 ## Install the plugin
 
-This copy already lives at `~/.gemini/config/plugins/pstack/` and is enabled in `~/.gemini/config/config.json`. Restart Antigravity or start a new chat so it picks up the skills.
+Install pstack globally or for a specific workspace:
+
+```bash
+# Option A: Global installation (recommended - applies across all projects)
+git clone https://github.com/<owner>/pstack-agy ~/.gemini/config/plugins/pstack
+
+# Option B: Workspace-only installation (applies to current project)
+git clone https://github.com/<owner>/pstack-agy .agents/plugins/pstack
+```
+
+Restart Antigravity or start a new chat so it discovers the plugin.
 
 ## Pick your models
 
