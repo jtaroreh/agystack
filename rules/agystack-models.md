@@ -1,4 +1,4 @@
-# pstack model configuration. One line per role. Delete a line to fall back to the skill default.
+# agystack model configuration. One line per role. Delete a line to fall back to the skill default.
 # Values are Antigravity subagent tiers: flash, pro, inherit.
 # `inherit` or `auto`: the role runs on the parent chat model.
 # Alias entries in a panel list still count toward its fan-out.

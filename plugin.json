@@ -1,20 +1,22 @@
 {
-  "name": "pstack",
+  "name": "agystack",
   "version": "0.14.5-antigravity",
-  "description": "pstack for Antigravity IDE. Rigorous agent workflows: poteto-mode, how, why, architect, arena, swarm, interrogate. Port of Lauren Tan's pstack 0.14.5.",
+  "description": "agystack for Antigravity IDE. Rigorous agent workflows: poteto-mode, how, why, architect, arena, swarm, interrogate, deslop. Port of Lauren Tan's pstack for Antigravity.",
   "author": {
-    "name": "Lauren Tan (original), Antigravity port"
+    "name": "Lauren Tan (original pstack), Antigravity port"
   },
   "homepage": "https://github.com/cursor/plugins/tree/main/pstack",
   "repository": "https://github.com/cursor/plugins",
   "license": "MIT",
   "keywords": [
+    "agystack",
     "pstack",
     "poteto-mode",
     "workflow",
     "principles",
     "agent-style",
     "subagents",
-    "unslop"
+    "unslop",
+    "deslop"
   ]
 }

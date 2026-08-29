@@ -1,29 +1,29 @@
-# pstack
+# agystack
 
 i'm [poteto](https://x.com/poteto). i'm not a president or ceo, but i've worked with millions of lines of code at Meta, Netflix, and Cursor. i'm also on the react core team where i help build and maintain react compiler.
 
 there's a growing sense that ai writes too much slop code. i agree. i don't want to ship like a team of twenty slop artists. throughput without quality is not a goal i aspire to. if you want to go fast, go deep first. 
 
-**pstack is my answer.** these are the same skills i use everyday to ship high quality code at Cursor. this turns cursor into a real engineering team. the goal is not to maximize loc, in fact it's the opposite. pstack helps you write less, but higher quality code.
+**agystack is the answer for Antigravity.** these are the same rigorous skills used everyday to ship high quality code. this turns Antigravity into a real engineering team. the goal is not to maximize loc, in fact it's the opposite. agystack helps you write less, but higher quality code.
 
-**pstack gives you fearless parallelism.** when you can go deep on one agent and trust it to write good, verifiable code, you can truly parallelize with confidence. start multiple agents up with `poteto-mode` and trust that they'll apply rigorous engineering principles to their work.
+**agystack gives you fearless parallelism.** when you can go deep on one agent and trust it to write good, verifiable code, you can truly parallelize with confidence. start multiple agents up with `poteto-mode` and trust that they'll apply rigorous engineering principles to their work.
 
-**cursor gives you the best of all worlds.** every frontier model has its strengths and weaknesses. use any model with pstack. in fact, many of my skills use multi-model workflows to take advantage of each model's unique strengths.
+**Antigravity gives you the best of all worlds.** every frontier model has its strengths and weaknesses. use any model with agystack. in fact, many of these skills use multi-model workflows to take advantage of each model's unique strengths.
 
 fork it. improve it. make it yours. PRs are welcome! 
 
 ## install (Antigravity)
 
-This tree is the Antigravity port of pstack 0.14.5.
+This repository is **agystack**, the Antigravity port of Lauren Tan's pstack.
 
-Install pstack globally (for all workspaces) or locally in your project:
+Install agystack globally (for all workspaces) or locally in your project:
 
 ```bash
 # Option A: Global install (recommended)
-git clone https://github.com/<owner>/pstack-agy.git ~/.gemini/config/plugins/pstack
+git clone https://github.com/<owner>/agystack.git ~/.gemini/config/plugins/agystack
 
 # Option B: Workspace-local install
-git clone https://github.com/<owner>/pstack-agy.git .agents/plugins/pstack
+git clone https://github.com/<owner>/agystack.git .agents/plugins/agystack
 ```
 
 Cursor `Task` / model slugs / paths resolve automatically through [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
@@ -34,12 +34,12 @@ Restart Antigravity or open a new chat after install.
 
 two steps:
 
-1. run [`/setup-pstack`](./skills/setup-pstack/SKILL.md) and choose which models you want.
+1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) (or `/setup-pstack`) and choose which models you want.
 2. use [`/poteto-mode`](./skills/poteto-mode/SKILL.md) whenever you're doing anything that requires rigor.
 
-new here? the [pstack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
+new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
 
-that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by tier: fast mechanical code goes to `flash`, judgment and precise instruction-following go to `pro`. the default panel is `pro` / `flash` / `inherit`. [`/setup-pstack`](./skills/setup-pstack/SKILL.md) changes any of it.
+that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by tier: fast mechanical code goes to `flash`, judgment and precise instruction-following go to `pro`. the default panel is `pro` / `flash` / `inherit`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
 
 ## usage
 
@@ -132,7 +132,7 @@ the full rules and playbooks live in [`skills/poteto-mode/SKILL.md`](./skills/po
 | [`/interrogate`](./skills/interrogate/SKILL.md) | you have a diff and want several different models to try to break it, including a strict code-quality lens. |
 | [`/automate-me`](./skills/automate-me/SKILL.md) | you want your own `-mode` skill, drafted from how you've actually worked. |
 | [`/deslop`](./skills/deslop/SKILL.md) | you want to clean defensive code, redundant guards, and AI bloat out of diffs before commit. |
-| [`/setup-pstack`](./skills/setup-pstack/SKILL.md) | you want to pick which models pstack uses per role. detects your models and writes a config rule. |
+| [`/setup-agystack`](./skills/setup-agystack/SKILL.md) | you want to pick which models agystack uses per role. detects your models and writes a config rule. |
 | [`/reflect`](./skills/reflect/SKILL.md) | a long task landed and you want the recipe captured as a skill edit. |
 | [`/teach`](./skills/teach/SKILL.md) | you want to actually understand a change or subsystem, not just have it summarized. runs how + why and weaves one plain explanation, built up diagram by diagram. |
 | [`/tdd`](./skills/tdd/SKILL.md) | you're fixing a bug and there's a cheap local test path. write the failing test first, then the fix. |
@@ -197,11 +197,11 @@ automate-me:       /automate-me
 
 ## the `poteto-agent` and Comment Sicko subagents
 
-pstack also ships a subagent that runs my style end to end. spawn it from a parent agent via [`subagent_type: "poteto-agent"`](./agents/poteto-agent.md). it reads `poteto-mode` in full, including its inline principles index, before doing any work. substituting `generalPurpose` skips that read and drifts.
+agystack also ships a subagent that runs my style end to end. spawn it from a parent agent via [`subagent_type: "poteto-agent"`](./agents/poteto-agent.md). it reads `poteto-mode` in full, including its inline principles index, before doing any work. substituting `generalPurpose` skips that read and drifts.
 
 [`/poteto-mode`](./skills/poteto-mode/SKILL.md) and [`subagent_type: "poteto-agent"`](./agents/poteto-agent.md) route through the same wrapper.
 
-pstack also ships [Comment Sicko](./agents/comment-sicko.md), a read-only comment reviewer available as `subagent_type: "Comment Sicko"`. usually invoke it through [`/no-comments`](./skills/no-comments/SKILL.md), not directly.
+agystack also ships [Comment Sicko](./agents/comment-sicko.md), a read-only comment reviewer available as `subagent_type: "Comment Sicko"`. usually invoke it through [`/no-comments`](./skills/no-comments/SKILL.md), not directly.
 
 ## principles
 
@@ -238,16 +238,16 @@ twenty-one short skills, one principle each. `poteto-mode` indexes them inline a
 
 ## why are there no planning skills?
 
-Antigravity already has built-in planning mode and goal tracking which work great with pstack. But personally, i don't believe in over-planning. The best spec is working code. If you do want to make a plan, [`/poteto-mode`](./skills/poteto-mode/SKILL.md) covers it via the Multi-phase plan playbook.
+Antigravity already has built-in planning mode and goal tracking which work great with agystack. But personally, i don't believe in over-planning. The best spec is working code. If you do want to make a plan, [`/poteto-mode`](./skills/poteto-mode/SKILL.md) covers it via the Multi-phase plan playbook.
 
 ## make it yours
 
 `poteto-mode` is my style. You may want your own variations.
 
-Type [`/automate-me`](./skills/automate-me/SKILL.md). It mines your recent Antigravity transcripts, drafts a `<your-name>-mode` skill from how you've actually worked, and routes through pstack underneath. You keep pstack as the base and end up with your own routing skill alongside `poteto-mode`.
+Type [`/automate-me`](./skills/automate-me/SKILL.md). It mines your recent Antigravity transcripts, drafts a `<your-name>-mode` skill from how you've actually worked, and routes through agystack underneath. You keep agystack as the base and end up with your own routing skill alongside `poteto-mode`.
 
-Models are configurable too. Type [`/setup-pstack`](./skills/setup-pstack/SKILL.md). It detects the models and tiers you have access to and writes an always-applied rule mapping each role (code, judgment, the review panels) to a model tier (`pro`, `flash`, `inherit`). Every skill reads it and falls back to sensible defaults when the rule is absent.
+Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SKILL.md). It detects the models and tiers you have access to and writes an always-applied rule mapping each role (code, judgment, the review panels) to a model tier (`pro`, `flash`, `inherit`). Every skill reads it and falls back to sensible defaults when the rule is absent.
 
 ## license
 
-[MIT License](./LICENSE) - Original work Copyright (c) 2025-2026 Lauren Tan; Antigravity port Copyright (c) 2026 contributors.
+[MIT License](./LICENSE) - Original pstack work Copyright (c) 2025-2026 Lauren Tan; Antigravity port Copyright (c) 2026 agystack contributors.

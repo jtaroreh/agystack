@@ -1,6 +1,6 @@
 # Antigravity tool, model, and path map
 
-pstack was written for Cursor. On Antigravity, resolve every Cursor name in a skill through this table before acting. Do not invent Cursor tools.
+agystack was ported from pstack for Antigravity. On Antigravity, resolve every Cursor name in a skill through this table before acting. Do not invent Cursor tools.
 
 ## Tools
 
@@ -37,7 +37,7 @@ Antigravity subagent `model` is a tier, not a Cursor slug: `flash`, `pro`, or `i
 | `claude-opus-5-thinking-xhigh` (hardest tasks) | `pro` |
 | `inherit-parent` or `auto` | `inherit` (omit model / inherit parent) |
 
-Read per-role overrides from `~/.gemini/config/plugins/pstack/rules/pstack-models.md`. If a line is missing, use the table above.
+Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the table above.
 
 Gemini is one family, so a four-model Cursor panel collapses. Keep panels diverse by tier: `pro`, `flash`, `inherit`. One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available tier and continue. Do not block the task on the slug.
 
@@ -45,10 +45,10 @@ Gemini is one family, so a four-model Cursor panel collapses. Keep panels divers
 
 | Cursor path | Antigravity path |
 | --- | --- |
-| `~/.cursor/rules/pstack-models.mdc` | `~/.gemini/config/plugins/pstack/rules/pstack-models.md` |
+| `~/.cursor/rules/pstack-models.mdc` | `~/.gemini/config/plugins/agystack/rules/agystack-models.md` |
 | `~/.cursor/projects/<slug>/agent-transcripts/` | `~/.gemini/antigravity-ide/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (IDE). Also `~/.gemini/antigravity/brain/` for Antigravity 2.0. The hook payload's `transcriptPath` is authoritative for the current session. |
 | `.cursor/skills/` | `.agents/skills/` in the project, or this plugin's `skills/` |
-| `~/.cursor/skills/` | `~/.gemini/config/skills/` or `~/.gemini/config/plugins/pstack/skills/` |
+| `~/.cursor/skills/` | `~/.gemini/config/skills/` or `~/.gemini/config/plugins/agystack/skills/` |
 
 Never glob `~/.cursor/projects/*/`. That is Cursor chat history, not this product.
 

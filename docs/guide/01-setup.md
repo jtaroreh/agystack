@@ -1,17 +1,17 @@
-# Set up pstack
+# Set up agystack
 
-In this page you install the plugin, pick which models pstack uses, and run your first task. Setup is one command plus a short conversation.
+In this page you install the plugin, pick which models agystack uses, and run your first task. Setup is one command plus a short conversation.
 
 ## Install the plugin
 
-Install pstack globally or for a specific workspace:
+Install agystack globally or for a specific workspace:
 
 ```bash
 # Option A: Global installation (recommended - applies across all projects)
-git clone https://github.com/<owner>/pstack-agy ~/.gemini/config/plugins/pstack
+git clone https://github.com/<owner>/agystack ~/.gemini/config/plugins/agystack
 
 # Option B: Workspace-only installation (applies to current project)
-git clone https://github.com/<owner>/pstack-agy .agents/plugins/pstack
+git clone https://github.com/<owner>/agystack .agents/plugins/agystack
 ```
 
 Restart Antigravity or start a new chat so it discovers the plugin.
@@ -21,18 +21,18 @@ Restart Antigravity or start a new chat so it discovers the plugin.
 Run:
 
 ```text
-/setup-pstack
+/setup-agystack
 ```
 
-[`/setup-pstack`](../../skills/setup-pstack/SKILL.md) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/pstack/rules/pstack-models.md`, a small rule every pstack skill reads.
+[`/setup-agystack`](../../skills/setup-agystack/SKILL.md) (or `/setup-pstack`) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/agystack/rules/agystack-models.md`, a small rule every agystack skill reads.
 
-You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default later, delete that role's line, or just run `/setup-pstack` again.
+You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default later, delete that role's line, or just run `/setup-agystack` again.
 
-You might be wondering what happens if you use Auto. Set a role to `inherit-parent` or `auto` and pstack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for every `/swarm` worker unless a race names a model for each arm.
+You might be wondering what happens if you use Auto. Set a role to `inherit-parent` or `auto` and agystack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for every `/swarm` worker unless a race names a model for each arm.
 
 ## Accept the verification offer, or don't
 
-At the end of setup, `/setup-pstack` looks for a way to prove app behavior in your project, either a `verify-*` skill or an existing harness. If it finds neither, it offers once to generate one with [`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md).
+At the end of setup, `/setup-agystack` looks for a way to prove app behavior in your project, either a `verify-*` skill or an existing harness. If it finds neither, it offers once to generate one with [`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md).
 
 Say yes and it writes `.agents/skills/verify-<app>/`, a project-local skill that teaches agents to drive your app the way a user does. It proves the skill works once before handing it over. Say no and setup moves on. You can run `/create-verification-skill` yourself any time. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers when it earns its place.
 

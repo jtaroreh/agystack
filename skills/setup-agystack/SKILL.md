@@ -1,11 +1,11 @@
 ---
-name: setup-pstack
-description: Configure which models pstack uses per role. Detects your available Antigravity model tiers and writes an always-applied rule that overrides the skill defaults. Use for /setup-pstack, "configure pstack models", or changing pstack's model choices.
+name: setup-agystack
+description: Configure which models agystack uses per role. Detects your available Antigravity model tiers and writes an always-applied rule that overrides the skill defaults. Use for /setup-agystack, /setup-pstack, "configure agystack models", or changing agystack's model choices.
 ---
 
-# Setup pstack
+# Setup agystack
 
-Write `~/.gemini/config/plugins/pstack/rules/pstack-models.md`, an always-applied rule that sets pstack's model per role. The skills read it and fall back to their inline defaults (mapped through `skills/poteto-mode/references/antigravity-tools.md`) when a line is absent, so this is an override layer, not a requirement.
+Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or workspace `.agents/plugins/agystack/rules/agystack-models.md`), an always-applied rule that sets agystack's model per role. The skills read it and fall back to their inline defaults (mapped through `skills/poteto-mode/references/antigravity-tools.md`) when a line is absent, so this is an override layer, not a requirement.
 
 On Antigravity, values are subagent tiers: `flash`, `pro`, and `inherit`. Cursor slugs such as `grok-4.6-fast-xhigh` are invalid here.
 
@@ -17,7 +17,7 @@ Enumerate the model tiers you can pass to `invoke_subagent` in this session. Ant
 
 ### 2. Load current state
 
-The default role-to-model mapping is the rule shape shown in step 5 below. If `~/.gemini/config/plugins/pstack/rules/pstack-models.md` already exists, read it and treat its values as the current choices. Otherwise start from those defaults.
+The default role-to-model mapping is the rule shape shown in step 5 below. If `~/.gemini/config/plugins/agystack/rules/agystack-models.md` already exists, read it and treat its values as the current choices. Otherwise start from those defaults.
 
 ### 3. Map and confirm
 
@@ -31,10 +31,10 @@ Every real slug written must be in the detected set; `inherit`, `inherit-parent`
 
 ### 5. Write the rule
 
-Write `~/.gemini/config/plugins/pstack/rules/pstack-models.md` with one line per role, using the same labels poteto-mode uses. Overwrite the whole file so re-runs stay idempotent. Shape:
+Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` with one line per role, using the same labels poteto-mode uses. Overwrite the whole file so re-runs stay idempotent. Shape:
 
 ```
-# pstack model configuration. One line per role. Delete a line to fall back to the skill default.
+# agystack model configuration. One line per role. Delete a line to fall back to the skill default.
 # Values are Antigravity subagent tiers: flash, pro, inherit.
 # `inherit` or `auto` as a value: the role runs on the parent chat model.
 # Alias entries in a panel list still count toward its fan-out.

@@ -33,7 +33,7 @@ Write one clear paragraph. Reviewers challenge whether the work achieves the int
 
 ## Step 3, Spawn Reviewers
 
-Launch all reviewers in a single message using the Task tool. Use the `interrogate reviewers` list from `~/.gemini/config/plugins/pstack/rules/pstack-models.md` when present, one reviewer per entry, extending or shrinking the Reviewer A/B/C/D labels below to the configured entry count; otherwise use the table defaults.
+Launch all reviewers in a single message using the Task tool. Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present, one reviewer per entry, extending or shrinking the Reviewer A/B/C/D labels below to the configured entry count; otherwise use the table defaults.
 
 | Subagent | Default model |
 |----------|---------------|
