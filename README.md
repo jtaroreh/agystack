@@ -242,7 +242,7 @@ Antigravity already has built-in planning mode and goal tracking which work grea
 
 ## make it yours
 
-`poteto-mode` is my style. You may want your own variations.
+`poteto-mode` is poteto's style. You may want your own variations.
 
 Type [`/automate-me`](./skills/automate-me/SKILL.md). It mines your recent Antigravity transcripts, drafts a `<your-name>-mode` skill from how you've actually worked, and routes through agystack underneath. You keep agystack as the base and end up with your own routing skill alongside `poteto-mode`.
 
