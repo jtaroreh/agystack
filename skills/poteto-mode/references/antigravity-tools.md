@@ -27,19 +27,19 @@ Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspell
 
 ## Models
 
-Antigravity subagent `model` is a tier, not a Cursor slug: `flash`, `pro`, or `inherit`.
+Antigravity subagents use model tiers/options: `flash`, `thinking` (or `flash-thinking`), and `inherit` (or `auto` to inherit the parent chat model), or specific model identifiers.
 
-| Cursor default | Antigravity tier |
+| Cursor default | Antigravity choice |
 | --- | --- |
 | `grok-4.6-fast-xhigh` (fast mechanical code) | `flash` |
-| `gpt-5.6-sol-max` (precise instruction following) | `pro` |
-| `claude-fable-5-thinking-max` (judgment and prose) | `pro` |
-| `claude-opus-5-thinking-xhigh` (hardest tasks) | `pro` |
+| `gpt-5.6-sol-max` (precise instruction following) | `inherit` |
+| `claude-fable-5-thinking-max` (judgment and prose) | `inherit` |
+| `claude-opus-5-thinking-xhigh` (hardest tasks) | `inherit` |
 | `inherit-parent` or `auto` | `inherit` (omit model / inherit parent) |
 
 Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the table above.
 
-Gemini is one family, so a four-model Cursor panel collapses. Keep panels diverse by tier: `pro`, `flash`, `inherit`. One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available tier and continue. Do not block the task on the slug.
+Keep panels diverse across available tiers (`inherit`, `flash`, `inherit` or `thinking`). One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available model and continue. Do not block the task on the slug.
 
 ## Paths
 

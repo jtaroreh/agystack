@@ -7,13 +7,13 @@ description: Configure which models agystack uses per role. Detects your availab
 
 Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or workspace `.agents/plugins/agystack/rules/agystack-models.md`), an always-applied rule that sets agystack's model per role. The skills read it and fall back to their inline defaults (mapped through `skills/poteto-mode/references/antigravity-tools.md`) when a line is absent, so this is an override layer, not a requirement.
 
-On Antigravity, values are subagent tiers: `flash`, `pro`, and `inherit`. Cursor slugs such as `grok-4.6-fast-xhigh` are invalid here.
+On Antigravity, subagent values are models/tiers such as `flash`, `thinking` (or `flash-thinking`), and `inherit` (or `auto`). Legacy Cursor slugs (e.g. `grok-4.6-fast-xhigh`, `claude-fable-5-thinking-max`) and outdated model tiers are invalid.
 
 ## Steps
 
 ### 1. Detect available models
 
-Enumerate the model tiers you can pass to `invoke_subagent` in this session. Antigravity's documented tiers are `flash`, `pro`, and `inherit`. If the session also exposes named Gemini slugs (for example Gemini Flash, Gemini Pro, Gemini Next), record those too and map each to the closest tier. Never write a real slug you have not confirmed is available. The aliases `inherit`, `inherit-parent`, and `auto` are always valid and all mean: this role runs on the parent chat model.
+Enumerate the model tiers or model identifiers you can pass to `invoke_subagent` in this session. Antigravity's primary options are `flash`, `thinking`, and `inherit` (parent model). If the session exposes specific Gemini or Claude identifiers (for example Gemini Flash, Gemini Next, Claude 3.7 Sonnet), record those too. Never write a real slug you have not confirmed is available. The aliases `inherit`, `inherit-parent`, and `auto` are always valid and mean: this role runs on the parent chat model.
 
 ### 2. Load current state
 
@@ -21,13 +21,13 @@ The default role-to-model mapping is the rule shape shown in step 5 below. If `~
 
 ### 3. Map and confirm
 
-Show every role with its current model, marking any real slug not in the detected set as needing a choice. Ask whether to accept as-is or change specific roles, offering the detected tiers plus `inherit` and `auto` as the options. Ask with numbered options in the reply. For panel roles (how critics, arena runners, architect runners, interrogate reviewers) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. `arena cross-judge pool` is also a list, but Arena selects one value from it whose tier differs from the parent's when possible. `swarm workers` is the default model for every worker unless a race or comparison assigns another model per arm.
+Show every role with its current model, marking any unknown or outdated slug not in the detected set as needing a choice. Ask whether to accept as-is or change specific roles, offering the detected options (`flash`, `thinking`, `inherit`, `auto`) as choices. Ask with numbered options in the reply. For panel roles (how critics, arena runners, architect runners, interrogate reviewers) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. `arena cross-judge pool` is also a list, but Arena selects one value from it whose tier differs from the parent's when possible. `swarm workers` is the default model for every worker unless a race or comparison assigns another model per arm.
 
-Gemini is one family. Keep panels diverse by tier (`pro`, `flash`, `inherit`) rather than repeating the same tier four times.
+Keep panels diverse across available tiers (e.g. `inherit`, `flash`, `inherit` or `thinking`) rather than repeating the exact same model four times.
 
 ### 4. Validate
 
-Every real slug written must be in the detected set; `inherit`, `inherit-parent`, and `auto` always pass. If a chosen real slug is not available, stop and ask again. A rule pointing at a model the user cannot use breaks every delegation that reads it.
+Every real slug written must be in the detected set; `inherit`, `inherit-parent`, and `auto` always pass. If a chosen model is not available, stop and ask again. A rule pointing at an invalid or outdated model breaks every delegation that reads it.
 
 ### 5. Write the rule
 
@@ -35,27 +35,27 @@ Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` with one line
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
-# Values are Antigravity subagent tiers: flash, pro, inherit.
+# Values are Antigravity subagent models/tiers: flash, thinking, inherit (or auto).
 # `inherit` or `auto` as a value: the role runs on the parent chat model.
 # Alias entries in a panel list still count toward its fan-out.
-feature, refactoring: flash
-bug-fix: pro
-perf-issue: pro
-hillclimb: pro
-judgment and prose: pro
-hardest tasks: pro
+feature, refactoring: inherit
+bug-fix: inherit
+perf-issue: inherit
+hillclimb: inherit
+judgment and prose: inherit
+hardest tasks: inherit
 how explorer: flash
-how explainer: pro
-how critics: pro, flash, inherit
+how explainer: inherit
+how critics: inherit, flash, inherit
 why investigators: flash
-why synthesizer: pro
-reflect tooling: pro
-reflect judgment, divergent, synthesizer: pro
-arena runners: pro, flash, inherit
-arena cross-judge pool: pro, flash, inherit
+why synthesizer: inherit
+reflect tooling: inherit
+reflect judgment, divergent, synthesizer: inherit
+arena runners: inherit, flash, inherit
+arena cross-judge pool: inherit, flash, inherit
 swarm workers: flash
-architect runners: pro, flash, inherit
-interrogate reviewers: pro, flash, inherit
+architect runners: inherit, flash, inherit
+interrogate reviewers: inherit, flash, inherit
 ```
 
 ### 6. Confirm

@@ -39,7 +39,7 @@ two steps:
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
 
-that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by tier: fast mechanical code goes to `flash`, judgment and precise instruction-following go to `pro`. the default panel is `pro` / `flash` / `inherit`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
+that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by tier: fast mechanical code goes to `flash`, while judgment and complex tasks run on `inherit` (parent chat model). the default panel is `inherit` / `flash` / `inherit`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
 
 ## usage
 
@@ -246,7 +246,7 @@ Antigravity already has built-in planning mode and goal tracking which work grea
 
 Type [`/automate-me`](./skills/automate-me/SKILL.md). It mines your recent Antigravity transcripts, drafts a `<your-name>-mode` skill from how you've actually worked, and routes through agystack underneath. You keep agystack as the base and end up with your own routing skill alongside `poteto-mode`.
 
-Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SKILL.md). It detects the models and tiers you have access to and writes an always-applied rule mapping each role (code, judgment, the review panels) to a model tier (`pro`, `flash`, `inherit`). Every skill reads it and falls back to sensible defaults when the rule is absent.
+Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SKILL.md). It detects the models and tiers you have access to and writes an always-applied rule mapping each role (code, judgment, the review panels) to a model tier (`flash`, `thinking`, `inherit`, or detected models). Every skill reads it and falls back to sensible defaults when the rule is absent.
 
 ## license
 

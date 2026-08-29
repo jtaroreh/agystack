@@ -1,5 +1,5 @@
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
-# Values are Antigravity subagent tiers: flash, pro, inherit.
+# Values are Antigravity subagent models/tiers: flash, thinking, inherit (or auto).
 # `inherit` or `auto`: the role runs on the parent chat model.
 # Alias entries in a panel list still count toward its fan-out.
 feature, refactoring: inherit
