@@ -6,22 +6,24 @@ agystack was ported from pstack for Antigravity. On Antigravity, resolve every C
 
 | Skill says | Do this on Antigravity |
 | --- | --- |
-| `Task` tool | `invoke_subagent` |
+| `Task` tool | `invoke_subagent` (or custom plugin agent / `start_subagent`) |
 | `subagent_type: generalPurpose` | Built-in `self` (clone of the parent) |
 | `subagent_type: "poteto-agent"` | Custom agent `poteto-agent` |
 | `subagent_type: "Comment Sicko"` | Custom agent `comment-sicko` |
 | `readonly: true` | Built-in `research` subagent, or `self` told not to write files |
 | `readonly: false` | `self` or `poteto-agent` with the normal toolset |
-| `run_in_background: true` | Default. Antigravity subagents already run concurrently |
+| `run_in_background: true` | Default. Antigravity subagents and background commands run concurrently |
 | `environment: "cloud"` | `workspace: branch` (isolated git worktree) |
 | `environment: "local"` | `workspace: inherit` |
-| Parallel fan-out (several `Task` calls in one message) | Several `invoke_subagent` calls in one turn |
-| `AskQuestion` | Ask in the reply with numbered options. No structured picker exists |
-| Cursor `/loop` | Keep going in this session, or use Antigravity scheduled tasks (`/schedule`) |
+| Parallel fan-out (several `Task` calls in one message) | Several subagent invocations in one turn |
+| `AskQuestion` | `ask_question` tool (native interactive modal with options) or numbered options in reply |
+| Cursor `/loop` | Antigravity scheduled tasks (`schedule` tool / `/schedule`) or `/goal` |
+| Background tasks / processes | `run_command` (async) + `manage_task` (status/kill) with reactive wakeup |
 | `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
 | `control-cli` (CLI/TUI proof) | `run_command` / `manage_task` or project-local verify skill (`/create-verification-skill`) |
 | `control-ui` (Web/UI proof) | Native `browser_subagent` / Chrome DevTools MCP or project-local verify skill |
 | `/create-skill` | Standard Antigravity skill structure (`skills/<name>/SKILL.md`) guided by `agy-customizations` |
+| Scratch / temporary storage | `<appDataDir>/brain/<conversation-id>/scratch/` or workspace scratch dir (never `/tmp/`) |
 
 Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspelled tool name can hang the subagent.
 
