@@ -91,14 +91,14 @@ When you step away, say what done means and go:
 
 Work you'll review later routes through [`/figure-it-out`](../../skills/figure-it-out/SKILL.md), which designs the run's phases and keeps a [`/show-me-your-work`](../../skills/show-me-your-work/SKILL.md) decision log. [Run work while you sleep](./07-overnight.md) covers the full overnight contract.
 
-## Antigravity Artifacts and Planning
+## Antigravity artifacts and planning
 
-agystack natively integrates with Antigravity's first-class visual Artifact system (`<appDataDir>/brain/<conversation-id>/`).
+agystack integrates with Antigravity's visual artifact system (`<appDataDir>/brain/<conversation-id>/`).
 
-- **Planning Mode:** Multi-step features and complex plans generate an `implementation_plan.md` artifact. You review the proposed architecture, components, and verification strategy in a clean side panel.
-- **Walkthroughs & Verification:** Completed tasks generate a `walkthrough.md` artifact detailing all changes, verification commands executed, pass receipts, and embedded media.
-- **Rich Reports:** In-depth investigations, architecture sketches, benchmark hillclimbs, and runtime forensics write dedicated `.md` artifacts with Mermaid diagrams, Carousels, and LaTeX math.
-- **Unslopped Chat:** Instead of dumping huge walls of markdown in chat, `/poteto-mode` keeps chat replies terse, high-signal, and linked directly to the generated artifacts.
+- **Planning mode.** Multi-step features and complex plans generate an `implementation_plan.md` artifact. Review the proposed architecture, components, and verification strategy in a clean side panel.
+- **Walkthroughs and verification.** Completed tasks generate a `walkthrough.md` artifact detailing all changes, verification commands executed, pass receipts, and embedded media.
+- **Rich reports.** In-depth investigations, architecture sketches, benchmark hillclimbs, and runtime forensics write dedicated `.md` artifacts with Mermaid diagrams, Carousels, and LaTeX math.
+- **Unslopped chat.** Instead of dumping walls of markdown in chat, `/poteto-mode` keeps chat replies terse, high-signal, and linked directly to the generated artifacts.
 
 Read [`poteto-mode`](../../skills/poteto-mode/SKILL.md) itself for the full routing rules.
 

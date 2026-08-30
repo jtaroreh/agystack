@@ -34,7 +34,9 @@ Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspell
 
 ## Antigravity Artifact System
 
-Antigravity features a first-class visual Artifact system. Artifacts are markdown documents persisted in `<appDataDir>/brain/<conversation-id>/`. Use artifacts to deliver rich technical plans, deep investigation findings, benchmarks, visual comparisons, and verification receipts without bloating the chat context window.
+Antigravity has a native visual artifact system. Artifacts are markdown documents persisted in `<appDataDir>/brain/<conversation-id>/`. Use artifacts to deliver rich technical plans, deep investigation findings, benchmarks, visual comparisons, and verification receipts without bloating the chat context window.
+
+Pass `ArtifactMetadata` as an argument to the `write_to_file` tool call when creating or updating artifacts (do not print `ArtifactMetadata` into the markdown body itself).
 
 ### Standard Artifact Types
 

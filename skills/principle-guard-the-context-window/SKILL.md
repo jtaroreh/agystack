@@ -12,7 +12,7 @@ The context window is finite and non-renewable within a session. Every token tha
 
 **Pattern:**
 - **Isolate large payloads.** Route verbose outputs, screenshots, and large documents to subagents. The main context gets summaries, not raw data.
-- **Leverage Antigravity Artifacts.** Offload dense technical specifications, test receipts, comparison tables, and visual diffs to Antigravity Artifacts (`<appDataDir>/brain/<conversation-id>/`). Link to them cleanly in chat rather than inlining large markdown payloads.
+- **Use Antigravity artifacts.** Offload dense technical specifications, test receipts, comparison tables, and visual diffs to Antigravity Artifacts (`<appDataDir>/brain/<conversation-id>/`). Link to them cleanly in chat rather than inlining large markdown payloads.
 - **Don't read what you won't use.** Read selectively based on relevance. If a file isn't needed for the current task, skip it.
 - **Keep frequently used content inline.** Templates and references used on every invocation belong in the skill file, not in separate files that cost a read each time.
 - **Size phases and cap scope.** Limit files per phase, set turn budgets, account for mechanism costs.
