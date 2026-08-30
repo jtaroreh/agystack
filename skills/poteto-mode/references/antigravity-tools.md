@@ -13,11 +13,12 @@ agystack was ported from pstack for Antigravity. On Antigravity, resolve every C
 | `readonly: true` | Built-in `research` subagent, or `self` told not to write files |
 | `readonly: false` | `self` or `poteto-agent` with the normal toolset |
 | `run_in_background: true` | Default. Antigravity subagents and background commands run concurrently |
-| `environment: "cloud"` | `workspace: branch` (isolated git worktree) |
+| `environment: "cloud"` / Worktree sandbox (`.cursor/worktrees/`) | `skills/poteto-mode/scripts/worktree-spawn.sh` (or `workspace: branch`) |
 | `environment: "local"` | `workspace: inherit` |
 | Parallel fan-out (several `Task` calls in one message) | Several subagent invocations in one turn |
-| `AskQuestion` | `ask_question` tool (native interactive modal with options) or numbered options in reply |
-| Cursor `/loop` | Antigravity scheduled tasks (`schedule` tool / `/schedule`) or `/goal` |
+| `AskQuestion` | `ask_question` tool or structured options via `skills/poteto-mode/references/decision-protocol.md` |
+| Cursor `/loop` | Autonomous loop via `skills/loop/SKILL.md` (wrapping `schedule`) or `/goal` |
+| Glob rules (`.cursor/rules/*.mdc`) | `rules/rule-manifest.json` via `skills/poteto-mode/scripts/route-rules.mjs` |
 | Background tasks / processes | `run_command` (async) + `manage_task` (status/kill) with reactive wakeup |
 | `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
 | `control-cli` (CLI/TUI proof) | `run_command` / `manage_task` or project-local verify skill (`/create-verification-skill`) |
@@ -29,7 +30,7 @@ Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspell
 
 ## Models
 
-Antigravity subagents use the official Gemini 3.7 Flash thinking tiers:
+Antigravity subagents use the official Gemini 3.7 Flash thinking tiers (with optional external review routing per `skills/poteto-mode/references/mcp-model-routing.md`):
 
 - `gemini-3.7-flash-high` (High thinking: max reasoning for complex coding, architecture, and difficult bugs)
 - `gemini-3.7-flash-medium` (Medium thinking: balanced reasoning for reviews and explanations)
@@ -45,7 +46,7 @@ Antigravity subagents use the official Gemini 3.7 Flash thinking tiers:
 | `claude-opus-5-thinking-xhigh` (hardest tasks) | `gemini-3.7-flash-high` |
 | `inherit-parent` or `auto` | `inherit` (omit model / inherit parent) |
 
-Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the table above.
+Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the table above. For external model MCP routing, see `skills/poteto-mode/references/mcp-model-routing.md`.
 
 Keep panels diverse across available options (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`). One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available model and continue. Do not block the task on the slug.
 

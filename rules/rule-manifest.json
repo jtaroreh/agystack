@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "id": "react-frontend",
+      "patterns": ["**/*.tsx", "**/*.jsx", "**/components/**", "**/hooks/**"],
+      "description": "Frontend UI components and hooks",
+      "constraints": [
+        "Use functional components with typed props.",
+        "Derive state instead of synchronizing in effects.",
+        "Verify visual and interactive behavior with browser CDP or DOM assertions."
+      ]
+    },
+    {
+      "id": "backend-api",
+      "patterns": ["**/api/**", "**/routes/**", "**/controllers/**", "**/services/**"],
+      "description": "API endpoints and backend services",
+      "constraints": [
+        "Validate inputs at the network boundary using schemas.",
+        "Keep business logic pure and free of framework transport types.",
+        "Make mutating operations idempotent."
+      ]
+    },
+    {
+      "id": "database-schema",
+      "patterns": ["**/db/**", "**/schema/**", "**/migrations/**", "**/*.sql"],
+      "description": "Database models and migrations",
+      "constraints": [
+        "Never perform destructive column drops without a multi-phase migration.",
+        "Ensure every foreign key has an index.",
+        "Provide rollback scripts for all DDL changes."
+      ]
+    },
+    {
+      "id": "scripts-and-tooling",
+      "patterns": ["**/scripts/**", "**/*.sh", "**/*.mjs"],
+      "description": "Automation scripts and CLI helpers",
+      "constraints": [
+        "Use set -euo pipefail in all bash scripts.",
+        "Support --help and standard POSIX exit codes.",
+        "Never hardcode personal home directory paths."
+      ]
+    }
+  ]
+}
