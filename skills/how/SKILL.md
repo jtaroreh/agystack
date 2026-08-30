@@ -109,7 +109,7 @@ Run the full explain flow above (Steps 1-4). You must understand the architectur
 
 ### Step 2. Spawn Critics
 
-After the explanation is complete, spawn one architectural critic per model in your configured how-critics list (defaults `gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`), all in a single turn.
+After the explanation is complete, spawn one architectural critic per model via `invoke_subagent` (never simulate critics in-context) in your configured how-critics list (defaults `gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`), all in a single turn.
 
 For each critic:
 - `subagent_type`: `generalPurpose` (or `poteto-agent` / `self`)

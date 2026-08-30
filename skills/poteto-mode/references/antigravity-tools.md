@@ -108,3 +108,15 @@ Never glob `~/.cursor/projects/*/`. That is Cursor chat history, not this produc
 
 - `poteto-agent`: code-writing delegates inside a playbook. Reads poteto-mode first.
 - `comment-sicko`: read-only comment review. Spawned by `/no-comments`.
+
+## Subagent Execution Policy
+
+To maximize velocity while guaranteeing independent judgment, agystack enforces a calibrated subagent policy:
+
+1. **Mandatory Subagent Fan-Out:** You MUST call `invoke_subagent` for:
+   - **Adversarial Code Review (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers. In-context persona emulation is strictly prohibited.
+   - **Design & Candidate Bakeoffs (`/arena`):** Dispatch parallel subagents in isolated workspaces or scratch paths.
+   - **Large Payload Sweeps (`/swarm`):** Offload wide search matrices or multi-slice tests to subagents to guard the main context window.
+   - **Blinded Behavioral Evals (`/eval`):** Run candidate tasks blindly through isolated subagents.
+   - **Cross-Model Trail Audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model family before closing.
+2. **Direct Local Execution:** For standard features, surgical bug fixes, refactoring, and single-turn commands, execute directly in the parent context without spawning subagents. Spawning subagents for simple local edits adds unnecessary latency and overhead.

@@ -33,7 +33,9 @@ Write one clear paragraph. Reviewers challenge whether the work achieves the int
 
 ## Step 3, Spawn Reviewers
 
-Launch all reviewers in a single turn using native subagent invocation. Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present, one reviewer per entry, extending or shrinking the Reviewer A/B/C/D labels below to the configured entry count; otherwise use the table defaults.
+Launch all reviewers in a single turn using native `invoke_subagent`. You MUST invoke distinct background subagents; simulating multiple reviewer personas in-context within the parent turn is strictly forbidden. The value of interrogation comes entirely from independent, uninfluenced model evaluation.
+
+Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present, one reviewer per entry, extending or shrinking the Reviewer A/B/C/D labels below to the configured entry count; otherwise use the table defaults.
 
 | Subagent | Default model |
 |----------|---------------|
