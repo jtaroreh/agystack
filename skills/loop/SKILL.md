@@ -1,16 +1,18 @@
 ---
 name: loop
-description: "Run autonomous iterations against a goal and a verification command using Antigravity reactive scheduling. Use for /loop, 'loop until green', or multi-step autonomous tasks."
+description: "Run iterative verification hillclimbs against a concrete test command using Antigravity reactive scheduling. Use for /loop, 'loop until green', or automated hypothesis testing with a verification predicate."
 disable-model-invocation: true
 ---
 
 # Loop
 
-Run iterative autonomous work loops on Antigravity without manual polling.
+Run iterative verification loops and hillclimbs on Antigravity without manual polling.
 
 ## How It Works
 
-The `/loop` skill wraps Antigravity's `schedule` tool. It maintains execution state in the brain scratch directory and drives iterations until the verification check passes or the iteration budget runs out.
+The `/loop` skill drives discrete edits against a verification command (`--verify "<command>"`). It maintains iteration state in `<appDataDir>/brain/<conversation-id>/scratch/loop/state.json` and uses the native Antigravity `schedule` tool to manage reactive iteration delays.
+
+For open-ended autonomous tasks where no single bash exit code determines completion, use the `/goal` slash command or the Autonomous run playbook instead. For standing background jobs or periodic status checks, use the `schedule` tool directly.
 
 ## Invocation
 

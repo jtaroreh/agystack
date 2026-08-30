@@ -7,17 +7,16 @@ description: Configure which models agystack uses per role. Detects your availab
 
 Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or workspace `.agents/plugins/agystack/rules/agystack-models.md`), an always-applied rule that sets agystack's model per role. The skills read it and fall back to their inline defaults (mapped through `skills/poteto-mode/references/antigravity-tools.md`) when a line is absent, so this is an override layer, not a requirement.
 
-On Antigravity, subagent values use official Gemini 3.7 Flash thinking tiers (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low`, `gemini-3.7-flash-fast`) or `inherit` (parent session model). Legacy Cursor slugs (e.g. `grok-4.6-fast-xhigh`, `claude-fable-5-thinking-max`) and outdated model tiers are invalid.
+On Antigravity, subagent values use official model tiers (`pro`, `flash`, `flash_lite`) or `inherit` (parent session model). Legacy Cursor slugs (e.g. `grok-4.6-fast-xhigh`, `claude-fable-5-thinking-max`) and outdated model tiers are invalid.
 
 ## Steps
 
 ### 1. Detect available models
 
-Enumerate the model tiers or model identifiers you can pass to `invoke_subagent` in this session. The official options are:
-- `gemini-3.7-flash-high`: High thinking level (maximum reasoning budget)
-- `gemini-3.7-flash-medium`: Medium thinking level (balanced reasoning budget)
-- `gemini-3.7-flash-low`: Low thinking level (lightweight reasoning check)
-- `gemini-3.7-flash-fast`: Fast / No thinking (zero latency token generation)
+Enumerate the model tiers you can pass to `invoke_subagent` in this session. The official options are:
+- `pro`: High-capability tier (maximum reasoning budget for complex code, architecture, and hard tasks)
+- `flash`: Balanced fast tier (fast execution for exploration and standard generation)
+- `flash_lite`: Lightweight tier (minimal latency for quick lookups)
 - `inherit` (or `auto`): Inherit parent chat model
 
 Never write a real slug you have not confirmed is available.
@@ -28,9 +27,9 @@ The default role-to-model mapping is the rule shape shown in step 5 below. If `~
 
 ### 3. Map and confirm
 
-Show every role with its current model, marking any unknown or outdated slug not in the detected set as needing a choice. Ask whether to accept as-is or change specific roles, offering the official thinking tiers (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low`, `gemini-3.7-flash-fast`, `inherit`, `auto`) as choices. Ask with numbered options in the reply. For panel roles (how critics, arena runners, architect runners, interrogate reviewers) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. `arena cross-judge pool` is also a list, but Arena selects one value from it whose tier differs from the parent's when possible. `swarm workers` is the default model for every worker unless a race or comparison assigns another model per arm.
+Show every role with its current model, marking any unknown or outdated slug not in the detected set as needing a choice. Ask whether to accept as-is or change specific roles, offering the official tiers (`pro`, `flash`, `flash_lite`, `inherit`, `auto`) as choices. Ask with numbered options in the reply. For panel roles (how critics, arena runners, architect runners, interrogate reviewers) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. `arena cross-judge pool` is also a list, but Arena selects one value from it whose tier differs from the parent's when possible. `swarm workers` is the default model for every worker unless a race or comparison assigns another model per arm.
 
-Keep panels diverse across available tiers (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`) rather than repeating the exact same model four times.
+Keep panels diverse across available tiers (`pro`, `flash`, `inherit`) rather than repeating the exact same model four times.
 
 ### 4. Validate
 
@@ -42,31 +41,30 @@ Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md` with one line
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
-# Gemini 3.7 Flash thinking tiers:
-# - gemini-3.7-flash-high   (High thinking: maximum reasoning budget)
-# - gemini-3.7-flash-medium (Medium thinking: balanced reasoning budget)
-# - gemini-3.7-flash-low    (Low thinking: lightweight reasoning check)
-# - gemini-3.7-flash-fast   (Fast / No thinking: zero-latency token generation)
-# - inherit / auto          (Runs on the active parent chat session model)
+# Antigravity model tiers for invoke_subagent:
+# - pro        (High-capability tier: deep reasoning, large refactors, complex design)
+# - flash      (Balanced fast tier: exploration, reading, standard code generation)
+# - flash_lite (Lightweight tier: fast mechanical lookups)
+# - inherit    (Runs on the active parent chat session model)
 
-feature, refactoring: gemini-3.7-flash-high
-bug-fix: gemini-3.7-flash-high
-perf-issue: gemini-3.7-flash-high
-hillclimb: gemini-3.7-flash-high
-judgment and prose: gemini-3.7-flash-high
-hardest tasks: gemini-3.7-flash-high
-how explorer: gemini-3.7-flash-fast
-how explainer: gemini-3.7-flash-high
-how critics: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
-why investigators: gemini-3.7-flash-fast
-why synthesizer: gemini-3.7-flash-high
-reflect tooling: gemini-3.7-flash-high
-reflect judgment, divergent, synthesizer: gemini-3.7-flash-high
-arena runners: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
-arena cross-judge pool: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
-swarm workers: gemini-3.7-flash-fast
-architect runners: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
-interrogate reviewers: gemini-3.7-flash-high, gemini-3.7-flash-medium, inherit
+feature, refactoring: pro
+bug-fix: pro
+perf-issue: pro
+hillclimb: pro
+judgment and prose: pro
+hardest tasks: pro
+how explorer: flash
+how explainer: pro
+how critics: pro, flash, inherit
+why investigators: flash
+why synthesizer: pro
+reflect tooling: pro
+reflect judgment, divergent, synthesizer: pro
+arena runners: pro, flash, inherit
+arena cross-judge pool: pro, flash, inherit
+swarm workers: flash
+architect runners: pro, flash, inherit
+interrogate reviewers: pro, flash, inherit
 ```
 
 ### 6. Confirm

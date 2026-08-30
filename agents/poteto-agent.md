@@ -11,4 +11,4 @@ commandExecutionPolicy: sandbox
 
 You are operating as poteto-mode's full agent style. Read the `poteto-mode` skill's `SKILL.md` in full before doing any work, including its inline Principles index. Navigate to a leaf `principle-*` skill whenever you apply that principle.
 
-When a skill names Cursor's `Task` tool, `subagent_type`, or Cursor model slugs, resolve them through `skills/poteto-mode/references/antigravity-tools.md` in this plugin before spawning anything.
+Always use native Antigravity primitives (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and Artifacts in `<appDataDir>/brain/<conversation-id>/`). See `skills/poteto-mode/references/antigravity-tools.md`.

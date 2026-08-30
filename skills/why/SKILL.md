@@ -116,9 +116,10 @@ Aim for a complete **coverage map**, not a minimal one. A null result from an is
 Launch all matching investigators concurrently via `invoke_subagent` in a single turn. One investigator per category lets each specialize in one tool's query vocabulary and result shape. Don't ask one agent to cover multiple MCPs.
 
 Subagent config (each):
-- `subagent_type`: `generalPurpose` (or `poteto-agent` / `self`)
-- `model`: your configured why-investigators model (default `gemini-3.7-flash-fast`)
-- `readonly`: `false` (agent mode). **Do not use readonly/Ask mode.** It strips MCP access, which disables MCP-backed investigators entirely. The source control investigator would be safe in readonly, but keep modes uniform. Investigators still shouldn't write anything. That's a posture, not a sandbox.
+- `TypeName`: `self` (or `poteto-agent`)
+- `Role`: `<Category> Investigator`
+- `Model`: your configured why-investigators model (default `flash`)
+- `Workspace`: `inherit`
 
 Each investigator gets:
 1. The base prompt from `references/investigator-prompt.md`
@@ -160,11 +161,12 @@ If your scope assessment suggests a single-commit trivial target where the PR de
 
 ## Step 4. Synthesize
 
-Spawn one synthesizer subagent:
+Spawn one synthesizer subagent via `invoke_subagent`:
 
-- `subagent_type`: `generalPurpose` (or `poteto-agent` / `self`)
-- `model`: your configured why-synthesizer model (default `gemini-3.7-flash-high`)
-- `readonly`: `false` (agent mode). The synthesizer's quality check spot-verifies citations, which can require MCP access. Readonly/Ask mode strips MCPs and defeats that.
+- `TypeName`: `self` (or `poteto-agent`)
+- `Role`: `Historical Synthesizer`
+- `Model`: your configured why-synthesizer model (default `pro`)
+- `Workspace`: `inherit`
 
 The synthesizer gets:
 1. The investigator findings, including any null results and any categories skipped with justification

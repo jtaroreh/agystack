@@ -34,19 +34,19 @@ For each candidate, read the first JSONL line and check that `message.content[0]
 
 ### 2. Spawn three reviewers in parallel
 
-One message, three subagent invocations, `subagent_type: generalPurpose` (or `poteto-agent` / `self`), explicit `model:` on each, agent mode (`readonly: false`). Reviewers need MCP access for context lookups (tickets, chat threads, observability traces referenced in the transcript); readonly strips MCPs. The prompt forbids file writes; the parent applies edits.
+Spawn three subagents in a single `invoke_subagent` turn, `TypeName: "self"` (or `"poteto-agent"`), explicit `Model: "pro"`, `Workspace: "inherit"`. Reviewers need MCP access for context lookups (tickets, chat threads, observability traces referenced in the transcript). The prompt forbids file writes; the parent applies edits.
 
-| Lens | `model` | Prompt template |
+| Lens | `Model` | Prompt template |
 |---|---|---|
-| Judgment | your configured reflect-judgment model (default `gemini-3.7-flash-high`) | `references/judgment-reviewer.md` |
-| Tooling | your configured reflect-tooling model (default `gemini-3.7-flash-high`) | `references/tooling-reviewer.md` |
-| Divergent | your configured reflect-judgment model (default `gemini-3.7-flash-high`) | `references/divergent-reviewer.md` |
+| Judgment | your configured reflect-judgment model (default `pro`) | `references/judgment-reviewer.md` |
+| Tooling | your configured reflect-tooling model (default `pro`) | `references/tooling-reviewer.md` |
+| Divergent | your configured reflect-judgment model (default `pro`) | `references/divergent-reviewer.md` |
 
 Pass each template verbatim, substituting the transcript path or digest where marked. Reviewers return findings in their subagent response body.
 
 ### 3. Synthesize
 
-One subagent invocation, `subagent_type: generalPurpose` (or `poteto-agent` / `self`), using your configured reflect-judgment model (default `gemini-3.7-flash-high`), agent mode (`readonly: false`). The synthesizer's quality check includes spot-verifying citations, which can require MCP access; readonly strips MCPs. Use `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. The synthesizer returns a structured Accepted / Rejected / Backlog list.
+Spawn one subagent via `invoke_subagent`: `TypeName: "self"` (or `"poteto-agent"`), `Role: "Reflect Synthesizer"`, using your configured reflect-judgment model (default `pro`), `Workspace: "inherit"`. The synthesizer's quality check includes spot-verifying citations. Use `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. The synthesizer returns a structured Accepted / Rejected / Backlog list.
 
 ### 4. Structural enforcement check
 

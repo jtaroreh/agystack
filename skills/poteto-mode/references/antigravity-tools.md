@@ -1,42 +1,43 @@
 # Antigravity tool, model, and path map
 
-agystack was ported from pstack for Antigravity. On Antigravity, resolve every Cursor name in a skill through this table before acting. Do not invent Cursor tools.
+agystack is built natively for Google Antigravity. Use standard Antigravity primitives for all agent actions.
 
 ## Tools
 
-| Skill says | Do this on Antigravity |
+| Cursor / pstack legacy | Antigravity Native Tool & Argument |
 | --- | --- |
-| `Task` tool | `invoke_subagent` (or custom plugin agent / `start_subagent`) |
-| `subagent_type: generalPurpose` | Built-in `self` (clone of the parent) |
-| `subagent_type: "poteto-agent"` | Custom agent `poteto-agent` |
-| `subagent_type: "Comment Sicko"` | Custom agent `comment-sicko` |
-| `readonly: true` | Built-in `research` subagent, or `self` told not to write files |
-| `readonly: false` | `self` or `poteto-agent` with the normal toolset |
+| `Task` tool | `invoke_subagent` with `Subagents: [{ TypeName, Role, Prompt, Model, Workspace }]` |
+| `subagent_type: generalPurpose` | `TypeName: "self"` (clone of parent context and capabilities) |
+| `subagent_type: "poteto-agent"` | `TypeName: "poteto-agent"` |
+| `subagent_type: "Comment Sicko"` | `TypeName: "comment-sicko"` |
+| `readonly: true` exploration | `TypeName: "research"` (read-only search, view, grep, and web tools) |
+| `readonly: false` general work | `TypeName: "self"` or `TypeName: "poteto-agent"` |
 | `run_in_background: true` | Default. Antigravity subagents and background commands run concurrently |
-| `environment: "cloud"` / Worktree sandbox (`.cursor/worktrees/`) | `skills/poteto-mode/scripts/worktree-spawn.sh` (or `workspace: branch`) |
-| `environment: "local"` | `workspace: inherit` |
-| Parallel fan-out (several `Task` calls in one message) | Several subagent invocations in one turn |
-| `AskQuestion` | `ask_question` tool or structured options via `skills/poteto-mode/references/decision-protocol.md` |
-| Cursor `/loop` | Autonomous loop via `skills/loop/SKILL.md` (wrapping `schedule`) or `/goal` |
-| Glob rules (`.cursor/rules/*.mdc`) | `rules/rule-manifest.json` via `skills/poteto-mode/scripts/route-rules.mjs` |
-| Background tasks / processes | `run_command` (async) + `manage_task` (status/kill) with reactive wakeup |
+| Worktree sandbox (`.cursor/worktrees/`) | `Workspace: "branch"` (isolated git branch/worktree) or `Workspace: "share"` |
+| `environment: "local"` | `Workspace: "inherit"` (default parent workspace) |
+| Parallel fan-out | Single `invoke_subagent` call with multiple entries in `Subagents` array |
+| `AskQuestion` | `ask_question` tool for interactive questions |
+| Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
+| Autonomous Run / Predicate | `/goal` slash command or `Autonomous run` playbook |
+| Iterative Metric Optimization | `/loop <goal> --verify "<command>"` via `skills/loop/SKILL.md` |
+| Background processes | `run_command` (async) + `manage_task` (status/kill/input) with reactive wakeup |
 | `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
 | `control-cli` (CLI/TUI proof) | `run_command` / `manage_task` or project-local verify skill (`/create-verification-skill`) |
-| `control-ui` (Web/UI proof) | Native `browser_subagent` / Chrome DevTools MCP or project-local verify skill |
-| `/create-skill` | Standard Antigravity skill structure (`skills/<name>/SKILL.md`) guided by `agy-customizations` |
+| `control-ui` (Web/UI proof) | `browser_subagent` / Chrome DevTools MCP or project-local verify skill |
 | Scratch / temporary storage | `<appDataDir>/brain/<conversation-id>/scratch/` or workspace scratch dir (never `/tmp/`) |
-| Plans / Design documents / RFCs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/implementation_plan.md` (or `<topic>_spec.md`) via `write_to_file` with `ArtifactMetadata` |
+| Plans / Design documents / RFCs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/implementation_plan.md` via `write_to_file` with `ArtifactMetadata` |
 | Verification receipts / Walkthroughs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/walkthrough.md` |
 | Extensive reports / Forensic dumps | Dedicated Artifacts: `<appDataDir>/brain/<conversation-id>/<name>_report.md` |
 | Media embedding in artifacts | Copy media to `<appDataDir>/brain/<conversation-id>/` then embed with `![caption](/absolute/path)` |
 
-Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspelled tool name can hang the subagent.
+Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`.
 
 ## Antigravity Artifact System
 
-Antigravity has a native visual artifact system. Artifacts are markdown documents persisted in `<appDataDir>/brain/<conversation-id>/`. Use artifacts to deliver rich technical plans, deep investigation findings, benchmarks, visual comparisons, and verification receipts without bloating the chat context window.
+Antigravity has a native visual artifact system. Artifacts are markdown or HTML documents persisted in `<appDataDir>/brain/<conversation-id>/`. The `<appDataDir>` token is injected into system context by Antigravity (e.g. `~/.gemini/antigravity` or `/Users/<user>/.gemini/antigravity`). Use artifacts to deliver rich technical plans, deep investigation findings, benchmarks, visual comparisons, and verification receipts without bloating the chat context window.
 
-Pass `ArtifactMetadata` as an argument to the `write_to_file` tool call when creating or updating artifacts (do not print `ArtifactMetadata` into the markdown body itself).
+Pass `ArtifactMetadata` as an argument to the `write_to_file` tool call when creating or updating artifacts:
+`ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: true|false }`
 
 ### Standard Artifact Types
 
@@ -73,36 +74,33 @@ When creating or updating an artifact:
 
 ## Models
 
-Antigravity subagents use the official Gemini 3.7 Flash thinking tiers (with optional external review routing per `skills/poteto-mode/references/mcp-model-routing.md`):
+Antigravity subagents use native `invoke_subagent` model tiers:
 
-- `gemini-3.7-flash-high` (High thinking: max reasoning for complex coding, architecture, and difficult bugs)
-- `gemini-3.7-flash-medium` (Medium thinking: balanced reasoning for reviews and explanations)
-- `gemini-3.7-flash-low` (Low thinking: fast with light reasoning checks)
-- `gemini-3.7-flash-fast` (Fast / No thinking: zero-latency token generation for bulk scanning)
-- `inherit` / `auto` (Inherits active model from parent chat session)
+- `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.7 Flash High)
+- `pro` (High-capability tier)
+- `flash` (Balanced fast tier: fast exploration, standard implementation, and reviews)
+- `flash_lite` (Lightweight tier: fast mechanical scans and lookups)
 
-| Cursor default | Antigravity choice |
+| Role / Intent | Antigravity Model Tier |
 | --- | --- |
-| `grok-4.6-fast-xhigh` (fast mechanical code) | `gemini-3.7-flash-fast` |
-| `gpt-5.6-sol-max` (precise instruction following) | `gemini-3.7-flash-high` |
-| `claude-fable-5-thinking-max` (judgment and prose) | `gemini-3.7-flash-high` |
-| `claude-opus-5-thinking-xhigh` (hardest tasks) | `gemini-3.7-flash-high` |
-| `inherit-parent` or `auto` | `inherit` (omit model / inherit parent) |
+| Primary reasoning / difficult tasks | `inherit` (runs on your active chat model, e.g. Gemini 3.7 Flash High) |
+| Fast mechanical scanning / exploration | `flash` or `flash_lite` |
+| Deep judgment, prose, architecture | `inherit` or `pro` |
+| Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` |
 
-Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the table above. For external model MCP routing, see `skills/poteto-mode/references/mcp-model-routing.md`.
+Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the defaults above.
 
-Keep panels diverse across available options (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`). One subagent still runs per list entry. If `invoke_subagent` rejects a value, pick the closest available model and continue. Do not block the task on the slug.
+Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One subagent runs per list entry.
 
 ## Paths
 
-| Cursor path | Antigravity path |
+| Artifact / Config | Antigravity Path |
 | --- | --- |
-| `~/.cursor/rules/pstack-models.mdc` | `~/.gemini/config/plugins/agystack/rules/agystack-models.md` |
-| `~/.cursor/projects/<slug>/agent-transcripts/` | `~/.gemini/antigravity-ide/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (IDE). Also `~/.gemini/antigravity/brain/` for Antigravity 2.0. The hook payload's `transcriptPath` is authoritative for the current session. |
-| `.cursor/skills/` | `.agents/skills/` in the project, or this plugin's `skills/` |
-| `~/.cursor/skills/` | `~/.gemini/config/skills/` or `~/.gemini/config/plugins/agystack/skills/` |
-
-Never glob `~/.cursor/projects/*/`. That is Cursor chat history, not this product.
+| Role models configuration | `~/.gemini/config/plugins/agystack/rules/agystack-models.md` |
+| Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` |
+| Session artifacts | `<appDataDir>/brain/<conversation-id>/` |
+| Project-local skills | `.agents/skills/` in the project, or this plugin's `skills/` |
+| User global skills | `~/.gemini/config/skills/` or `~/.gemini/config/plugins/agystack/skills/` |
 
 ## Custom agents in this plugin
 
@@ -114,9 +112,10 @@ Never glob `~/.cursor/projects/*/`. That is Cursor chat history, not this produc
 To maximize velocity while guaranteeing independent judgment, agystack enforces a calibrated subagent policy:
 
 1. **Mandatory Subagent Fan-Out:** You MUST call `invoke_subagent` for:
-   - **Adversarial Code Review (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers. In-context persona emulation is strictly prohibited.
+   - **Adversarial Code Review (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers (`pro`, `flash`, `inherit`). In-context persona emulation is strictly prohibited.
    - **Design & Candidate Bakeoffs (`/arena`):** Dispatch parallel subagents in isolated workspaces or scratch paths.
    - **Large Payload Sweeps (`/swarm`):** Offload wide search matrices or multi-slice tests to subagents to guard the main context window.
    - **Blinded Behavioral Evals (`/eval`):** Run candidate tasks blindly through isolated subagents.
-   - **Cross-Model Trail Audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model family before closing.
+   - **Cross-Model Trail Audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model tier before closing.
 2. **Direct Local Execution:** For standard features, surgical bug fixes, refactoring, and single-turn commands, execute directly in the parent context without spawning subagents. Spawning subagents for simple local edits adds unnecessary latency and overhead.
+

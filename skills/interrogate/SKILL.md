@@ -35,21 +35,21 @@ Write one clear paragraph. Reviewers challenge whether the work achieves the int
 
 Launch all reviewers in a single turn using native `invoke_subagent`. You MUST invoke distinct background subagents; simulating multiple reviewer personas in-context within the parent turn is strictly forbidden. The value of interrogation comes entirely from independent, uninfluenced model evaluation.
 
-Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present, one reviewer per entry, extending or shrinking the Reviewer A/B/C/D labels below to the configured entry count; otherwise use the table defaults.
+Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present, one reviewer per entry; otherwise use the table defaults.
 
-| Subagent | Default model |
-|----------|---------------|
-| Reviewer A | `gemini-3.7-flash-high` |
-| Reviewer B | `gemini-3.7-flash-medium` |
+| Subagent | Default model tier |
+|---|---|
+| Reviewer A | `pro` |
+| Reviewer B | `flash` |
 | Reviewer C | `inherit` |
-| Reviewer D | `gemini-3.7-flash-high` |
 
 For each reviewer:
-- `subagent_type`: `generalPurpose` (or `self` / `poteto-agent`)
-- `model`: the configured `interrogate reviewers` entry, or the table default with no configured line
-- `readonly`: `true`
+- `TypeName`: `research` (or `self`)
+- `Role`: `Adversarial Reviewer (<model tier>)`
+- `Model`: the configured `interrogate reviewers` entry (or `pro`, `flash`, `inherit`)
+- `Workspace`: `inherit`
 
-If a model identifier is rejected as unresolvable when you try to spawn the subagent, pick the closest available thinking tier (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `inherit`), spawn with the valid tier, and open a separate PR to update the configured value or default table. Do not block the review on the slug issue. If the configured value is `inherit-parent` or `auto`, omit `model` instead; never treat those aliases as broken slugs or enter this fallback for them.
+If a model tier is rejected when you try to spawn the subagent, pick the closest available model tier (`pro`, `flash`, `inherit`), spawn with the valid tier, and open a separate PR to update the configured value or default table. Do not block the review on the slug issue. If the configured value is `inherit` or `auto`, omit `Model` or pass `"inherit"`.
 
 Read `references/reviewer-prompt.md` and fill in the template with:
 1. The stated intent

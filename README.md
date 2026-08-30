@@ -26,7 +26,7 @@ git clone https://github.com/<owner>/agystack.git ~/.gemini/config/plugins/agyst
 git clone https://github.com/<owner>/agystack.git .agents/plugins/agystack
 ```
 
-Cursor `Task` / model slugs / paths resolve automatically through [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
+Native Antigravity tools (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and visual Artifacts) are documented in [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
 
 Restart Antigravity or open a new chat after install.
 
@@ -39,7 +39,7 @@ two steps:
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
 
-that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by thinking level: fast mechanical code runs on `gemini-3.7-flash-fast`, while judgment, complex tasks, and deep code run on `gemini-3.7-flash-high`. the default review panel is `gemini-3.7-flash-high` / `gemini-3.7-flash-medium` / `inherit`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
+that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by model tier: fast mechanical code and exploration runs on `flash`, while judgment, complex tasks, and deep code run on `pro`. the default review panel is `pro` / `flash` / `inherit`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
 
 ## usage
 
@@ -47,7 +47,7 @@ use [`/poteto-mode`](./skills/poteto-mode/SKILL.md) at the start of a task. it r
 
 ### just use [`/poteto-mode`](./skills/poteto-mode/SKILL.md)
 
-this skill is the main shortcut. i use it whenever i need the agent to do rigorous engineering work. it comes with twenty-two playbooks:
+this skill is the main shortcut. i use it whenever i need the agent to do rigorous engineering work. it comes with twenty-three playbooks:
 
 ```
 /poteto-mode this pr has a subtle bug where the scroll drifts every 750ms even when idle. repro
@@ -196,13 +196,13 @@ automate-me:       /automate-me
 
 </details>
 
-## the `poteto-agent` and Comment Sicko subagents
+## the `poteto-agent` and comment-sicko subagents
 
-agystack also ships a subagent that runs my style end to end. spawn it from a parent agent via [`subagent_type: "poteto-agent"`](./agents/poteto-agent.md). it reads `poteto-mode` in full, including its inline principles index, before doing any work. substituting `generalPurpose` skips that read and drifts.
+agystack also ships a subagent that runs my style end to end. spawn it from a parent agent via `TypeName: "poteto-agent"` ([./agents/poteto-agent.md](./agents/poteto-agent.md)). it reads `poteto-mode` in full, including its inline principles index, before doing any work. substituting `self` skips that read and drifts.
 
-[`/poteto-mode`](./skills/poteto-mode/SKILL.md) and [`subagent_type: "poteto-agent"`](./agents/poteto-agent.md) route through the same wrapper.
+[`/poteto-mode`](./skills/poteto-mode/SKILL.md) and `TypeName: "poteto-agent"` route through the same wrapper.
 
-agystack also ships [Comment Sicko](./agents/comment-sicko.md), a read-only comment reviewer available as `subagent_type: "Comment Sicko"`. usually invoke it through [`/no-comments`](./skills/no-comments/SKILL.md), not directly.
+agystack also ships [comment-sicko](./agents/comment-sicko.md), a read-only comment reviewer available as `TypeName: "comment-sicko"`. usually invoke it through [`/no-comments`](./skills/no-comments/SKILL.md), not directly.
 
 ## principles
 
@@ -247,7 +247,7 @@ Antigravity already has built-in planning mode and goal tracking which work grea
 
 Type [`/automate-me`](./skills/automate-me/SKILL.md). It mines your recent Antigravity transcripts, drafts a `<your-name>-mode` skill from how you've actually worked, and routes through agystack underneath. You keep agystack as the base and end up with your own routing skill alongside `poteto-mode`.
 
-Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SKILL.md). It detects the models you have access to and writes an always-applied rule mapping each role (code, judgment, the review panels) to a thinking level (`gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low`, `gemini-3.7-flash-fast`, or `inherit`). Every skill reads it and falls back to sensible defaults when the rule is absent.
+Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SKILL.md). It detects the models you have access to and writes an always-applied rule mapping each role (code, judgment, the review panels) to a model tier (`pro`, `flash`, `flash_lite`, or `inherit`). Every skill reads it and falls back to sensible defaults when the rule is absent.
 
 ## license
 
