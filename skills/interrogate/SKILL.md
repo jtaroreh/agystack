@@ -89,6 +89,8 @@ For each finding, include:
 
 ## Output Format
 
+For multi-model reviews, write the complete categorized findings, dismissed rationales, and agreement map to an Antigravity artifact `<appDataDir>/brain/<conversation-id>/adversarial_review.md` (or `review_verdict.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: false }`. In the chat reply, present an executive summary (Intent, Reviewers, Act On items) and link directly to the artifact.
+
 Present the verdict in this structure:
 
 ### Intent

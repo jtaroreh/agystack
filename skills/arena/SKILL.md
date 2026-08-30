@@ -68,4 +68,4 @@ If verification surfaces a problem the arena did not catch, either Phase A was w
 
 ## Outputs
 
-One synthesized artifact. One short synthesis note alongside, naming the base, the grafts (with source candidate), the rejections, the dropouts if any, and the verification result.
+One synthesized artifact. One synthesis note alongside, naming the base, the grafts (with source candidate), the rejections, the dropouts if any, and the verification result. On Antigravity, publish the final synthesis package to `<appDataDir>/brain/<conversation-id>/arena_synthesis.md` with `ArtifactMetadata` and link to it in the chat reply. Candidate drafts stay under `<appDataDir>/brain/<conversation-id>/scratch/arena-<slug>/`.

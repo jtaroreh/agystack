@@ -41,9 +41,11 @@ Log decision points and checkpoints, not every action: a fork chosen, a unit com
 
 ## Where it lives
 
-By default the log is a working artifact, not committed. Keep it at `decisions.tsv` in the work dir, or `.audit/<task-slug>.tsv` when several efforts run at once, and leave it out of git. Most work doesn't need a committed trail; the local log still keeps the run honest and can be discarded after.
+On Antigravity, store the raw TSV log at `<appDataDir>/brain/<conversation-id>/decisions.tsv`. When presenting to the human or closing a run, render a companion markdown artifact `<appDataDir>/brain/<conversation-id>/decision_trail.md` with `ArtifactMetadata` displaying the formatted table, timeline charts, and cross-model review notes.
 
-Commit it only when the work is ambitious enough that a reviewer needs the trail to trust the result: a large cross-language port, a multi-week migration, anything where confidence has to be shown rather than assumed. A committed log renders as a table in the PR.
+By default the log is a working artifact, not committed to git. Keep it in the brain store (or `.audit/<task-slug>.tsv` in the repo when several efforts run at once). Most work doesn't need a committed trail; the local artifact keeps the run honest and inspectable.
+
+Commit it to the repository only when the work is ambitious enough that an external reviewer needs the trail in the PR to trust the result (e.g., large cross-language ports or multi-week migrations).
 
 ## Rules
 

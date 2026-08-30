@@ -177,7 +177,9 @@ Its job is the final output: a confidence-weighted, evidence-cited narrative wit
 
 ## Step 5. Present
 
-Take the synthesizer's output and present it to the user. You may lightly edit for clarity or add context from the conversation, but **do not rewrite the confidence language**. The epistemic framing is the product. Dropping the hedges to sound more authoritative is the exact failure mode this skill exists to prevent.
+For multi-source investigations, write the full cited report, competing hypotheses, and coverage map to an Antigravity artifact `<appDataDir>/brain/<conversation-id>/decision_rationale_report.md` (or `<topic>_why.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: false }`. Present a crisp executive summary in chat with the direct findings and link directly to the artifact.
+
+You may lightly edit for clarity or add context from the conversation, but **do not rewrite the confidence language**. The epistemic framing is the product. Dropping the hedges to sound more authoritative is the exact failure mode this skill exists to prevent.
 
 ## Output Format
 

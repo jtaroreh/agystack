@@ -24,7 +24,10 @@ Remaining triggers:
 - Code crossing a function boundary → the **architect** skill, parallel design exploration before implementing.
 - Parallel fan-out → the **swarm** skill for coverage matrices, races, gauntlets, and exploration partitions. Use **arena** for design or code bakeoffs with base selection and grafting.
 - Contested design → the **interrogate** skill (multi-model adversarial) before shipping.
-- Nontrivial multi-step → write the throughput checkpoint (Feature step 3).
+- Nontrivial multi-step → write the throughput checkpoint (Feature step 3) and create or update the `implementation_plan.md` artifact (`<appDataDir>/brain/<conversation-id>/implementation_plan.md`) with `ArtifactMetadata` per Antigravity planning mode.
+- Completed and verified work → create or update the `walkthrough.md` artifact (`<appDataDir>/brain/<conversation-id>/walkthrough.md`) recording changes made, verification commands, and pass receipts before closing.
+- In-depth investigations, architecture packages, benchmarks, or forensic sweeps → write the full findings to a dedicated deliverable artifact in `<appDataDir>/brain/<conversation-id>/` (e.g. `investigation_report.md`, `architecture_design.md`, `perf_report.md`, `forensics_report.md`) and point to it in the reply.
+- Embedded media in artifacts → copy screenshots and recordings to `<appDataDir>/brain/<conversation-id>/` first, then embed with `![caption](/absolute/path)`.
 - Any prose surface → the **unslop** skill (`/unslop`). Your reply is a prose surface; write it per **Writing the reply**.
 - Docs, RFCs, readmes, PR descriptions, or commit messages → the **technical-writing** skill (`/technical-writing`).
 - Before commit → the **deslop** skill (`/deslop`). Strips defensive bloat, dead code, and AI tells from diffs.
@@ -34,7 +37,7 @@ Remaining triggers:
 - Asked to land or ship a green stack → the **Shipping** playbook (`playbooks/shipping.md`). Green is not safe. Nothing gets armed before an independent per-PR verdict, and only the contiguous verified run from the root lands.
 - Bugbot or the agentic security review commented → skeptical posture. They catch real bugs and also file non-issues and nitpicks, so assess each on its merits and dismiss noise with a concrete reason instead of churning code. Triage fix / dismiss / ask per `references/bugbot-triage.md`.
 - Broken skill mid-task → fix it in its own PR. Don't block. Don't silently work around it.
-- Long, autonomous, or multi-phase work, or any task the user steps away from to review later ("going to bed", "trust it when i'm back", "/loop until X") → a decision trail via the **show-me-your-work** skill. Commit it when stakes need an auditable record; keep it local otherwise.
+- Long, autonomous, or multi-phase work, or any task the user steps away from to review later ("going to bed", "trust it when i'm back", "/loop until X") → a decision trail via the **show-me-your-work** skill (`decisions.tsv` and `decision_trail.md` artifact). Commit it when stakes need an auditable record; keep it local otherwise.
 
 ## Principles
 
@@ -103,6 +106,7 @@ Write the reply clean as you draft it. The cleanup-afterward pass has been measu
 - **A colon as a mid-sentence connector is also out** (unslop rule 14). A colon before a list is fine.
 - **Terse is not an excuse to drop content.** Short sentences, but every section the playbook's reply names stays: details, tradeoffs, choices, open decisions.
 - **Frame impact for the consumer and the maintainer.** Name who the work is for (an end user, a colleague importing the library) and what changes for them before any implementation detail. Then what the next engineer who owns this code inherits. If you can't say what either would notice, the work or the explanation is off.
+- **Link artifacts, do not dump them.** When an artifact was created or updated (`implementation_plan.md`, `walkthrough.md`, reports), point to it using a clickable link with its basename (`[walkthrough.md](file:///path)`). Do not duplicate its entire body in the chat reply. Keep the reply concise and highlight key decisions or open questions.
 - **Never fabricate a link, citation, or transcript reference.** Link only artifacts you produced or read this session.
 
 Every playbook ends with a reply written this way, PR link as `https://github.com/<owner>/<repo>/pull/<number>`. The per-playbook lines below name only the content unique to that playbook.

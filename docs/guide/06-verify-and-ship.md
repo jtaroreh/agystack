@@ -12,7 +12,7 @@ Put what done means in the first prompt, in whatever words fit:
 /poteto-mode add json output to this command. text output stays byte-identical, the json parses, both run against the sample project. show me the evidence.
 ```
 
-Now the agent has three checks it can run, not a mood to satisfy. When the reply comes back, it should carry the exact commands and outputs. If a check couldn't run, a good reply says "inconclusive", and you should treat a confident reply without evidence as a red flag.
+Now the agent has three checks it can run, not a mood to satisfy. When the reply comes back, it links directly to a `walkthrough.md` artifact carrying the exact commands, outputs, and verification receipts. If a check couldn't run, a good reply says "inconclusive", and you should treat a confident reply without evidence as a red flag.
 
 Match the check to the change:
 

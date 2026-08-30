@@ -83,7 +83,7 @@ The explainer gets all explorers' findings and writes the human-facing explanati
 
 ### Step 4. Present
 
-Present the explainer's output to the user. You may lightly edit for clarity or add context from the conversation, but don't substantially rewrite. The explainer's communication is the product.
+For complex subsystems, write the comprehensive explanation to an Antigravity artifact `<appDataDir>/brain/<conversation-id>/architecture_explanation.md` (or `<subsystem>_architecture.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: false }`. In the chat reply, present an executive summary (Overview, Key Concepts, Gotchas) and link directly to the artifact. For simple questions, present directly in chat.
 
 ### Output Format
 

@@ -96,7 +96,8 @@ when invoked it:
 1. opens a todo list. the first item is reading the inline principles index in the skill.
 2. matches your task to a [playbook](./skills/poteto-mode/playbooks/) and copies the steps in verbatim.
 3. routes to the other skills as the steps fire.
-4. writes unslopped replies framed for the consumer and the maintainer.
+4. publishes detailed plans, architecture designs, benchmark comparisons, and walkthroughs as native Antigravity Artifacts (`implementation_plan.md`, `walkthrough.md`, `<topic>_report.md`).
+5. writes unslopped replies framed for the consumer and the maintainer, linking directly to artifacts rather than flooding chat.
 
 the full rules and playbooks live in [`skills/poteto-mode/SKILL.md`](./skills/poteto-mode/SKILL.md).
 

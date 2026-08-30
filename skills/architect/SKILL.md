@@ -80,4 +80,4 @@ When you scrap:
 
 ## Outputs
 
-The caller's usage is written first and the type sketch derived from it. One file with new types and signatures for small changes; module map plus type definitions for larger work. The rationale ships alongside, shaped per `references/rationale-template.md`, including the usage sketch and the synthesis decision.
+The caller's usage is written first and the type sketch derived from it. One file with new types and signatures for small changes; module map plus type definitions for larger work. On Antigravity, publish the complete design package and rationale to an Antigravity artifact `<appDataDir>/brain/<conversation-id>/architecture_design.md` (or `design_sketch.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: true }`. The rationale ships alongside, shaped per `references/rationale-template.md`, including the usage sketch and the synthesis decision.

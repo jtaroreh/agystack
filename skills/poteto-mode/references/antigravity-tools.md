@@ -25,8 +25,49 @@ agystack was ported from pstack for Antigravity. On Antigravity, resolve every C
 | `control-ui` (Web/UI proof) | Native `browser_subagent` / Chrome DevTools MCP or project-local verify skill |
 | `/create-skill` | Standard Antigravity skill structure (`skills/<name>/SKILL.md`) guided by `agy-customizations` |
 | Scratch / temporary storage | `<appDataDir>/brain/<conversation-id>/scratch/` or workspace scratch dir (never `/tmp/`) |
+| Plans / Design documents / RFCs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/implementation_plan.md` (or `<topic>_spec.md`) via `write_to_file` with `ArtifactMetadata` |
+| Verification receipts / Walkthroughs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/walkthrough.md` |
+| Extensive reports / Forensic dumps | Dedicated Artifacts: `<appDataDir>/brain/<conversation-id>/<name>_report.md` |
+| Media embedding in artifacts | Copy media to `<appDataDir>/brain/<conversation-id>/` then embed with `![caption](/absolute/path)` |
 
 Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`. A misspelled tool name can hang the subagent.
+
+## Antigravity Artifact System
+
+Antigravity features a first-class visual Artifact system. Artifacts are markdown documents persisted in `<appDataDir>/brain/<conversation-id>/`. Use artifacts to deliver rich technical plans, deep investigation findings, benchmarks, visual comparisons, and verification receipts without bloating the chat context window.
+
+### Standard Artifact Types
+
+1. **Implementation Plan (`implementation_plan.md`)**:
+   - Path: `<appDataDir>/brain/<conversation-id>/implementation_plan.md`
+   - Purpose: Detailed design document, component changes (`[MODIFY]`, `[NEW]`, `[DELETE]`), user review items, and verification plan.
+   - Metadata: `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: true }` when awaiting user approval.
+2. **Walkthrough (`walkthrough.md`)**:
+   - Path: `<appDataDir>/brain/<conversation-id>/walkthrough.md`
+   - Purpose: End-of-task verification proof, changes completed, tests executed, and visual receipts.
+3. **Domain Reports & Deliverables**:
+   - Investigation reports: `investigation_report.md` or `<subsystem>_investigation.md`
+   - Architecture specs & ADRs: `architecture_design.md` or `design_sketch.md`
+   - Performance & benchmarks: `perf_report.md` or `hillclimb_report.md`
+   - Runtime & trace forensics: `forensics_report.md`
+   - Decision trail: `decisions.tsv` paired with a human-readable `decision_trail.md`
+   - Multi-phase plans: `multi_phase_plan.md`
+
+### Rich Formatting Capabilities
+
+- **GitHub Alerts**: Use `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, and `> [!CAUTION]`.
+- **Mermaid Diagrams**: Fenced code blocks with `mermaid` language tag for state machines, architectures, and flows.
+- **Carousels**: Four backticks with `carousel` language identifier and `<!-- slide -->` separators for side-by-side or sequential comparisons.
+- **File Links**: Always use clickable GitHub markdown links with `file://` scheme and basenames (e.g. `[server.ts](file:///path/to/server.ts#L10-L25)`).
+- **Media Embedding**: Copy any screenshot, trace plot, or video into `<appDataDir>/brain/<conversation-id>/` first, then embed using `![caption](/absolute/path/to/media.png)`.
+- **LaTeX Math**: Use KaTeX syntax (`\$` for literal dollars, `\(...\)` for inline math, `\[...\]` for display math).
+
+### Chat Pointer Discipline
+
+When creating or updating an artifact:
+- **Do NOT dump the full artifact contents in the chat message.**
+- Point to the artifact using a markdown link with its basename (`[implementation_plan.md](file:///path)`).
+- Provide a crisp, unslopped summary of key decisions, trade-offs, or open questions requiring human input.
 
 ## Models
 
