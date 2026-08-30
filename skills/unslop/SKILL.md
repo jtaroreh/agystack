@@ -7,6 +7,11 @@ description: Cut AI tells from any writing. Must always apply.
 
 Edit text to remove AI patterns and add human voice.
 
+## Scope boundary
+
+- **Applies strictly to:** Conversational chat replies, markdown documentation, PR descriptions, commit messages, and high-level summaries.
+- **Strictly excluded:** Source code, variable/type naming, API signatures, ASTs, SQL queries, regex patterns, and test assertions. Standard engineering terminology (`primitive`, `harness`, `scaffolding`, `vector`, `substrate`) remains fully permitted in technical code.
+
 ## Process
 
 1. Scan for the patterns below.

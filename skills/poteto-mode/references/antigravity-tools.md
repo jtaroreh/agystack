@@ -109,13 +109,13 @@ Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One suba
 
 ## Subagent Execution Policy
 
-To maximize velocity while guaranteeing independent judgment, agystack enforces a calibrated subagent policy:
+Mirroring pstack in Cursor, agystack enforces strict separation between coordinator planning and subagent code execution:
 
-1. **Mandatory Subagent Fan-Out:** You MUST call `invoke_subagent` for:
+1. **Mandatory Subagent Delegation for Code Writes:** You MUST delegate all non-trivial code modifications, feature implementations, bug fixes, and refactoring to a subagent (`invoke_subagent` with `TypeName: "poteto-agent"` or configured role model) in an isolated context window. The parent agent operates as coordinator: planning, reviewing the subagent's diffs, running verification, and communicating with the user using unslopped prose. Pass purely technical specs, interfaces, and test criteria to the subagent so its context remains unburdened by conversational prose guidelines.
+2. **Mandatory Subagent Fan-Out:** You MUST call `invoke_subagent` for:
    - **Adversarial Code Review (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers (`pro`, `flash`, `inherit`). In-context persona emulation is strictly prohibited.
    - **Design & Candidate Bakeoffs (`/arena`):** Dispatch parallel subagents in isolated workspaces or scratch paths.
    - **Large Payload Sweeps (`/swarm`):** Offload wide search matrices or multi-slice tests to subagents to guard the main context window.
    - **Blinded Behavioral Evals (`/eval`):** Run candidate tasks blindly through isolated subagents.
    - **Cross-Model Trail Audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model tier before closing.
-2. **Direct Local Execution:** For standard features, surgical bug fixes, refactoring, and single-turn commands, execute directly in the parent context without spawning subagents. Spawning subagents for simple local edits adds unnecessary latency and overhead.
 
