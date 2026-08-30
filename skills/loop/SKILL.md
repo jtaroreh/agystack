@@ -23,14 +23,15 @@ Default values:
 
 ## State Machine
 
-1. **Frame.** Read target files. Generate baseline evidence by executing the verify command via `manage_task` or bash. Record the state in `<appDataDir>/brain/<conversation-id>/scratch/loop/state.json`.
+1. **Frame.** Read target files. Generate baseline evidence by executing the verify command via `run_command` or bash. Record the state in `<appDataDir>/brain/<conversation-id>/scratch/loop/state.json`.
 2. **Step.** Apply one discrete edit or hypothesis.
 3. **Verify.** Run the verification command. Capture stdout, stderr, and exit code.
 4. **Decide.**
    - If verify passes: log success, mark state `CONVERGED`, and finish.
-   - If verify fails and iterations remain: record the delta, revert regressions if hillclimbing, and set a reactive timer using `schedule`.
+   - If verify fails and iterations remain: record the delta, revert regressions if hillclimbing, and set a reactive timer using `schedule(DurationSeconds=interval, Prompt="Loop iteration wakeup for <goal>", TimerCondition="never")`.
+   - **IMPORTANT**: Calling `schedule` returns immediately and does not pause execution. You MUST stop calling tools immediately after scheduling to end your turn and let the timer fire.
    - If budget is reached: mark `EXHAUSTED` and hand back to the user with a summary table.
-5. **Wakeup.** On schedule trigger, the agent reads `state.json` and executes the next step.
+5. **Wakeup.** On schedule trigger, the agent is reactively woken up, reads `state.json`, and executes the next step.
 
 ## Arguments
 

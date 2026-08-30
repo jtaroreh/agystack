@@ -12,26 +12,26 @@ repo="${1:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 cd "$repo" || exit 1
 
 # Main worktree is the first entry; everything else is a candidate.
-main_wt=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+main_wt=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
 
 # origin/main drives the merge check. Best-effort; stale is fine for a first pass.
 git fetch origin main --quiet 2>/dev/null || echo "warn: could not fetch origin/main; merged column may be stale" >&2
 
 # PR state by branch, fetched once. Empty if gh is unavailable.
 prs=$(mktemp)
+trap 'rm -f "$prs"' EXIT INT TERM
 gh pr list --author "@me" --state all --limit 1000 \
 	--json number,state,headRefName 2>/dev/null > "$prs" || echo "[]" > "$prs"
 
-# Transcripts dir: Antigravity brain directory or Cursor agent-transcripts
-slug=$(printf '%s' "$main_wt" | sed 's#^/##; s#/#-#g')
+# Transcripts dir: Antigravity brain directories
 agy_ide_transcripts="$HOME/.gemini/antigravity-ide/brain"
 agy_cli_transcripts="$HOME/.gemini/antigravity/brain"
-cursor_transcripts="$HOME/.cursor/projects/$slug/agent-transcripts"
 now=$(date +%s)
+is_darwin=$([ "$(uname -s)" = "Darwin" ] && echo yes || echo no)
 
 printf "SIZE\tAGE\tMERGED\tDIRTY\tREMOTE\tPR\tLAST_CHAT\tBUCKET\tWORKTREE\n"
 
-git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt; do
+git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | while IFS= read -r wt; do
 	[ "$wt" = "$main_wt" ] && continue
 
 	size=$(du -sh "$wt" 2>/dev/null | awk '{print $1}')
@@ -68,13 +68,24 @@ git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt;
 	search_dirs=()
 	[ -d "$agy_ide_transcripts" ] && search_dirs+=("$agy_ide_transcripts")
 	[ -d "$agy_cli_transcripts" ] && search_dirs+=("$agy_cli_transcripts")
-	[ -d "$cursor_transcripts" ] && search_dirs+=("$cursor_transcripts")
 
 	if [ ${#search_dirs[@]} -gt 0 ]; then
-		f=$(rg -l -e "${wt}/" -e "${wt}\"" "${search_dirs[@]}" 2>/dev/null \
-			| xargs stat -f '%m %N' 2>/dev/null | sort -rn | head -1)
-		if [ -n "$f" ]; then last_ts=$(echo "$f" | awk '{print $1}')
-			last=$(date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null); fi
+		matched_files=$(rg -l -e "${wt}/" -e "${wt}\"" "${search_dirs[@]}" 2>/dev/null || true)
+		if [ -n "$matched_files" ]; then
+			if [ "$is_darwin" = yes ]; then
+				f=$(printf '%s\n' "$matched_files" | xargs stat -f '%m %N' 2>/dev/null | sort -rn | head -1)
+				if [ -n "$f" ]; then
+					last_ts=$(echo "$f" | awk '{print $1}')
+					last=$(date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null || echo "-")
+				fi
+			else
+				f=$(printf '%s\n' "$matched_files" | xargs stat -c '%Y %n' 2>/dev/null | sort -rn | head -1)
+				if [ -n "$f" ]; then
+					last_ts=$(echo "$f" | awk '{print $1}')
+					last=$(date -d "@$last_ts" '+%Y-%m-%d' 2>/dev/null || echo "-")
+				fi
+			fi
+		fi
 	fi
 	recent=$([ "$last_ts" -gt 0 ] 2>/dev/null && [ $(( (now - last_ts) / 86400 )) -le 4 ] && echo yes || echo no)
 
@@ -89,5 +100,3 @@ git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt;
 	printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
 		"$size" "$age" "$merged" "$dirty" "$remote" "$pr" "$last" "$bucket" "$wt"
 done | sort -t$'\t' -k1,1 -rh
-
-rm -f "$prs"

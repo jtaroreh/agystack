@@ -17,16 +17,25 @@ fi
 
 worktree_base="$repo_root/.agents/worktrees"
 
+validate_task_id() {
+	local tid="$1"
+	if [ -z "$tid" ]; then
+		echo "error: task-id is required" >&2
+		exit 1
+	fi
+	if ! [[ "$tid" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+		echo "error: invalid task-id format: '$tid' (must match ^[a-zA-Z0-9_-]+$)" >&2
+		exit 1
+	fi
+}
+
 cmd="${1:-help}"
 
 case "$cmd" in
 	create)
 		task_id="${2:-}"
 		base_ref="${3:-HEAD}"
-		if [ -z "$task_id" ]; then
-			echo "error: task-id is required" >&2
-			exit 1
-		fi
+		validate_task_id "$task_id"
 
 		target_dir="$worktree_base/$task_id"
 		branch_name="agent/$task_id"
@@ -51,10 +60,7 @@ case "$cmd" in
 	cleanup)
 		task_id="${2:-}"
 		force="${3:-}"
-		if [ -z "$task_id" ]; then
-			echo "error: task-id is required" >&2
-			exit 1
-		fi
+		validate_task_id "$task_id"
 
 		target_dir="$worktree_base/$task_id"
 		branch_name="agent/$task_id"
@@ -67,7 +73,7 @@ case "$cmd" in
 			fi
 		fi
 
-		git worktree prune --quiet
+		git worktree prune --expire now --quiet
 
 		if git show-ref --verify --quiet "refs/heads/$branch_name"; then
 			git branch -D "$branch_name" >/dev/null 2>&1 || true
@@ -82,27 +88,29 @@ case "$cmd" in
 			exit 0
 		fi
 		git worktree list --porcelain | awk '
-			BEGIN { printf "[" ; first=1 }
-			/^worktree / { wt=$2 }
-			/^HEAD / { head=$2 }
-			/^branch / {
-				branch=$2
-				if (index(wt, "/.agents/worktrees/") > 0) {
-					if (!first) printf ","
-					printf "{\"path\":\"%s\",\"head\":\"%s\",\"branch\":\"%s\"}", wt, head, branch
-					first=0
+			function emit_record() {
+				if (wt != "" && index(wt, "/.agents/worktrees/") > 0) {
+					if (!first) printf ",\n"
+					gsub(/\\/, "\\\\", wt); gsub(/"/, "\\\"", wt)
+					gsub(/\\/, "\\\\", head); gsub(/"/, "\\\"", head)
+					gsub(/\\/, "\\\\", branch); gsub(/"/, "\\\"", branch)
+					printf "  {\"path\":\"%s\",\"head\":\"%s\",\"branch\":\"%s\"}", wt, head, branch
+					first = 0
 				}
+				wt = ""; head = ""; branch = "detached"
 			}
-			END { printf "]\n" }
+			BEGIN { printf "[\n"; first = 1; wt = ""; head = ""; branch = "detached" }
+			/^worktree / { emit_record(); wt = substr($0, 10) }
+			/^HEAD / { head = substr($0, 6) }
+			/^branch / { branch = substr($0, 8) }
+			/^detached/ { branch = "detached" }
+			END { emit_record(); printf "\n]\n" }
 		'
 		;;
 
 	path)
 		task_id="${2:-}"
-		if [ -z "$task_id" ]; then
-			echo "error: task-id is required" >&2
-			exit 1
-		fi
+		validate_task_id "$task_id"
 		echo "$worktree_base/$task_id"
 		;;
 

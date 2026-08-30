@@ -4,11 +4,28 @@ import path from "node:path";
 import process from "node:process";
 
 function globToRegex(glob) {
-	const escaped = glob
-		.replace(/[.+^${}()|[\]\\]/g, "\\$&")
-		.replace(/\*\*/g, ".*")
-		.replace(/(?<!\.)\*/g, "[^/]*");
-	return new RegExp(`^${escaped}$`);
+	let p = glob.replace(/^\.\//, "");
+
+	// Tokenize glob special sequences before regex character escaping
+	p = p
+		.replace(/\*\*\//g, "__GLOB_GLOBSTAR_SLASH__")
+		.replace(/\/\*\*/g, "__GLOB_SLASH_GLOBSTAR__")
+		.replace(/\*\*/g, "__GLOB_GLOBSTAR__")
+		.replace(/\*/g, "__GLOB_STAR__")
+		.replace(/\?/g, "__GLOB_QUESTION__");
+
+	// Escape regex special characters
+	p = p.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+
+	// Substitute tokens with regex expressions
+	p = p
+		.replace(/__GLOB_GLOBSTAR_SLASH__/g, "(?:^|.*/)")
+		.replace(/__GLOB_SLASH_GLOBSTAR__/g, "(?:/.*)?")
+		.replace(/__GLOB_GLOBSTAR__/g, ".*")
+		.replace(/__GLOB_STAR__/g, "[^/]*")
+		.replace(/__GLOB_QUESTION__/g, "[^/]");
+
+	return new RegExp(`^${p}$`);
 }
 
 function matchRule(filePath, pattern) {

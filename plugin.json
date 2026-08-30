@@ -5,8 +5,8 @@
   "author": {
     "name": "Lauren Tan (original pstack), Antigravity port"
   },
-  "homepage": "https://github.com/cursor/plugins/tree/main/pstack",
-  "repository": "https://github.com/cursor/plugins",
+  "homepage": "https://github.com/google/antigravity",
+  "repository": "https://github.com/google/antigravity",
   "license": "MIT",
   "keywords": [
     "agystack",
