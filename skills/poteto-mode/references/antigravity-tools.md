@@ -19,6 +19,7 @@ agystack is built natively for Google Antigravity. Use standard Antigravity prim
 | `AskQuestion` | `ask_question` tool for interactive questions |
 | Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
 | Autonomous Run / Predicate | `/goal` slash command or `Autonomous run` playbook |
+| Program Orchestration | Orchestrate playbook (`playbooks/orchestrate.md`) with `orch` CLI |
 | Iterative Metric Optimization | `/loop <goal> --verify "<command>"` via `skills/loop/SKILL.md` |
 | Background processes | `run_command` (async) + `manage_task` (status/kill/input) with reactive wakeup |
 | `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
