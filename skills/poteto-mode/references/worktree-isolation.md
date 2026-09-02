@@ -1,22 +1,22 @@
 # Worktree Isolation Reference
 
-Use worktrees to isolate parallel subagents, swarms, and candidate generation runs.
+Use native Antigravity workspace modes to isolate parallel subagents, swarms, and candidate generation runs.
 
 ## Invariant
 
 Never let concurrent agents write to the same working directory. Shared mutable workspace state causes race conditions, corrupted index caches, and overwritten diffs.
 
-## Directory Layout
+## Host Workspace Modes
 
-All ephemeral subagent worktrees live under:
-`.agents/worktrees/<task-id>`
+Antigravity manages workspace isolation natively via `Workspace` parameters in `invoke_subagent`.
 
-Each worktree tracks a dedicated branch:
-`agent/<task-id>`
+- `Workspace: "branch"`. Spawns the subagent inside an isolated git branch and worktree. Use this for concurrent writers, swarms, candidate bakeoffs, and unverified diff exploration.
+- `Workspace: "share"`. Spawns the subagent inside a shared branch environment with controlled concurrent access.
+- `Workspace: "inherit"`. Spawns the subagent in the parent workspace directory. Use this for read-only workers or single sequential editors.
 
 ## Lifecycle
 
-1. **Spawn.** Run `bash skills/poteto-mode/scripts/worktree-spawn.sh create <task-id>`.
-2. **Execute.** Point the subagent to the absolute path returned by the script.
-3. **Inspect.** The coordinator runs tests or reads diffs inside the target path.
-4. **Teardown.** Run `bash skills/poteto-mode/scripts/worktree-spawn.sh cleanup <task-id> --force`.
+1. **Spawn.** Invoke `invoke_subagent` with `Workspace: "branch"`.
+2. **Execute.** The subagent executes inside its isolated workspace root automatically.
+3. **Inspect.** The coordinator reviews diffs and test results produced by the subagent.
+4. **Teardown.** Teardown is host-managed on subagent exit via subagent management primitives.

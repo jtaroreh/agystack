@@ -21,8 +21,9 @@ Always operate on the most direct, authoritative surface for the task:
 | `readonly: true` exploration | `TypeName: "research"` (read-only search, view, grep, and web tools) |
 | `readonly: false` general work | `TypeName: "self"` or `TypeName: "poteto-agent"` |
 | `run_in_background: true` | Default. Antigravity subagents and background commands run concurrently |
-| Worktree sandbox (`.cursor/worktrees/`) | `Workspace: "branch"` (isolated git branch/worktree) or `Workspace: "share"` |
+| Subagent workspace isolation | `Workspace: "branch"` (isolated git branch/worktree) or `Workspace: "share"` |
 | `environment: "local"` | `Workspace: "inherit"` (default parent workspace) |
+| Worker iteration / message passing | `send_message` with `Recipient` and `Message` (iterative worker loops without context re-read) |
 | Parallel fan-out | Single `invoke_subagent` call with multiple entries in `Subagents` array |
 | `AskQuestion` | `ask_question` tool for interactive questions |
 | Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
@@ -74,7 +75,7 @@ Pass `ArtifactMetadata` as an argument to the `write_to_file` tool call when cre
 - **Mermaid Diagrams**: Fenced code blocks with `mermaid` language tag for state machines, architectures, and flows.
 - **Carousels**: Four backticks with `carousel` language identifier and `<!-- slide -->` separators for side-by-side or sequential comparisons.
 - **File Links**: Always use clickable GitHub markdown links with `file://` scheme and basenames (e.g. `[server.ts](file:///path/to/server.ts#L10-L25)`).
-- **Media Embedding**: Copy any screenshot, trace plot, or video into `<appDataDir>/brain/<conversation-id>/` first, then embed using `![caption](/absolute/path/to/media.png)`.
+- **Media Embedding**: Copy any screenshot, trace plot, or video into `<appDataDir>/brain/<conversation-id>/` first, then embed using `![caption](/absolute/path/to/media.png)`. DOM snapshots, screenshot carousels, and console assertions are the primary verification receipts. Video recording is an optional enhancement for complex motion.
 - **LaTeX Math**: Use KaTeX syntax (`\$` for literal dollars, `\(...\)` for inline math, `\[...\]` for display math).
 
 ### Chat Pointer Discipline
@@ -92,14 +93,14 @@ Every playbook completion requires concrete proof on the real target surface bef
 | --- | --- | --- | --- |
 | **Automated test suites** | `run_command` (`bun test`, `cargo test`, `pytest`, `vitest`, `go test`) | Embed stdout/stderr exit codes and test run stats in `walkthrough.md` | Run real test runner commands against workspace code; do not mock or skip tests. |
 | **CLI / TUI interactive** | `run_command` (async background) + `manage_task` (`send_input`, `status`, `kill`) | Capture interactive terminal logs and exit codes in `walkthrough.md` | Verify interactive prompts, ANSI escapes, signals, and exit statuses end-to-end. |
-| **Web UI / Browser** | Chrome DevTools MCP (`browser_subagent`) and application feature maps (`.agents/skills/verify-<app>/features/`) | Save DOM snapshots, console logs, and screenshots into `<appDataDir>/brain/<conversation-id>/` | Probe live server over CDP or HTTP; confirm layout, navigation, and console error absence. Generic driver is built-in; leverage comes from the app feature map. |
+| **Web UI / Browser** | Chrome DevTools MCP (`browser_subagent`) and application feature maps (`.agents/skills/verify-<app>/features/`) | Save DOM snapshots, console logs, and screenshots into `<appDataDir>/brain/<conversation-id>/` | Probe live server over CDP or HTTP; confirm layout, navigation, and console error absence. DOM snapshots and screenshot carousels are primary receipts; video is an optional enhancement for complex motion. |
 | **Visual parity** | `generate_image` / visual diffs / screenshot captures | Carousel slides (`carousel` code blocks with `<!-- slide -->`) in `walkthrough.md` | Side-by-side before/after comparison with 0 pixel drift or deliberate design delta. |
 | **Performance traces** | Profiling capture (`cpuprofile`, `trace`, `spindump`, heap snapshot) via `run_command` | Dedicated `perf_report.md` artifact with flamegraph/metric delta tables | Measure against baseline; log before/after timing and resource deltas. |
 | **Verification receipts** | `write_to_file` with `ArtifactMetadata` | `walkthrough.md` artifact at `<appDataDir>/brain/<conversation-id>/walkthrough.md` | Required for all completed multi-step work before handoff. |
 
 ## Models
 
-Antigravity subagents use native `invoke_subagent` model tiers:
+Antigravity subagents use native `invoke_subagent` model tiers. Model tiers (`inherit`, `pro`, `flash`, `flash_lite`) represent Gemini depth and compute budget tiers, not cross-family priors.
 
 - `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.7 Flash High)
 - `pro` (High-capability tier)
@@ -134,10 +135,11 @@ Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One suba
 
 ## Subagent Execution Policy
 
-Mirroring pstack in Cursor, agystack enforces strict separation between coordinator planning and subagent code execution:
+agystack enforces strict separation between coordinator planning and subagent code execution:
 
-1. **Mandatory Subagent Delegation for Code Writes:** You MUST delegate all non-trivial code modifications, feature implementations, bug fixes, and refactoring to a subagent (`invoke_subagent` with `TypeName: "poteto-agent"` or configured role model) in an isolated context window. The parent agent operates as coordinator: planning, reviewing the subagent's diffs, running verification, and communicating with the user using unslopped prose. Pass purely technical specs, interfaces, and test criteria to the subagent so its context remains unburdened by conversational prose guidelines.
-2. **Mandatory Subagent Fan-Out:** You MUST call `invoke_subagent` for:
+1. **Mandatory Subagent Delegation for Code Writes:** Delegate all non-trivial code modifications, feature implementations, bug fixes, and refactoring to a subagent (`invoke_subagent` with `TypeName: "poteto-agent"` or configured role model) in an isolated context window. The parent agent operates as coordinator: planning, reviewing the subagent's diffs, running verification, and communicating with the user using unslopped prose. Pass purely technical specs, interfaces, and test criteria to the subagent so its context remains unburdened by conversational prose guidelines.
+2. **Iterative Worker Loops vs Fresh Spawns:** Use `send_message` for tight iterative worker loops on sequential adjustments to preserve active worker context and avoid re-reading repository state. Reserve fresh subagent spawns for distinct phase boundaries or clean units of work.
+3. **Mandatory Subagent Fan-Out:** Call `invoke_subagent` for:
    - **Adversarial Code Review (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers (`pro`, `flash`, `inherit`). In-context persona emulation is strictly prohibited.
    - **Design & Candidate Bakeoffs (`/arena`):** Dispatch parallel subagents in isolated workspaces or scratch paths.
    - **Large Payload Sweeps (`/swarm`):** Offload wide search matrices or multi-slice tests to subagents to guard the main context window.
