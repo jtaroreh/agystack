@@ -25,7 +25,7 @@ Always operate on the most direct, authoritative surface for the task:
 | `environment: "local"` | `Workspace: "inherit"` (default parent workspace) |
 | Worker iteration / message passing | `send_message` with `Recipient` and `Message` |
 | Parallel fan-out (Local N <= 8) | Single `invoke_subagent` call with multiple entries in `Subagents` array |
-| Parallel fan-out (Cloud N > 8) | `python skills/swarm/scripts/cloud_dispatch.py --manifest <manifest-json> --parallelism 100` |
+| Parallel fan-out (Cloud N > 8) | `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-json> --parallelism 100` |
 | Cloud container worker | `python skills/swarm/scripts/cloud_worker.py` entrypoint in Cloud Run |
 | `AskQuestion` | `ask_question` tool for interactive questions |
 | Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
@@ -43,7 +43,7 @@ When running massive swarms (N > 8) or when Cloud Run runtime is configured, agy
 
 ### Architecture
 
-1. **Coordinator:** Generates task briefs into a JSON manifest and invokes `skills/swarm/scripts/cloud_dispatch.py`.
+1. **Coordinator:** Generates task briefs into a JSON manifest and invokes `cloud_dispatch.py` via dynamic discovery.
 2. **Cloud Run Job:** Spawns up to 100+ container tasks concurrently across Google Cloud compute.
 3. **Container Instances:** Each instance executes `cloud_worker.py`, index-matched to its `CLOUD_RUN_TASK_INDEX`.
 4. **Git Branch Isolation:** Each worker clones the repository using an auto-forwarded GitHub token, creates branch `worker-{task_index}`, executes the task using the Google Antigravity SDK Agent, commits changes, and pushes to origin.
@@ -150,7 +150,7 @@ Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One suba
 | --- | --- |
 | Role models configuration | `~/.gemini/config/plugins/agystack/rules/agystack-models.md` |
 | Runtime execution config | `~/.gemini/config/plugins/agystack/agystack-runtime.json` |
-| Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` |
+| Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (discovered across `~/.gemini/antigravity/brain/` and `~/.gemini/antigravity-ide/brain/`) |
 | Session artifacts | `<appDataDir>/brain/<conversation-id>/` |
 | Cloud worker scripts | `skills/swarm/scripts/` |
 | Project-local skills | `.agents/skills/` in the project, or this plugin's `skills/` |
@@ -165,7 +165,7 @@ Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One suba
 
 agystack enforces strict separation between coordinator planning and subagent code execution:
 
-1. **Mandatory Subagent Delegation for Code Writes:** Delegate all non-trivial code modifications, feature implementations, bug fixes, and refactoring to a subagent (`invoke_subagent` with `TypeName: "poteto-agent"` or configured role model) in an isolated context window. The parent agent operates as coordinator: planning, reviewing the subagent's diffs, running verification, and communicating with the user using unslopped prose. Pass purely technical specs, interfaces, and test criteria to the subagent so its context remains unburdened by conversational prose guidelines.
+1. **Mandatory Subagent Delegation for Code Writes:** Delegate all non-trivial code modifications, feature implementations, bug fixes, and refactoring to a subagent (`invoke_subagent` with `TypeName: "poteto-agent"` or configured role model) in an isolated context window. The parent agent operates as coordinator: planning, reviewing the subagent's diffs, running verification, and communicating with the user using unslopped prose. Pass purely technical specs, interfaces, and test criteria to the subagent so its context remains unburdened by conversational prose guidelines. A subagent already running as a delegate, or executing in an environment where subagent spawning is disallowed (such as `allow_subagents=False` in cloud workers or subagents without nesting tools), satisfies this invariant by executing and owning the diff directly.
 2. **Iterative Worker Loops vs Fresh Spawns:** Use `send_message` for tight iterative worker loops on sequential adjustments to preserve active worker context and avoid re-reading repository state. Reserve fresh subagent spawns for distinct phase boundaries or clean units of work.
 3. **Mandatory Subagent Fan-Out:** Call `invoke_subagent` for:
    - **Adversarial Code Review (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers (`pro`, `flash`, `inherit`). In-context persona emulation is strictly prohibited.

@@ -249,7 +249,46 @@ def main() -> None:
             check=True,
         )
         print("Job execution completed successfully.")
-        parsed_results = parse_worker_logs(proc.stdout + "\n" + proc.stderr)
+
+        execution_name = None
+        if proc.stdout:
+            try:
+                json_data = json.loads(proc.stdout)
+                if isinstance(json_data, dict):
+                    execution_name = json_data.get("metadata", {}).get("name") or json_data.get("name")
+            except Exception:
+                pass
+
+        logs_content = proc.stdout + "\n" + proc.stderr
+        log_cmd_str = ""
+        if execution_name:
+            log_filter = f'resource.type="cloud_run_job" AND (labels."run.googleapis.com/execution_name"="{execution_name}" OR resource.labels.job_name="{job_name}")'
+            log_read_args = [
+                "gcloud",
+                "logging",
+                "read",
+                log_filter,
+                "--limit=500",
+                "--format=value(textPayload)",
+            ]
+            log_cmd_str = f"gcloud logging read '{log_filter}' --limit=500 --format=\"value(textPayload)\""
+            if project:
+                log_read_args.extend(["--project", project])
+                log_cmd_str += f" --project={project}"
+
+            try:
+                log_res = subprocess.run(
+                    log_read_args,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if log_res.stdout:
+                    logs_content += "\n" + log_res.stdout
+            except Exception as exc:
+                print(f"Warning: Failed to fetch container logs: {exc}", file=sys.stderr)
+
+        parsed_results = parse_worker_logs(logs_content)
         
         print("\n" + "=" * 80)
         print(f"SWARM EXECUTION REPORT: {job_name}")
@@ -272,7 +311,12 @@ def main() -> None:
             print(f"{i:<8} | {st:<10} | {sm}")
 
         if not parsed_results:
-            print(f"Total tasks: {task_count}. Review Cloud Run console logs for per-container traces.")
+            print(f"Total tasks: {task_count}.")
+            if execution_name:
+                print(f"Execution: {execution_name}")
+                print(f"No container logs returned yet. Run the following command to view traces:\n  {log_cmd_str}")
+            else:
+                print("Review Cloud Run console logs for per-container traces.")
         else:
             print("=" * 80)
             print(f"Total: {len(parsed_results)} | PASS: {pass_count} | ISSUES: {issues_count} | BLOCKED: {blocked_count}")

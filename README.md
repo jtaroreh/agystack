@@ -60,7 +60,7 @@ morning.
 ```
 
 <details>
-<summary>the twenty-two playbooks</summary>
+<summary>the twenty-three playbooks</summary>
 
 | playbook | for |
 |---|---|

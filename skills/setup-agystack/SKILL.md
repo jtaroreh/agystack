@@ -16,43 +16,17 @@ Choose the execution runtime for parallel swarms:
 - **Cloud Run Runtime:** Runs via Google Cloud Run Jobs for 10 to 100+ parallel workers in isolated container instances.
 
 If Cloud Run is selected:
-1. Verify Google Cloud SDK authentication:
-   ```bash
-   gcloud auth list
-   ```
-2. Set your active GCP project:
-   ```bash
-   gcloud config set project <project-id>
-   ```
-3. Enable required Cloud APIs:
-   ```bash
-   gcloud services enable run.googleapis.com artifactregistry.googleapis.com
-   ```
-4. Build and push the worker container image:
-   ```bash
-   gcloud artifacts repositories create agystack --repository-format=docker --location=us-central1
-   gcloud builds submit --tag us-central1-docker.pkg.dev/<project-id>/agystack/cloud-worker:latest skills/swarm/scripts/
-   ```
-5. Create the Cloud Run Job:
-   ```bash
-   gcloud run jobs create agystack-swarm-worker \
-     --image=us-central1-docker.pkg.dev/<project-id>/agystack/cloud-worker:latest \
-     --region=us-central1 \
-     --tasks=1 \
-     --task-timeout=30m
-   ```
-6. Ensure `GEMINI_API_KEY` is exported in your environment.
-7. Write `~/.gemini/config/plugins/agystack/agystack-runtime.json`:
-   ```json
-   {
-     "runtime": "cloud-run",
-     "project_id": "<project-id>",
-     "region": "us-central1",
-     "job_name": "agystack-swarm-worker",
-     "image_uri": "us-central1-docker.pkg.dev/<project-id>/agystack/cloud-worker:latest",
-     "parallelism": 100
-   }
-   ```
+**CRITICAL INSTRUCTION FOR AI AGENT:** NEVER print manual bash commands with placeholders (like `<your-gcp-project-id>`) for the user to run. You MUST directly execute the setup commands yourself using `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)"` right here in the chat environment.
+
+1. **Check Requirements**: Run `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)" --check` to verify `gcloud` is available and authenticated.
+2. **Select Project**:
+   - Query available projects by running `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)" --list-projects`.
+   - Ask the user which project they want to use, or if they want you to create a new one.
+3. **Provisioning**: Once a project ID is known, run the full provisioner (do this yourself, do not ask the user to do it!):
+   `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)" --project <PROJECT_ID> --auto-provision --scripts-dir "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -type d -name "scripts" 2>/dev/null | head -1)"`
+   (or use `--create-project <PROJECT_ID>` instead of `--project` if creating a new one).
+
+Do not leave the user to do the work. Complete the deployment end-to-end for them. Ensure `GEMINI_API_KEY` is exported in the user's environment.
 
 ### 2. Detect available models
 

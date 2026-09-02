@@ -20,7 +20,7 @@ Invoked at the end of every other playbook.
 
 After these sections, attach videos or screenshots when they prove a claim. Do not use `## Summary` or `## Test plan` boilerplate. A commit body does not restate its subject.
 
-**Size and stacks.** Prefer five narrow PRs to one large PR. Stack follow-ups with Graphite (`gt`), and keep the ordered stack visible to reviewers. Branch from main only for independent work. Rebase on `main` before substantial stack work.
+**Size and stacks.** Prefer five narrow PRs to one large PR. Standard workflow uses standard git branches and `gh pr create`. For complex stacks, stacked PRs with Graphite (`gt`) are optional; keep the ordered stack visible to reviewers. Branch from main only for independent work. Rebase on `main` before substantial stack work.
 
 **Readiness.** Open every PR ready, never as a draft. Cloud-agent PR tools default to draft, so set `draft: false` on every PR creation call. If a PR still opens as a draft, run the host's ready command, such as `gh pr ready <number>`. Run `gh pr view <number>` before you refer to PR status.
 

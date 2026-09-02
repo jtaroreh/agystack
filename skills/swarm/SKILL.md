@@ -39,7 +39,7 @@ Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"
    `<appDataDir>/brain/<conversation-id>/scratch/swarm-<slug>/manifest.json`
 2. Launch cloud dispatch CLI:
    ```bash
-   python skills/swarm/scripts/cloud_dispatch.py --manifest <manifest-path> --tasks <N> --parallelism 100
+   python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-path> --tasks <N> --parallelism 100
    ```
 3. The dispatcher automatically retrieves `GH_TOKEN` via `gh auth token`, reads `GEMINI_API_KEY`, executes the Cloud Run Job, and streams output.
 

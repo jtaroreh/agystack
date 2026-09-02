@@ -1,0 +1,6 @@
+{
+  "project_id": "agystack-swarm-prod",
+  "region": "us-central1",
+  "job_name": "agystack-swarm-worker",
+  "image": "us-central1-docker.pkg.dev/agystack-swarm-prod/agystack/worker:latest"
+}

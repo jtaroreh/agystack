@@ -26,11 +26,11 @@ The N candidates will receive the same prompt, so the prompt is the contract. Ge
 1. State the artifact each candidate is producing.
 2. Derive the rubric. State what success looks like for *this* task, then turn it into 3-6 concrete gradeable criteria. Concrete: `Adds a --dry-run flag that skips writes`. Vague: `code is correct`. The rubric is the picker's tool in Phase D; candidates only see the task.
 3. Pick the runners. Use `arena runners` from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present. Otherwise default to a diverse panel across available tiers: `pro`, `flash`, `inherit`. Spawn more when the arena covers multiple design directions. Same model N times when the work is generation-bound rather than judgment-sensitive.
-4. Assign output paths. Each candidate writes to its own location (a git worktree where possible, otherwise `<appDataDir>/brain/<conversation-id>/scratch/arena-<slug>/candidate-<n>/`). N candidates writing to the same path is shared mutable state and fails the **separate-before-serializing-shared-state** principle skill test.
+4. Assign output paths and workspaces. Each candidate runs in an isolated git branch/worktree via `Workspace: "branch"` (or writes to its own scratch path `<appDataDir>/brain/<conversation-id>/scratch/arena-<slug>/candidate-<n>/`). N candidates writing to the same path without isolation is shared mutable state and fails the **separate-before-serializing-shared-state** principle skill test.
 
 ## Phase B: Fan out
 
-Spawn all N subagents in one turn using `invoke_subagent` (never simulate candidate outputs in the parent context), each with `TypeName: "self"` (or `"poteto-agent"`), the task, the path to the shared grounding, its own output path, and instructions to produce both the artifact and a short rationale.
+Spawn all N subagents in one turn using `invoke_subagent` with `Workspace: "branch"` (never simulate candidate outputs in the parent context), each with `TypeName: "self"` (or `"poteto-agent"`), the task, the path to the shared grounding, its own output path, and instructions to produce both the artifact and a short rationale.
 
 The rationale is mandatory. Without it, the parent cannot tell whether a candidate's structure is principled or accidental, which makes Phase E grafting unreliable. Each rationale names the alternatives the candidate considered and what it rejected.
 

@@ -133,7 +133,7 @@ def execute_agent(task_brief: str, repo_dir: Path, model_override: str, api_key:
         summary = getattr(run_output, "summary", str(run_output))
         return status, summary
     except ImportError:
-        return "PASS", f"Task executed in workspace {repo_dir}. Brief length: {len(task_brief)} chars."
+        return "BLOCKED", "Missing dependency: google.antigravity Python package is not installed."
     except Exception as exc:
         return "ISSUES", f"Agent execution exception: {exc}"
 
@@ -200,6 +200,20 @@ def main() -> None:
         model_override=model_override,
         api_key=gemini_api_key,
     )
+
+    if agent_status == "BLOCKED":
+        print("=" * 80)
+        print("[STATUS: BLOCKED]")
+        print("Evidence:")
+        print(f"- Task Index: {task_index}")
+        print(f"- Branch: {branch_name}")
+        print("- Commit SHA: N/A")
+        print("- Changes Pushed: False")
+        print("- Diff Stat:\nExecution blocked before changes.")
+        print("Summary:")
+        print(agent_summary.strip())
+        print("=" * 80, flush=True)
+        sys.exit(1)
 
     commit_sha = ""
     diff_stat = ""
