@@ -2,6 +2,14 @@
 
 agystack is built natively for Google Antigravity. Use standard Antigravity primitives for all agent actions.
 
+## Surface Precedence Hierarchy
+
+Always operate on the most direct, authoritative surface for the task:
+
+1. **Filesystem Tools (`view_file`, `grep_search`, `find_by_name`)**: Ground truth for code, configs, AST, tests, and repo documentation. Never use a browser or UI tools to view, search, or scroll through code or repository files.
+2. **CLI / Runtime Tools (`run_command`)**: Test suites, API endpoints, build/server logs, process lifecycles, and exit codes.
+3. **Browser Tools (`browser_subagent` / Chrome DevTools MCP)**: Strictly for live UI interaction, DOM layout, CSS styles, user events, and rendered visual screenshots.
+
 ## Tools
 
 | Cursor / pstack legacy | Antigravity Native Tool & Argument |
@@ -18,14 +26,14 @@ agystack is built natively for Google Antigravity. Use standard Antigravity prim
 | Parallel fan-out | Single `invoke_subagent` call with multiple entries in `Subagents` array |
 | `AskQuestion` | `ask_question` tool for interactive questions |
 | Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
-| Autonomous Run / Predicate | `/goal` slash command or `Autonomous run` playbook |
+| Autonomous Run / Overnight Autonomy | `/goal` slash command or `Autonomous run` playbook + `schedule` tool (multi-turn execution delivering `walkthrough.md` and `decisions.tsv`) |
 | Program Orchestration | Orchestrate playbook (`playbooks/orchestrate.md`) with `orch` CLI |
-| Iterative Metric Optimization | `/loop <goal> --verify "<command>"` via `skills/loop/SKILL.md` |
+| Iterative Metric Optimization (Inner Loop) | `/loop <goal> --verify "<command>"` via `skills/loop/SKILL.md` (10-iteration default exit-code hillclimb for TDD and micro-benchmarks) |
 | Background processes | `run_command` (async) + `manage_task` (status/kill/input) with reactive wakeup |
 | `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
 | Automated test suites | `run_command` (`bun test`, `cargo test`, `pytest`, `vitest`, `go test`) |
 | `control-cli` (CLI/TUI proof) | `run_command` (async background) + `manage_task` (`send_input`, `status`, `kill`) or project-local verify skill (`/create-verification-skill`) |
-| `control-ui` (Web/UI proof) | Chrome DevTools MCP (`browser_subagent`) and `read_url_content` (or project-local verify skill) |
+| `control-ui` (Web/UI proof) | Native Chrome DevTools MCP (`browser_subagent`) + application feature map (`/create-verification-skill`). No external generic driver package needed. |
 | Visual parity / UI diffs | `generate_image` / visual diffs / artifact carousels (`<!-- slide -->`) |
 | Performance traces / Benchmarks | Profiling capture (`cpuprofile`, `trace`, heap snapshot) via `run_command` + dedicated `perf_report.md` artifact |
 | Scratch / temporary storage | `<appDataDir>/brain/<conversation-id>/scratch/` or workspace scratch dir (never `/tmp/`) |
@@ -84,7 +92,7 @@ Every playbook completion requires concrete proof on the real target surface bef
 | --- | --- | --- | --- |
 | **Automated test suites** | `run_command` (`bun test`, `cargo test`, `pytest`, `vitest`, `go test`) | Embed stdout/stderr exit codes and test run stats in `walkthrough.md` | Run real test runner commands against workspace code; do not mock or skip tests. |
 | **CLI / TUI interactive** | `run_command` (async background) + `manage_task` (`send_input`, `status`, `kill`) | Capture interactive terminal logs and exit codes in `walkthrough.md` | Verify interactive prompts, ANSI escapes, signals, and exit statuses end-to-end. |
-| **Web UI / Browser** | Chrome DevTools MCP (`browser_subagent`) and `read_url_content` / HTTP checks | Save DOM snapshots, console logs, and screenshots into `<appDataDir>/brain/<conversation-id>/` | Probe live server over CDP or HTTP; confirm layout, navigation, and console error absence. |
+| **Web UI / Browser** | Chrome DevTools MCP (`browser_subagent`) and application feature maps (`.agents/skills/verify-<app>/features/`) | Save DOM snapshots, console logs, and screenshots into `<appDataDir>/brain/<conversation-id>/` | Probe live server over CDP or HTTP; confirm layout, navigation, and console error absence. Generic driver is built-in; leverage comes from the app feature map. |
 | **Visual parity** | `generate_image` / visual diffs / screenshot captures | Carousel slides (`carousel` code blocks with `<!-- slide -->`) in `walkthrough.md` | Side-by-side before/after comparison with 0 pixel drift or deliberate design delta. |
 | **Performance traces** | Profiling capture (`cpuprofile`, `trace`, `spindump`, heap snapshot) via `run_command` | Dedicated `perf_report.md` artifact with flamegraph/metric delta tables | Measure against baseline; log before/after timing and resource deltas. |
 | **Verification receipts** | `write_to_file` with `ArtifactMetadata` | `walkthrough.md` artifact at `<appDataDir>/brain/<conversation-id>/walkthrough.md` | Required for all completed multi-step work before handoff. |
@@ -135,4 +143,3 @@ Mirroring pstack in Cursor, agystack enforces strict separation between coordina
    - **Large Payload Sweeps (`/swarm`):** Offload wide search matrices or multi-slice tests to subagents to guard the main context window.
    - **Blinded Behavioral Evals (`/eval`):** Run candidate tasks blindly through isolated subagents.
    - **Cross-Model Trail Audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model tier before closing.
-

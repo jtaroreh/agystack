@@ -16,4 +16,12 @@ Mirroring pstack in Cursor, enforce strict separation between coordination and c
    - **Blinded behavioral evaluations (`/eval`):** Run candidate attempts through blinded subagents.
    - **Cross-model decision audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model family to audit the decision log.
 
+## Surface Precedence Hierarchy
+
+Always use the most direct, deterministic tool surface for each task:
+
+1. **Filesystem Tools (`view_file`, `grep_search`, `find_by_name`)**: Ground truth for code, configs, AST, tests, and repo docs. Never use a browser or UI tools to view, search, or scroll through code or repository files.
+2. **CLI / Runtime Tools (`run_command`)**: Test suites, API endpoints, build/server logs, process lifecycles, and exit codes.
+3. **Browser Tools (`browser_subagent` / Chrome DevTools MCP)**: Strictly for live UI interaction, DOM layout, CSS styles, user events, and rendered visual screenshots.
+
 Per-role models live in `agystack-models.md` next to this file. `/setup-agystack` (or `/setup-pstack`) rewrites that file.
