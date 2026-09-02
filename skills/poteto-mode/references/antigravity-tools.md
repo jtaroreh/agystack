@@ -23,8 +23,11 @@ agystack is built natively for Google Antigravity. Use standard Antigravity prim
 | Iterative Metric Optimization | `/loop <goal> --verify "<command>"` via `skills/loop/SKILL.md` |
 | Background processes | `run_command` (async) + `manage_task` (status/kill/input) with reactive wakeup |
 | `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
-| `control-cli` (CLI/TUI proof) | `run_command` / `manage_task` or project-local verify skill (`/create-verification-skill`) |
-| `control-ui` (Web/UI proof) | `browser_subagent` / Chrome DevTools MCP or project-local verify skill |
+| Automated test suites | `run_command` (`bun test`, `cargo test`, `pytest`, `vitest`, `go test`) |
+| `control-cli` (CLI/TUI proof) | `run_command` (async background) + `manage_task` (`send_input`, `status`, `kill`) or project-local verify skill (`/create-verification-skill`) |
+| `control-ui` (Web/UI proof) | Chrome DevTools MCP (`browser_subagent`) and `read_url_content` (or project-local verify skill) |
+| Visual parity / UI diffs | `generate_image` / visual diffs / artifact carousels (`<!-- slide -->`) |
+| Performance traces / Benchmarks | Profiling capture (`cpuprofile`, `trace`, heap snapshot) via `run_command` + dedicated `perf_report.md` artifact |
 | Scratch / temporary storage | `<appDataDir>/brain/<conversation-id>/scratch/` or workspace scratch dir (never `/tmp/`) |
 | Plans / Design documents / RFCs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/implementation_plan.md` via `write_to_file` with `ArtifactMetadata` |
 | Verification receipts / Walkthroughs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/walkthrough.md` |
@@ -73,6 +76,19 @@ When creating or updating an artifact:
 - Point to the artifact using a markdown link with its basename (`[implementation_plan.md](file:///path)`).
 - Provide a crisp, unslopped summary of key decisions, trade-offs, or open questions requiring human input.
 
+## Verification Harness Matrix
+
+Every playbook completion requires concrete proof on the real target surface before declaring done. Never rely on simulated output or self-report.
+
+| Test Surface | Antigravity Tooling & Primitives | Artifact & Evidence Receipt | Key Invariants |
+| --- | --- | --- | --- |
+| **Automated test suites** | `run_command` (`bun test`, `cargo test`, `pytest`, `vitest`, `go test`) | Embed stdout/stderr exit codes and test run stats in `walkthrough.md` | Run real test runner commands against workspace code; do not mock or skip tests. |
+| **CLI / TUI interactive** | `run_command` (async background) + `manage_task` (`send_input`, `status`, `kill`) | Capture interactive terminal logs and exit codes in `walkthrough.md` | Verify interactive prompts, ANSI escapes, signals, and exit statuses end-to-end. |
+| **Web UI / Browser** | Chrome DevTools MCP (`browser_subagent`) and `read_url_content` / HTTP checks | Save DOM snapshots, console logs, and screenshots into `<appDataDir>/brain/<conversation-id>/` | Probe live server over CDP or HTTP; confirm layout, navigation, and console error absence. |
+| **Visual parity** | `generate_image` / visual diffs / screenshot captures | Carousel slides (`carousel` code blocks with `<!-- slide -->`) in `walkthrough.md` | Side-by-side before/after comparison with 0 pixel drift or deliberate design delta. |
+| **Performance traces** | Profiling capture (`cpuprofile`, `trace`, `spindump`, heap snapshot) via `run_command` | Dedicated `perf_report.md` artifact with flamegraph/metric delta tables | Measure against baseline; log before/after timing and resource deltas. |
+| **Verification receipts** | `write_to_file` with `ArtifactMetadata` | `walkthrough.md` artifact at `<appDataDir>/brain/<conversation-id>/walkthrough.md` | Required for all completed multi-step work before handoff. |
+
 ## Models
 
 Antigravity subagents use native `invoke_subagent` model tiers:
@@ -98,7 +114,7 @@ Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One suba
 | Artifact / Config | Antigravity Path |
 | --- | --- |
 | Role models configuration | `~/.gemini/config/plugins/agystack/rules/agystack-models.md` |
-| Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` |
+| Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (or `~/.gemini/antigravity/brain/` / `~/.gemini/antigravity-ide/brain/`) |
 | Session artifacts | `<appDataDir>/brain/<conversation-id>/` |
 | Project-local skills | `.agents/skills/` in the project, or this plugin's `skills/` |
 | User global skills | `~/.gemini/config/skills/` or `~/.gemini/config/plugins/agystack/skills/` |

@@ -26,7 +26,7 @@ Update mode changes the rest of the flow:
 
 ### 1. Mine their history
 
-Locate the active workspace's transcripts before fanning out. Antigravity IDE chats live under `~/.gemini/antigravity-ide/brain/`. Use `.system_generated/logs/transcript.jsonl` (or `transcript_full.jsonl`). Don't glob across `~/.cursor/projects/*/`. That is Cursor history, not this product.
+Locate the active workspace's transcripts before fanning out. Antigravity chats live under `<appDataDir>/brain/` (or `~/.gemini/antigravity/brain/` / `~/.gemini/antigravity-ide/brain/`). Use `.system_generated/logs/transcript.jsonl` (or `transcript_full.jsonl`). Don't glob across `~/.cursor/projects/*/`. That is Cursor history, not this product.
 
 Survey recent agent conversations within that scope for recurring patterns. Run multiple parallel subagents across slices of history (e.g. last 2-4 weeks, split into 3 slices so each has enough material). Each slice mining subagent reads transcripts from the workspace-scoped path the parent provides, looks for the signals below, and returns a short structured list of patterns it saw with evidence pointers. Default signals worth hunting:
 
