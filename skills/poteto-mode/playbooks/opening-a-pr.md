@@ -2,7 +2,7 @@
 
 Invoked at the end of every other playbook.
 
-**Worktree.** Work from a git worktree off main; subagents inherit it. Multiple subagent invocations on the same branch each get their own worktree, or `git fetch && git reset --hard origin/<branch>` between them. Dirty branch with unrelated work: patch out, fresh worktree, apply. Snarled worktree: reset from main, redo minimally.
+**Branch and workspace isolation.** Work from a clean branch off main. For subagent fan-out, delegate using native `Workspace: "branch"`; the host manages branch isolation and worktree lifecycle automatically. Dirty branch with unrelated work: patch out, start from a fresh branch off main, apply. Snarled branch: reset from main, redo minimally.
 
 **Commits.** Commit liberally; rebase into small, ordered commits before opening PRs. Each commit is a future PR: landable, ordered to tell the story. Amend when the fix belongs in a just-made commit; new commit when separable.
 

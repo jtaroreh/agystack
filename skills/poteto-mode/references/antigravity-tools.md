@@ -73,7 +73,12 @@ Saved at `~/.gemini/config/plugins/agystack/agystack-runtime.json` or `.agents/p
 
 ## Antigravity Native Artifacts
 
-Antigravity uses native artifacts stored under `<appDataDir>/brain/<conversation-id>/`.
+Antigravity stores native artifacts under `<appDataDir>/brain/<conversation-id>/`.
+
+**Path binding:**
+- `<appDataDir>` binds to the environment's `App Data Directory` (e.g. `~/.gemini/antigravity` in AGY 2.0 or `~/.gemini/antigravity-ide` in IDE).
+- `<conversation-id>` binds to the active `Conversation ID`.
+- `<appDataDir>/brain/<conversation-id>/` resolves directly to the session's `Artifact Directory Path`.
 
 Pass `ArtifactMetadata` as an argument to the `write_to_file` tool call when creating or updating artifacts:
 `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: true|false }`
