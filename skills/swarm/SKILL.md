@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Swarm
 
-Fan out N parallel cloud workers. They may cover separate slices, race the same brief, or mix both. The parent waits, aggregates, and returns one report.
+Fan out N parallel workers locally or across Google Cloud Run. Workers cover separate slices or race the same brief. The parent coordinator waits, aggregates, and returns one consolidated report.
 
 ## Start
 
@@ -19,27 +19,38 @@ Open a todolist with one entry per phase before launching anything.
 
 ## Phase A: Frame
 
-1. State the done predicate and the artifact or report the swarm must return.
-2. Choose the shape. Partition into slices, race N workers on identical briefs, or mix both. For a race or mixed shape, declare `first pass`, `rank all`, or `best-of` before spawning.
-3. Set N from the user or derive it from the shape. N is total workers, not the cloud concurrency limit.
-4. Pick the worker model from `swarm workers` in `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present. Otherwise use `flash`. For a model race, name each arm's model up front.
-5. Give each worker its own writable output when it writes. Use a branch workspace or scratch directory (`<appDataDir>/brain/<conversation-id>/scratch/swarm-<slug>/worker-<n>/`).
+1. State the done predicate and the deliverable artifact or report.
+2. Choose the shape: partition into slices, race N workers on identical briefs, or mix both. For a race, declare `first pass`, `rank all`, or `best-of`.
+3. Set N. N is total workers.
+4. Pick worker model from `swarm workers` in `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (default: `flash`).
+5. Check execution runtime:
+   - If N <= 8 and runtime is local: use local subagents.
+   - If N > 8 or `agystack-runtime.json` specifies `"runtime": "cloud-run"`: use Cloud Run dispatch.
 
 ## Phase B: Fan out
 
-Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Swarm Worker (<slice>)"`, `Workspace: "branch"` (isolated git branch/worktree), and the configured model (`flash` or override). Use `Workspace: "inherit"` only when the worker needs access to shared local state.
+### Local Subagents (N <= 8)
 
-When a worker must start from a non-default pushed branch, pass `branch: <branch-name>`.
+Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Swarm Worker (<slice>)"`, `Workspace: "branch"`, and the configured model.
 
-Every brief stands alone. Include the goal, scope, exact slice or race arm, how to verify, and what to report. Reports use `PASS`, `ISSUES`, or `BLOCKED` with evidence.
+### Cloud Run Dispatch (N > 8 or Cloud Run Runtime)
 
-If a worker drops out, proceed with N-1 and note it.
+1. Write the array of task briefs to a JSON manifest:
+   `<appDataDir>/brain/<conversation-id>/scratch/swarm-<slug>/manifest.json`
+2. Launch cloud dispatch CLI:
+   ```bash
+   python skills/swarm/scripts/cloud_dispatch.py --manifest <manifest-path> --tasks <N> --parallelism 100
+   ```
+3. The dispatcher automatically retrieves `GH_TOKEN` via `gh auth token`, reads `GEMINI_API_KEY`, executes the Cloud Run Job, and streams output.
+
+Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS|ISSUES|BLOCKED]` with evidence).
 
 ## Phase C: Aggregate
 
-Read the terminal results. For coverage, every required slice needs a result. For a race, apply the selection rule declared up front. Use first pass, rank all, or best-of. Do not paste raw worker dumps.
-
-Keep a compact result table, one-line evidenced issues, and explicit gaps or dropouts.
+1. For local workers: collect terminal reports from `invoke_subagent`.
+2. For cloud workers: `cloud_dispatch.py` parses structured container logs and provides an aggregated status table. Fetch worker branches (`git fetch origin`) to inspect code changes on `worker-{task_index}`.
+3. Apply selection rule (first pass, rank all, best-of).
+4. Build a compact result table, one-line evidenced issues, and explicit dropouts.
 
 ## Phase D: Report
 

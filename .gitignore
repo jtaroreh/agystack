@@ -5,3 +5,7 @@ node_modules/
 bun.lock
 .agents/worktrees/
 .audit/
+__pycache__/
+*.py[cod]
+*$py.class
+

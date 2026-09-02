@@ -6,7 +6,7 @@ agystack is built natively for Google Antigravity. Use standard Antigravity prim
 
 Always operate on the most direct, authoritative surface for the task:
 
-1. **Filesystem Tools (`view_file`, `grep_search`, `find_by_name`)**: Ground truth for code, configs, AST, tests, and repo documentation. Never use a browser or UI tools to view, search, or scroll through code or repository files.
+1. **Filesystem Tools (`view_file`, `grep_search`, `find_by_name`)**: Ground truth for code, configs, AST, tests, and repo documentation.
 2. **CLI / Runtime Tools (`run_command`)**: Test suites, API endpoints, build/server logs, process lifecycles, and exit codes.
 3. **Browser Tools (`browser_subagent` / Chrome DevTools MCP)**: Strictly for live UI interaction, DOM layout, CSS styles, user events, and rendered visual screenshots.
 
@@ -23,31 +23,57 @@ Always operate on the most direct, authoritative surface for the task:
 | `run_in_background: true` | Default. Antigravity subagents and background commands run concurrently |
 | Subagent workspace isolation | `Workspace: "branch"` (isolated git branch/worktree) or `Workspace: "share"` |
 | `environment: "local"` | `Workspace: "inherit"` (default parent workspace) |
-| Worker iteration / message passing | `send_message` with `Recipient` and `Message` (iterative worker loops without context re-read) |
-| Parallel fan-out | Single `invoke_subagent` call with multiple entries in `Subagents` array |
+| Worker iteration / message passing | `send_message` with `Recipient` and `Message` |
+| Parallel fan-out (Local N <= 8) | Single `invoke_subagent` call with multiple entries in `Subagents` array |
+| Parallel fan-out (Cloud N > 8) | `python skills/swarm/scripts/cloud_dispatch.py --manifest <manifest-json> --parallelism 100` |
+| Cloud container worker | `python skills/swarm/scripts/cloud_worker.py` entrypoint in Cloud Run |
 | `AskQuestion` | `ask_question` tool for interactive questions |
 | Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
-| Autonomous Run / Overnight Autonomy | `/goal` slash command or `Autonomous run` playbook + `schedule` tool (multi-turn execution delivering `walkthrough.md` and `decisions.tsv`) |
-| Program Orchestration | Orchestrate playbook (`playbooks/orchestrate.md`) with `orch` CLI |
-| Iterative Metric Optimization (Inner Loop) | `/loop <goal> --verify "<command>"` via `skills/loop/SKILL.md` (10-iteration default exit-code hillclimb for TDD and micro-benchmarks) |
 | Background processes | `run_command` (async) + `manage_task` (status/kill/input) with reactive wakeup |
 | `/deslop` | Bundled natively in this plugin under `skills/deslop/SKILL.md` |
-| Automated test suites | `run_command` (`bun test`, `cargo test`, `pytest`, `vitest`, `go test`) |
-| `control-cli` (CLI/TUI proof) | `run_command` (async background) + `manage_task` (`send_input`, `status`, `kill`) or project-local verify skill (`/create-verification-skill`) |
-| `control-ui` (Web/UI proof) | Native Chrome DevTools MCP (`browser_subagent`) + application feature map (`/create-verification-skill`). No external generic driver package needed. |
 | Visual parity / UI diffs | `generate_image` / visual diffs / artifact carousels (`<!-- slide -->`) |
-| Performance traces / Benchmarks | Profiling capture (`cpuprofile`, `trace`, heap snapshot) via `run_command` + dedicated `perf_report.md` artifact |
-| Scratch / temporary storage | `<appDataDir>/brain/<conversation-id>/scratch/` or workspace scratch dir (never `/tmp/`) |
-| Plans / Design documents / RFCs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/implementation_plan.md` via `write_to_file` with `ArtifactMetadata` |
+| Performance traces / Benchmarks | Profiling capture (`cpuprofile`, `trace`, heap snapshot) via `run_command` + `perf_report.md` |
+| Scratch / temporary storage | `<appDataDir>/brain/<conversation-id>/scratch/` |
+| Plans / Design documents / RFCs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/implementation_plan.md` |
 | Verification receipts / Walkthroughs | Antigravity Artifacts: `<appDataDir>/brain/<conversation-id>/walkthrough.md` |
-| Extensive reports / Forensic dumps | Dedicated Artifacts: `<appDataDir>/brain/<conversation-id>/<name>_report.md` |
-| Media embedding in artifacts | Copy media to `<appDataDir>/brain/<conversation-id>/` then embed with `![caption](/absolute/path)` |
 
-Do not put a `tools:` allowlist on `poteto-agent` or `comment-sicko`.
+## Parallel Cloud Agent Execution (Cloud Run Runtime)
 
-## Antigravity Artifact System
+When running massive swarms (N > 8) or when Cloud Run runtime is configured, agystack uses Google Cloud Run Jobs for serverless parallel execution:
 
-Antigravity has a native visual artifact system. Artifacts are markdown or HTML documents persisted in `<appDataDir>/brain/<conversation-id>/`. The `<appDataDir>` token is injected into system context by Antigravity (e.g. `~/.gemini/antigravity` or `/Users/<user>/.gemini/antigravity`). Use artifacts to deliver rich technical plans, deep investigation findings, benchmarks, visual comparisons, and verification receipts without bloating the chat context window.
+### Architecture
+
+1. **Coordinator:** Generates task briefs into a JSON manifest and invokes `skills/swarm/scripts/cloud_dispatch.py`.
+2. **Cloud Run Job:** Spawns up to 100+ container tasks concurrently across Google Cloud compute.
+3. **Container Instances:** Each instance executes `cloud_worker.py`, index-matched to its `CLOUD_RUN_TASK_INDEX`.
+4. **Git Branch Isolation:** Each worker clones the repository using an auto-forwarded GitHub token, creates branch `worker-{task_index}`, executes the task using the Google Antigravity SDK Agent, commits changes, and pushes to origin.
+5. **Aggregation:** The dispatcher aggregates container logs and outputs a structured execution report.
+
+### Runtime Configuration (`agystack-runtime.json`)
+
+Saved at `~/.gemini/config/plugins/agystack/agystack-runtime.json` or `.agents/plugins/agystack/agystack-runtime.json`:
+
+```json
+{
+  "runtime": "cloud-run",
+  "project_id": "my-gcp-project",
+  "region": "us-central1",
+  "job_name": "agystack-swarm-worker",
+  "image_uri": "us-central1-docker.pkg.dev/my-gcp-project/agystack/cloud-worker:latest",
+  "parallelism": 100,
+  "model": "gemini-2.5-flash"
+}
+```
+
+### Credentials & Security
+
+- `GH_TOKEN`: Automatically retrieved from local GitHub CLI (`gh auth token`) and passed to Cloud Run Job environment.
+- `GEMINI_API_KEY`: Sourced from environment and forwarded to container workers for SDK initialization.
+- All tokens are redacted from dry-run displays and error logs.
+
+## Antigravity Native Artifacts
+
+Antigravity uses native artifacts stored under `<appDataDir>/brain/<conversation-id>/`.
 
 Pass `ArtifactMetadata` as an argument to the `write_to_file` tool call when creating or updating artifacts:
 `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: true|false }`
@@ -93,7 +119,7 @@ Every playbook completion requires concrete proof on the real target surface bef
 | --- | --- | --- | --- |
 | **Automated test suites** | `run_command` (`bun test`, `cargo test`, `pytest`, `vitest`, `go test`) | Embed stdout/stderr exit codes and test run stats in `walkthrough.md` | Run real test runner commands against workspace code; do not mock or skip tests. |
 | **CLI / TUI interactive** | `run_command` (async background) + `manage_task` (`send_input`, `status`, `kill`) | Capture interactive terminal logs and exit codes in `walkthrough.md` | Verify interactive prompts, ANSI escapes, signals, and exit statuses end-to-end. |
-| **Web UI / Browser** | Chrome DevTools MCP (`browser_subagent`) and application feature maps (`.agents/skills/verify-<app>/features/`) | Save DOM snapshots, console logs, and screenshots into `<appDataDir>/brain/<conversation-id>/` | Probe live server over CDP or HTTP; confirm layout, navigation, and console error absence. DOM snapshots and screenshot carousels are primary receipts; video is an optional enhancement for complex motion. |
+| **Web UI / Browser** | Chrome DevTools MCP (`browser_subagent`) and application feature maps (`.agents/skills/verify-<app>/features/`) | Save DOM snapshots, console logs, and screenshots into `<appDataDir>/brain/<conversation-id>/` | Probe live server over CDP or HTTP; confirm layout, navigation, and console error absence. Generic driver is built-in; leverage comes from the app feature map. |
 | **Visual parity** | `generate_image` / visual diffs / screenshot captures | Carousel slides (`carousel` code blocks with `<!-- slide -->`) in `walkthrough.md` | Side-by-side before/after comparison with 0 pixel drift or deliberate design delta. |
 | **Performance traces** | Profiling capture (`cpuprofile`, `trace`, `spindump`, heap snapshot) via `run_command` | Dedicated `perf_report.md` artifact with flamegraph/metric delta tables | Measure against baseline; log before/after timing and resource deltas. |
 | **Verification receipts** | `write_to_file` with `ArtifactMetadata` | `walkthrough.md` artifact at `<appDataDir>/brain/<conversation-id>/walkthrough.md` | Required for all completed multi-step work before handoff. |
@@ -123,8 +149,10 @@ Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One suba
 | Artifact / Config | Antigravity Path |
 | --- | --- |
 | Role models configuration | `~/.gemini/config/plugins/agystack/rules/agystack-models.md` |
-| Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (or `~/.gemini/antigravity/brain/` / `~/.gemini/antigravity-ide/brain/`) |
+| Runtime execution config | `~/.gemini/config/plugins/agystack/agystack-runtime.json` |
+| Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` |
 | Session artifacts | `<appDataDir>/brain/<conversation-id>/` |
+| Cloud worker scripts | `skills/swarm/scripts/` |
 | Project-local skills | `.agents/skills/` in the project, or this plugin's `skills/` |
 | User global skills | `~/.gemini/config/skills/` or `~/.gemini/config/plugins/agystack/skills/` |
 
