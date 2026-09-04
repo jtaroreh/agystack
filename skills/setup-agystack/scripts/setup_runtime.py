@@ -52,6 +52,7 @@ def enable_apis(project_id):
         "run.googleapis.com",
         "artifactregistry.googleapis.com",
         "cloudbuild.googleapis.com",
+        "aiplatform.googleapis.com",
         f"--project={project_id}"
     ])
 
@@ -96,15 +97,20 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir):
         "--task-timeout=30m"
     ])
 
-def write_runtime_config(project_id, region, job_name, image_tag):
+def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="vertex"):
     config = {
+        "runtime": "cloud-run",
         "project_id": project_id,
         "region": region,
         "job_name": job_name,
-        "image": image_tag
+        "image": image_tag,
+        "parallelism": 100,
+        "model": "gemini-3.8-flash",
+        "auth_mode": auth_mode,
     }
     
     paths = [
+        Path("agystack-runtime.json"),
         Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "agystack-runtime.json",
         Path.cwd() / ".agents" / "plugins" / "agystack" / "agystack-runtime.json"
     ]

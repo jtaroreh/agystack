@@ -41,7 +41,8 @@ Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"
    ```bash
    python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-path> --tasks <N> --parallelism 100
    ```
-3. The dispatcher automatically retrieves `GH_TOKEN` via `gh auth token`, reads `GEMINI_API_KEY`, executes the Cloud Run Job, and streams output.
+   Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`.
+3. The dispatcher automatically retrieves `GH_TOKEN` via `gh auth token`, configures authentication (`GEMINI_API_KEY` or Vertex AI IAM/ADC), executes the Cloud Run Job, and streams output.
 
 Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS|ISSUES|BLOCKED]` with evidence).
 

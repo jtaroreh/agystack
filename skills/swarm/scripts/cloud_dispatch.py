@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 def find_runtime_config() -> Optional[Dict[str, Any]]:
     paths_to_check = [
+        Path("agystack-runtime.json"),
         Path(".agents/plugins/agystack/agystack-runtime.json"),
         Path(os.path.expanduser("~/.gemini/config/plugins/agystack/agystack-runtime.json")),
     ]
@@ -163,6 +164,7 @@ def main() -> None:
     parser.add_argument("--region", type=str, help="GCP region (e.g. us-central1).")
     parser.add_argument("--project", type=str, help="GCP project ID.")
     parser.add_argument("--model", type=str, help="Model override for workers.")
+    parser.add_argument("--vertex", action="store_true", help="Enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key.")
     parser.add_argument("--dry-run", action="store_true", help="Print payload and command without executing.")
     parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion.")
     parser.set_defaults(wait=True)
@@ -174,7 +176,8 @@ def main() -> None:
     region = args.region or runtime_cfg.get("region") or "us-central1"
     project = args.project or runtime_cfg.get("project_id")
     parallelism = args.parallelism if args.parallelism != 100 else runtime_cfg.get("parallelism", 100)
-    model = args.model or runtime_cfg.get("model", "")
+    use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
+    model = args.model or runtime_cfg.get("model") or "gemini-3.8-flash"
 
     repo_url = args.repo or get_git_remote_url()
     if not repo_url:
@@ -186,9 +189,9 @@ def main() -> None:
         print("Error: GH_TOKEN could not be resolved from environment or `gh auth token`", file=sys.stderr)
         sys.exit(1)
 
-    gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not gemini_api_key and not args.dry_run:
-        print("Error: GEMINI_API_KEY environment variable is required.", file=sys.stderr)
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not use_vertex and not gemini_api_key and not args.dry_run:
+        print("Error: GEMINI_API_KEY environment variable is required when not in Vertex AI mode.", file=sys.stderr)
         sys.exit(1)
 
     tasks_list = []
@@ -205,8 +208,19 @@ def main() -> None:
     env_vars = {
         "REPO_URL": repo_url,
         "GH_TOKEN": gh_token,
-        "GEMINI_API_KEY": gemini_api_key or "DRY_RUN_KEY",
     }
+    if gemini_api_key:
+        env_vars["GEMINI_API_KEY"] = gemini_api_key
+    elif args.dry_run and not use_vertex:
+        env_vars["GEMINI_API_KEY"] = "DRY_RUN_KEY"
+
+    if use_vertex:
+        env_vars["USE_VERTEX_AI"] = "1"
+        if project:
+            env_vars["VERTEXAI_PROJECT"] = project
+        if region:
+            env_vars["VERTEXAI_LOCATION"] = region
+
     if manifest_serialized:
         env_vars["TASK_MANIFEST"] = manifest_serialized
     if model:
@@ -228,6 +242,15 @@ def main() -> None:
             display_env["GH_TOKEN"] = "REDACTED"
         if display_env.get("GEMINI_API_KEY"):
             display_env["GEMINI_API_KEY"] = "REDACTED"
+        display_cmd = build_gcloud_command(
+            job_name=job_name,
+            tasks_count=task_count,
+            parallelism=parallelism,
+            region=region,
+            project=project,
+            env_vars=display_env,
+            wait=args.wait,
+        )
         payload = {
             "job_name": job_name,
             "tasks_count": task_count,
@@ -235,7 +258,7 @@ def main() -> None:
             "region": region,
             "project": project,
             "env_vars": display_env,
-            "gcloud_command": " ".join(gcloud_cmd),
+            "gcloud_command": " ".join(display_cmd),
         }
         print(json.dumps(payload, indent=2))
         return

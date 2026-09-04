@@ -111,7 +111,15 @@ def run_command(cmd: List[str], cwd: Optional[Path] = None, check: bool = True) 
     )
 
 
-def execute_agent(task_brief: str, repo_dir: Path, model_override: str, api_key: str) -> Tuple[str, str]:
+def execute_agent(
+    task_brief: str,
+    repo_dir: Path,
+    model_override: str,
+    api_key: str,
+    use_vertex: bool = False,
+    project: Optional[str] = None,
+    location: Optional[str] = None,
+) -> Tuple[str, str]:
     try:
         import google.antigravity as antigravity
         from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig
@@ -121,13 +129,49 @@ def execute_agent(task_brief: str, repo_dir: Path, model_override: str, api_key:
             allow_shell_commands=True,
             allow_subagents=False,
         )
-        resolved_model = model_override.strip() if model_override.strip() else "gemini-2.5-flash"
-        config = LocalAgentConfig(
-            model=resolved_model,
-            capabilities=capabilities,
-            workspace_dir=str(repo_dir),
-        )
-        agent = Agent(config=config, api_key=api_key)
+        resolved_model = model_override.strip() if model_override.strip() else "gemini-3.8-flash"
+        if use_vertex:
+            resolved_project = (
+                project
+                or os.environ.get("VERTEXAI_PROJECT")
+                or os.environ.get("GCP_PROJECT")
+                or os.environ.get("PROJECT_ID")
+            )
+            resolved_location = (
+                location
+                or os.environ.get("VERTEXAI_LOCATION")
+                or os.environ.get("GCP_REGION")
+                or os.environ.get("REGION")
+                or "us-central1"
+            )
+            if api_key:
+                config = LocalAgentConfig(
+                    model=resolved_model,
+                    capabilities=capabilities,
+                    workspace_dir=str(repo_dir),
+                    vertex=True,
+                    api_key=api_key,
+                    project=resolved_project,
+                    location=resolved_location,
+                )
+                agent = Agent(config=config, api_key=api_key)
+            else:
+                config = LocalAgentConfig(
+                    model=resolved_model,
+                    capabilities=capabilities,
+                    workspace_dir=str(repo_dir),
+                    vertex=True,
+                    project=resolved_project,
+                    location=resolved_location,
+                )
+                agent = Agent(config=config)
+        else:
+            config = LocalAgentConfig(
+                model=resolved_model,
+                capabilities=capabilities,
+                workspace_dir=str(repo_dir),
+            )
+            agent = Agent(config=config, api_key=api_key)
         run_output = agent.run(task_brief)
         status = getattr(run_output, "status", "PASS")
         summary = getattr(run_output, "summary", str(run_output))
@@ -152,7 +196,17 @@ def main() -> None:
         print("[STATUS: BLOCKED]\nEvidence: Missing GH_TOKEN\nSummary: Cannot authenticate git clone without GH_TOKEN.", flush=True)
         sys.exit(1)
 
-    gemini_api_key = get_env_var("GEMINI_API_KEY", required=True)
+    use_vertex = os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not use_vertex and not gemini_api_key:
+        print(
+            "[STATUS: BLOCKED]\nEvidence: Missing authentication. Neither USE_VERTEX_AI nor GEMINI_API_KEY is provided.\nSummary: Authentication configuration error.",
+            flush=True,
+        )
+        sys.exit(1)
+
+    project = os.environ.get("VERTEXAI_PROJECT") or os.environ.get("GCP_PROJECT") or os.environ.get("PROJECT_ID")
+    location = os.environ.get("VERTEXAI_LOCATION") or os.environ.get("GCP_REGION") or os.environ.get("REGION")
     model_override = os.environ.get("MODEL_OVERRIDE", "")
     branch_name = f"worker-{task_index}"
 
@@ -199,6 +253,9 @@ def main() -> None:
         repo_dir=repo_dir,
         model_override=model_override,
         api_key=gemini_api_key,
+        use_vertex=use_vertex,
+        project=project,
+        location=location,
     )
 
     if agent_status == "BLOCKED":
