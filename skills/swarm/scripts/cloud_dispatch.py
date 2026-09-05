@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -94,20 +95,20 @@ def build_gcloud_command(
 ) -> List[str]:
     cmd = ["gcloud", "run", "jobs", "execute", job_name]
     cmd.append(f"--tasks={tasks_count}")
-    cmd.append(f"--parallelism={parallelism}")
     cmd.append(f"--region={region}")
     if project:
         cmd.append(f"--project={project}")
     if wait:
         cmd.append("--wait")
+    else:
+        cmd.append("--async")
     cmd.append("--format=json")
 
     env_pairs = []
     for k, v in env_vars.items():
-        escaped_v = v.replace("\\", "\\\\").replace(",", "\\,")
-        env_pairs.append(f"{k}={escaped_v}")
+        env_pairs.append(f"{k}={v}")
     if env_pairs:
-        cmd.append(f"--update-env-vars={','.join(env_pairs)}")
+        cmd.append(f"--update-env-vars=^##^{ '##'.join(env_pairs) }")
 
     return cmd
 
@@ -157,6 +158,10 @@ def parse_worker_logs(log_output: str) -> List[Dict[str, Any]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dispatch parallel Cloud Run swarm workers.")
     parser.add_argument("--manifest", type=str, help="Path to manifest JSON or JSON string.")
+    parser.add_argument("--seed-lottery", type=int, help="Generate N coprime seed lottery tasks.")
+    parser.add_argument("--gcs-bucket", type=str, help="GCS bucket name for run artifacts.")
+    parser.add_argument("--gcs-prefix", type=str, default="", help="GCS object prefix.")
+    parser.add_argument("--harvest-gcs", type=str, help="GCS prefix to harvest results after execution.")
     parser.add_argument("--repo", type=str, help="Git repository URL.")
     parser.add_argument("--tasks", type=int, help="Task count override.")
     parser.add_argument("--parallelism", type=int, default=100, help="Concurrency limit (default: 100).")
@@ -164,7 +169,7 @@ def main() -> None:
     parser.add_argument("--region", type=str, help="GCP region (e.g. us-central1).")
     parser.add_argument("--project", type=str, help="GCP project ID.")
     parser.add_argument("--model", type=str, help="Model override for workers.")
-    parser.add_argument("--vertex", action="store_true", help="Enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key.")
+    parser.add_argument("--vertex", action="store_true", help="Enable Vertex AI mode.")
     parser.add_argument("--dry-run", action="store_true", help="Print payload and command without executing.")
     parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion.")
     parser.set_defaults(wait=True)
@@ -194,8 +199,13 @@ def main() -> None:
         print("Error: GEMINI_API_KEY environment variable is required when not in Vertex AI mode.", file=sys.stderr)
         sys.exit(1)
 
-    tasks_list = []
-    if args.manifest:
+    tasks_list: List[Any] = []
+    sys.path.insert(0, str(Path(__file__).parent))
+
+    if args.seed_lottery:
+        from manifest_generator import generate_seed_lottery
+        tasks_list = generate_seed_lottery(seeds_count=args.seed_lottery)
+    elif args.manifest:
         try:
             tasks_list = load_manifest(args.manifest)
         except Exception as exc:
@@ -203,8 +213,8 @@ def main() -> None:
             sys.exit(1)
 
     task_count = args.tasks or (len(tasks_list) if tasks_list else 1)
-
     manifest_serialized = json.dumps(tasks_list) if tasks_list else ""
+
     env_vars = {
         "REPO_URL": repo_url,
         "GH_TOKEN": gh_token,
@@ -220,6 +230,13 @@ def main() -> None:
             env_vars["VERTEXAI_PROJECT"] = project
         if region:
             env_vars["VERTEXAI_LOCATION"] = region
+
+    gcs_bucket = args.gcs_bucket or runtime_cfg.get("gcs_bucket", "")
+    gcs_prefix = args.gcs_prefix or runtime_cfg.get("gcs_prefix", "")
+    if gcs_bucket:
+        env_vars["GCS_RESULTS_BUCKET"] = gcs_bucket
+        if gcs_prefix:
+            env_vars["GCS_PREFIX"] = gcs_prefix
 
     if manifest_serialized:
         env_vars["TASK_MANIFEST"] = manifest_serialized
@@ -285,31 +302,37 @@ def main() -> None:
         logs_content = proc.stdout + "\n" + proc.stderr
         log_cmd_str = ""
         if execution_name:
-            log_filter = f'resource.type="cloud_run_job" AND (labels."run.googleapis.com/execution_name"="{execution_name}" OR resource.labels.job_name="{job_name}")'
+            time.sleep(5)
+            log_filter = f'resource.type="cloud_run_job" AND labels."run.googleapis.com/execution_name"="{execution_name}"'
             log_read_args = [
                 "gcloud",
                 "logging",
                 "read",
                 log_filter,
-                "--limit=500",
+                "--limit=2000",
                 "--format=value(textPayload)",
+                "--order=asc",
             ]
-            log_cmd_str = f"gcloud logging read '{log_filter}' --limit=500 --format=\"value(textPayload)\""
+            log_cmd_str = f"gcloud logging read '{log_filter}' --limit=2000 --format=\"value(textPayload)\" --order=asc"
             if project:
                 log_read_args.extend(["--project", project])
                 log_cmd_str += f" --project={project}"
 
-            try:
-                log_res = subprocess.run(
-                    log_read_args,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if log_res.stdout:
-                    logs_content += "\n" + log_res.stdout
-            except Exception as exc:
-                print(f"Warning: Failed to fetch container logs: {exc}", file=sys.stderr)
+            for attempt in range(2):
+                try:
+                    log_res = subprocess.run(
+                        log_read_args,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if log_res.stdout:
+                        logs_content = log_res.stdout
+                        if "- Slice JSON:" in log_res.stdout:
+                            break
+                    time.sleep(5)
+                except Exception as exc:
+                    print(f"Warning: Failed to fetch container logs: {exc}", file=sys.stderr)
 
         parsed_results = parse_worker_logs(logs_content)
         
@@ -344,6 +367,27 @@ def main() -> None:
             print("=" * 80)
             print(f"Total: {len(parsed_results)} | PASS: {pass_count} | ISSUES: {issues_count} | BLOCKED: {blocked_count}")
             print("=" * 80)
+
+        harvested_slices = []
+        for item in parsed_results:
+            for ev_line in item.get("evidence", "").splitlines():
+                if ev_line.strip().startswith("- Slice JSON:"):
+                    raw_json = ev_line.strip().split("- Slice JSON:", 1)[1].strip()
+                    try:
+                        harvested_slices.append(json.loads(raw_json))
+                    except Exception:
+                        pass
+        if harvested_slices:
+            out_slices_file = Path(".slices/harvested_scores.json")
+            out_slices_file.parent.mkdir(parents=True, exist_ok=True)
+            out_slices_file.write_text(json.dumps(harvested_slices, indent=2), encoding="utf-8")
+            print(f"Harvested {len(harvested_slices)} slice scores to {out_slices_file}")
+
+        harvest_target = args.harvest_gcs or (gcs_prefix if gcs_bucket else None)
+        if harvest_target is not None and gcs_bucket:
+            from result_harvester import harvest_gcs_results
+            harvested_data = harvest_gcs_results(bucket_name=gcs_bucket, prefix=harvest_target)
+            print(f"\nHarvested {len(harvested_data)} task result payloads from gs://{gcs_bucket}/{harvest_target}")
 
     except subprocess.CalledProcessError as exc:
         err_out = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
