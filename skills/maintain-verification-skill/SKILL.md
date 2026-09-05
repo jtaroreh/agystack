@@ -24,7 +24,7 @@ Only edit the verification skill's own directory (its SKILL.md, features/, and a
 
 0. **Locate the target.** Find the verification skill to maintain: the project-local skill whose body has launch/drive sections and a feature map (usually `.agents/skills/verify-*/`). Several candidates → ask which one; none → stop and point at `/create-verification-skill` instead of inventing a target.
 
-1. **Index hygiene.** Read the feature map README and glob its sibling files. Fix missing, extra, duplicate, or dead entries. Lightweight; no generated inventory.
+1. **Index and helper hygiene.** Read the feature map README and glob its sibling files in `features/`. Fix missing, extra, duplicate, or dead entries. Check all scripts in `scripts/` against the skill's `## Helpers` and `## Drive` sections: detect unregistered helper scripts, missing executable permissions, or orphaned utilities. Lightweight; no generated inventory.
 
 2. **Source wave.** One read-only subagent per feature file, launched concurrently. Each explains "how does this user-facing feature work?" from source, flags likely doc drift with citations, and returns one concise live-verification recipe. Children never drive the app and never edit files. Return shape: feature summary / source entry points / likely drift or none / one recipe.
 

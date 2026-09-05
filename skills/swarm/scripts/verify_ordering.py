@@ -499,7 +499,7 @@ def run_swarm_eval(
             except Exception:
                 pass
 
-    bucket = gcs_bucket or cfg.get("gcs_bucket", "agystack-swarm-results")
+    bucket = gcs_bucket or cfg.get("gcs_bucket", "agystack-swarm-results-prod")
     prefix = gcs_prefix or f"swarm-eval-{int(time.time())}"
 
     dispatch_script = Path(os.path.expanduser("~/projects/pstack-agy/skills/swarm/scripts/cloud_dispatch.py"))

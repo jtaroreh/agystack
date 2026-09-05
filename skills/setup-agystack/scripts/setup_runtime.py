@@ -105,7 +105,7 @@ def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="ver
         "job_name": job_name,
         "image": image_tag,
         "parallelism": 100,
-        "model": "gemini-3.8-flash",
+        "model": "inherit",
         "auth_mode": auth_mode,
     }
     

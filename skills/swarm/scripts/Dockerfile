@@ -36,13 +36,10 @@ RUN git lfs install --system
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir google-antigravity
+RUN pip install --no-cache-dir google-antigravity google-cloud-storage google-cloud-run google-cloud-logging google-genai
 
 COPY cloud_worker.py /app/cloud_worker.py
-COPY setup-rust-worker.sh /app/setup-rust-worker.sh
-COPY verify_ordering.py /app/verify_ordering.py
-COPY swarm_slice.py /app/swarm_slice.py
-COPY vendor_cache /app/vendor_cache
+COPY storage_uploader.py /app/storage_uploader.py
 
 RUN mkdir -p /workspace \
     && chown -R worker:worker /workspace /app

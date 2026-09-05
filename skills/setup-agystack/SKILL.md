@@ -18,15 +18,19 @@ Choose the execution runtime for parallel swarms:
 If Cloud Run is selected:
 **CRITICAL INSTRUCTION FOR AI AGENT:** NEVER print manual bash commands with placeholders (like `<your-gcp-project-id>`) for the user to run. You MUST directly execute the setup commands yourself using `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)"` right here in the chat environment.
 
-1. **Check Requirements**: Run `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)" --check` to verify `gcloud` is available and authenticated.
-2. **Select Project**:
-   - Query available projects by running `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)" --list-projects`.
+1. **Verify Quotas and Permissions:**
+   - **Google AI Studio API Key:** If using `GEMINI_API_KEY`, verify that paid billing (Pay-as-you-go / Tier 1+) is enabled on the AI Studio project. Free-tier API keys (capped at 5 requests per minute) are strictly prohibited for swarms because parallel workers will hit immediate rate limits.
+   - **Vertex AI Mode:** If using Vertex AI mode, verify that the GCP project has the Vertex AI API enabled (`aiplatform.googleapis.com`) and that the active user or service account has the Vertex AI User role (`roles/aiplatform.user`).
+   - **Model Availability:** Gemini 3 series models (`gemini-3.8-flash`) require global routing (`aiplatform.googleapis.com` with `locations/global`). Regional endpoints return HTTP 404 for Gemini 3.x.
+2. **Check Requirements**: Run `python3 skills/setup-agystack/scripts/setup_runtime.py --check` to verify `gcloud` is available and authenticated.
+3. **Select Project**:
+   - Query available projects by running `python3 skills/setup-agystack/scripts/setup_runtime.py --list-projects`.
    - Ask the user which project they want to use, or if they want you to create a new one.
-3. **Provisioning**: Once a project ID is known, run the full provisioner (do this yourself, do not ask the user to do it!):
-   `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)" --project <PROJECT_ID> --auto-provision --scripts-dir "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -type d -name "scripts" 2>/dev/null | head -1)"`
+4. **Provisioning**: Once a project ID is known, run the full provisioner (do this yourself, do not ask the user to do it!):
+   `python3 skills/setup-agystack/scripts/setup_runtime.py --project <PROJECT_ID> --auto-provision --scripts-dir skills/swarm/scripts`
    (or use `--create-project <PROJECT_ID>` instead of `--project` if creating a new one).
 
-Do not leave the user to do the work. Complete the deployment end-to-end for them. Ensure `GEMINI_API_KEY` is exported in the user's environment.
+Do not leave the user to do the work. Complete the deployment end-to-end for them. Ensure `GEMINI_API_KEY` is exported in the user's environment with paid tier enabled (Pay-as-you-go), or Vertex AI permissions and global endpoint access are verified.
 
 ### 2. Detect available models
 

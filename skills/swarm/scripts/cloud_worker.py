@@ -2,7 +2,8 @@
 """
 Cloud worker entrypoint executed inside Cloud Run Job container instances.
 Reads task parameters from environment, clones the repo on an isolated branch,
-executes the task brief via Google Antigravity SDK Agent, commits and pushes changes,
+executes the task brief via Google Antigravity SDK Agent or direct command runner,
+validates changes via verification command, commits and pushes candidate changes,
 and outputs a structured report.
 """
 
@@ -15,6 +16,13 @@ import tempfile
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+
+def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
+    msg = f"[MILESTONE] [TASK {task_index}] [PHASE: {phase}]"
+    if detail:
+        msg += f" {detail}"
+    print(msg, flush=True)
 
 
 def get_env_var(name: str, default: Optional[str] = None, required: bool = False) -> str:
@@ -71,7 +79,7 @@ def parse_task_manifest(manifest_raw: str, task_index: int) -> Tuple[Any, str]:
     if isinstance(item, str):
         return item, item
     if isinstance(item, dict):
-        brief = item.get("brief") or item.get("prompt") or json.dumps(item, indent=2)
+        brief = item.get("brief") or item.get("prompt") or item.get("command") or json.dumps(item, indent=2)
         return item, brief
     return item, str(item)
 
@@ -133,6 +141,98 @@ def parse_score_metrics(repo_dir: Path) -> Tuple[Optional[float], Optional[float
         return None, None
 
 
+DEFAULT_EXCLUDED_EXACT = {
+    "rust-toolchain",
+    "rust-toolchain.toml",
+    "Cargo.lock",
+}
+
+DEFAULT_EXCLUDED_DIRS = (
+    ".git",
+    ".agents",
+    ".agystack",
+    "node_modules",
+    "target",
+    "vendor",
+    ".cargo",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+)
+
+
+def is_candidate_file(
+    path: str,
+    explicit_candidates: Optional[List[str]] = None,
+    explicit_excludes: Optional[List[str]] = None,
+) -> bool:
+    clean = path.strip().strip('"').replace("\\", "/")
+    if clean.startswith("./"):
+        clean = clean[2:]
+
+    # Check explicit excludes first if provided
+    if explicit_excludes:
+        for ex in explicit_excludes:
+            clean_ex = ex.strip().strip('"').replace("\\", "/")
+            if clean_ex.startswith("./"):
+                clean_ex = clean_ex[2:]
+            clean_ex = clean_ex.rstrip("/")
+            if clean == clean_ex or clean.startswith(f"{clean_ex}/"):
+                return False
+
+    # Check explicit candidates if provided
+    if explicit_candidates is not None:
+        matched = False
+        for cand in explicit_candidates:
+            clean_cand = cand.strip().strip('"').replace("\\", "/")
+            if clean_cand.startswith("./"):
+                clean_cand = clean_cand[2:]
+            clean_cand = clean_cand.rstrip("/")
+            if clean == clean_cand or clean.startswith(f"{clean_cand}/"):
+                matched = True
+                break
+        if not matched:
+            return False
+
+    # Check default exact excluded files
+    if clean in DEFAULT_EXCLUDED_EXACT:
+        return False
+
+    # Check default excluded directory prefixes
+    for d in DEFAULT_EXCLUDED_DIRS:
+        if clean == d or clean.startswith(f"{d}/"):
+            return False
+
+    return True
+
+
+def parse_porcelain_status(stdout: str) -> List[str]:
+    modified_files: List[str] = []
+    if not stdout or not stdout.strip():
+        return modified_files
+    for line in stdout.splitlines():
+        if len(line) > 3:
+            raw_path = line[3:].strip()
+            if " -> " in raw_path:
+                raw_path = raw_path.split(" -> ")[-1].strip()
+            if raw_path:
+                modified_files.append(raw_path)
+    return modified_files
+
+
+def evaluate_agent_status(agent_text: str) -> Tuple[str, str]:
+    upper_text = agent_text.upper()
+    if (
+        "[STATUS: FAIL]" in upper_text
+        or "COMPLETION SUMMARY: FAIL" in upper_text
+        or "STATUS: FAIL" in upper_text
+        or "PASS" not in upper_text
+    ):
+        return "ISSUES", agent_text
+    return "PASS", agent_text
+
+
 def execute_task(
     task_item: Any,
     task_brief: str,
@@ -142,59 +242,37 @@ def execute_task(
     use_vertex: bool = False,
     project: Optional[str] = None,
     location: Optional[str] = None,
+    task_index: int = 0,
 ) -> Tuple[str, str]:
-    # 1. Deterministic direct execution for matrix slice evaluation tasks
-    is_slice_task = False
-    start_idx = None
-    end_idx = None
+    task_type = "agent"
+    if isinstance(task_item, dict):
+        task_type = task_item.get("type", "agent")
 
-    if isinstance(task_item, dict) and "start_idx" in task_item and "end_idx" in task_item:
-        is_slice_task = True
-        start_idx = int(task_item["start_idx"])
-        end_idx = int(task_item["end_idx"])
-    elif "indices" in task_brief and "to" in task_brief:
-        import re
-        m = re.search(r"indices\s+(\d+)\s+to\s+(\d+)", task_brief)
-        if m:
-            is_slice_task = True
-            start_idx = int(m.group(1))
-            end_idx = int(m.group(2))
+    # Command execution runner
+    if task_type == "command":
+        cmd_str = ""
+        if isinstance(task_item, dict):
+            cmd_str = task_item.get("command", "")
+        if not cmd_str:
+            cmd_str = task_brief
 
-    if is_slice_task:
-        verify_script = None
-        candidates = [
-            Path("/app/verify_ordering.py"),
-            repo_dir / ".agents" / "skills" / "verify-matrices-fast" / "scripts" / "verify_ordering.py",
-            repo_dir / "scripts" / "verify_ordering.py",
-        ]
-        for c in candidates:
-            if c.is_file():
-                verify_script = c
-                break
+        emit_milestone(task_index, "RUNNING_COMMAND", cmd_str)
+        print(f"Executing command task: {cmd_str}", flush=True)
+        res = subprocess.run(
+            cmd_str,
+            shell=True,
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0:
+            return "PASS", res.stdout
+        else:
+            err_msg = res.stderr if res.stderr else res.stdout
+            return "ISSUES", err_msg
 
-        if verify_script:
-            print(f"Executing direct matrix slice evaluation: {start_idx}..{end_idx}", flush=True)
-            cmd = [
-                sys.executable,
-                str(verify_script),
-                "--swarm-slice", f"{start_idx}:{end_idx}",
-            ]
-            worker_env = os.environ.copy()
-            worker_env["SSI_ALLOW_UNSANDBOXED_WORKER"] = "1"
-            worker_env["CARGO_HOME"] = os.environ.get("CARGO_HOME", "/usr/local/cargo")
-            worker_env["RUSTUP_HOME"] = os.environ.get("RUSTUP_HOME", "/usr/local/rustup")
-            worker_env["PATH"] = f"/usr/local/cargo/bin:{worker_env.get('PATH', '')}"
-
-            res = subprocess.run(cmd, cwd=repo_dir, capture_output=True, text=True, env=worker_env)
-            if res.returncode == 0:
-                print(res.stdout, flush=True)
-                return "PASS", f"Matrix slice {start_idx}..{end_idx} evaluated successfully."
-            else:
-                print(res.stdout, flush=True)
-                err_snippet = (res.stderr.strip() or res.stdout.strip())[-500:]
-                return "ISSUES", f"Slice evaluation failed: {err_snippet}"
-
-    # 2. General Agent Execution using Google Antigravity SDK
+    # General Agent Execution using Google Antigravity SDK
+    emit_milestone(task_index, "RUNNING_AGENT", "Antigravity SDK agent")
     try:
         import asyncio
         import google.antigravity as antigravity
@@ -258,7 +336,7 @@ def execute_task(
                 return await resp.text()
 
         agent_text = asyncio.run(_run_agent_turn())
-        return "PASS", agent_text
+        return evaluate_agent_status(agent_text)
     except ImportError:
         return "BLOCKED", "Missing dependency: google.antigravity Python package is not installed."
     except Exception as exc:
@@ -272,16 +350,20 @@ def main() -> None:
     except ValueError:
         task_index = 0
 
+    emit_milestone(task_index, "BOOTING")
+
     manifest_raw = os.environ.get("TASK_MANIFEST", "")
     repo_url = get_env_var("REPO_URL", required=True)
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     if not gh_token:
+        emit_milestone(task_index, "COMPLETE", "BLOCKED")
         print("[STATUS: BLOCKED]\nEvidence: Missing GH_TOKEN\nSummary: Cannot authenticate git clone without GH_TOKEN.", flush=True)
         sys.exit(1)
 
     use_vertex = os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not use_vertex and not gemini_api_key:
+        emit_milestone(task_index, "COMPLETE", "BLOCKED")
         print(
             "[STATUS: BLOCKED]\nEvidence: Missing authentication. Neither USE_VERTEX_AI nor GEMINI_API_KEY is provided.\nSummary: Authentication configuration error.",
             flush=True,
@@ -296,6 +378,7 @@ def main() -> None:
     try:
         task_item, task_brief = parse_task_manifest(manifest_raw, task_index)
     except Exception as exc:
+        emit_milestone(task_index, "COMPLETE", "BLOCKED")
         print(
             f"[STATUS: BLOCKED]\nEvidence: Failed to parse task brief for index {task_index}: {exc}\nSummary: Manifest resolution failure.",
             flush=True,
@@ -309,9 +392,11 @@ def main() -> None:
     repo_dir.mkdir(parents=True, exist_ok=True)
 
     auth_url = build_authenticated_git_url(repo_url, gh_token)
+    emit_milestone(task_index, "CLONING_REPO")
     try:
         run_command(["git", "clone", "--depth=50", auth_url, str(repo_dir)], check=True)
     except subprocess.CalledProcessError as exc:
+        emit_milestone(task_index, "COMPLETE", "BLOCKED")
         err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
         print(
             f"[STATUS: BLOCKED]\nEvidence: git clone failed with code {exc.returncode}: {err_msg.strip()}\nSummary: Failed to clone repository.",
@@ -319,77 +404,43 @@ def main() -> None:
         )
         sys.exit(1)
 
+    os.chdir(repo_dir)
+
     run_command(["git", "config", "user.name", "Antigravity Cloud Worker"], cwd=repo_dir, check=False)
     run_command(["git", "config", "user.email", "bot@antigravity.google"], cwd=repo_dir, check=False)
 
     try:
         run_command(["git", "checkout", "-B", branch_name], cwd=repo_dir, check=True)
     except subprocess.CalledProcessError as exc:
+        emit_milestone(task_index, "COMPLETE", "BLOCKED")
         print(
             f"[STATUS: BLOCKED]\nEvidence: git checkout -B {branch_name} failed: {exc.stderr.strip()}\nSummary: Failed to create worker branch.",
             flush=True,
         )
         sys.exit(1)
 
-    # Deterministic offline bootstrap logic
-    os.environ["SSI_ALLOW_UNSANDBOXED_WORKER"] = "1"
-    (repo_dir / "rust-toolchain").unlink(missing_ok=True)
+    emit_milestone(task_index, "REPO_READY")
 
-    cargo_in = repo_dir / "Cargo.toml.in"
-    if cargo_in.is_file():
-        shutil.copy(cargo_in, repo_dir / "Cargo.toml")
-
-    candidate_in = repo_dir / "candidate-worker" / "Cargo.toml.in"
-    if candidate_in.is_file():
-        lines = candidate_in.read_text(encoding="utf-8").splitlines()
-        kept_lines = []
-        for line in lines:
-            kept_lines.append(line)
-            if "# === GENERATED CANDIDATE DEPS BELOW" in line:
-                break
-        deps = [
-            'feral-amd = "0.2.1"',
-            'feral-amf = "0.2.1"',
-            'feral-metis = "0.2.1"',
-            'feral-scotch = "0.2.1"',
-            'feral-kahip = "0.2.1"',
-            'feral-ordering-core = "0.2.1"',
-            'feral = "0.11.0"',
-        ]
-        kept_lines.extend(deps)
-        (repo_dir / "candidate-worker" / "Cargo.toml").write_text(
-            "\n".join(kept_lines) + "\n", encoding="utf-8"
-        )
-
-    vendor_dest = repo_dir / "vendor"
-    vendor_cache = Path("/app/vendor_cache")
-    if vendor_cache.is_dir() and not vendor_dest.exists():
-        try:
-            os.symlink(vendor_cache, vendor_dest)
-        except OSError:
-            shutil.copytree(vendor_cache, vendor_dest)
-
-    cargo_config_dir = repo_dir / ".cargo"
-    cargo_config_dir.mkdir(parents=True, exist_ok=True)
-    (cargo_config_dir / "config.toml").write_text(
-        """[net]
-offline = true
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "vendor"
-""",
-        encoding="utf-8",
-    )
-    # Relax harness watchdog for Cloud Run cloud worker instances
-    for rs_file in [repo_dir / "src" / "main.rs", repo_dir / "src" / "watchdog.rs"]:
-        if rs_file.is_file():
-            text = rs_file.read_text(encoding="utf-8")
-            text = text.replace("Duration::from_secs(2)", "Duration::from_secs(10)")
-            rs_file.write_text(text, encoding="utf-8")
-
-    print("Bootstrapped offline Cargo manifests and vendored dependencies.", flush=True)
+    # Repository bootstrap hook: check for .agystack/setup.sh or .agents/scripts/bootstrap-worker.sh
+    bootstrap_hooks = [
+        repo_dir / ".agystack" / "setup.sh",
+        repo_dir / ".agents" / "scripts" / "bootstrap-worker.sh",
+    ]
+    for hook in bootstrap_hooks:
+        if hook.is_file():
+            emit_milestone(task_index, "BOOTSTRAP_HOOK", str(hook.relative_to(repo_dir)))
+            print(f"Executing repository bootstrap hook: {hook}", flush=True)
+            hook_proc = subprocess.run(
+                ["bash", str(hook)],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+            if hook_proc.returncode != 0:
+                print(f"Warning: Bootstrap hook {hook.name} exited with code {hook_proc.returncode}:\n{hook_proc.stderr}", file=sys.stderr)
+            else:
+                print(f"Bootstrap hook {hook.name} completed successfully.", flush=True)
+            break
 
     agent_status, agent_summary = execute_task(
         task_item=task_item,
@@ -400,9 +451,11 @@ directory = "vendor"
         use_vertex=use_vertex,
         project=project,
         location=location,
+        task_index=task_index,
     )
 
     if agent_status == "BLOCKED":
+        emit_milestone(task_index, "COMPLETE", "BLOCKED")
         print("=" * 80)
         print("[STATUS: BLOCKED]")
         print("Evidence:")
@@ -427,24 +480,70 @@ directory = "vendor"
     changes_pushed = False
     push_error: Optional[str] = None
 
-    try:
-        status_res = run_command(["git", "status", "--porcelain"], cwd=repo_dir, check=True)
-        if status_res.stdout.strip():
-            changes_detected = True
-            run_command(["git", "add", "-A"], cwd=repo_dir, check=True)
-            commit_msg = f"worker-{task_index}: execute swarm brief"
-            run_command(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True)
-            commit_res = run_command(["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True)
-            commit_sha = commit_res.stdout.strip()
-            diff_res = run_command(["git", "diff", "--stat", "HEAD~1", "HEAD"], cwd=repo_dir, check=False)
-            diff_stat = diff_res.stdout.strip()
-        else:
-            commit_res = run_command(["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True)
-            commit_sha = commit_res.stdout.strip()
-            diff_stat = "No uncommitted file modifications."
-    except subprocess.CalledProcessError as exc:
-        err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
-        print(f"Warning: Git commit preparation failed: {err_msg.strip()}", file=sys.stderr)
+    # Inspect git modifications
+    status_res = run_command(["git", "status", "--porcelain"], cwd=repo_dir, check=False)
+    modified_files = parse_porcelain_status(status_res.stdout) if status_res.returncode == 0 else []
+
+    explicit_candidates = None
+    explicit_excludes = None
+    if isinstance(task_item, dict):
+        explicit_candidates = task_item.get("candidate_files")
+        explicit_excludes = task_item.get("exclude_files")
+
+    candidate_files = [
+        f for f in modified_files
+        if is_candidate_file(f, explicit_candidates=explicit_candidates, explicit_excludes=explicit_excludes)
+    ]
+
+    verify_cmd_str = None
+    if isinstance(task_item, dict):
+        verify_cmd_str = task_item.get("verify_command")
+    if not verify_cmd_str:
+        verify_cmd_str = os.environ.get("DEFAULT_VERIFY_COMMAND", "").strip() or None
+
+    # Prevent ghost commits: Only commit and push when agent_status == "PASS" and candidate files exist
+    if agent_status == "PASS" and candidate_files:
+        emit_milestone(task_index, "VALIDATING_CANDIDATE")
+        if verify_cmd_str:
+            print(f"Running verification command: {verify_cmd_str}", flush=True)
+            test_check = subprocess.run(
+                verify_cmd_str,
+                shell=True,
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+            if test_check.returncode != 0:
+                agent_status = "ISSUES"
+                err_snippet = (test_check.stderr.strip() or test_check.stdout.strip())[-500:]
+                diff_stat = f"Commit rejected: Candidate failed verification command (exit code {test_check.returncode}): {err_snippet}"
+                print(f"Warning: Candidate modifications failed verification command (exit code {test_check.returncode}). Commit blocked.", file=sys.stderr)
+
+        if agent_status == "PASS":
+            try:
+                for cand_file in candidate_files:
+                    run_command(["git", "add", "--", cand_file], cwd=repo_dir, check=True)
+                cached_diff = run_command(["git", "diff", "--cached", "--name-only"], cwd=repo_dir, check=False)
+                if not cached_diff.stdout.strip():
+                    diff_stat = "Commit skipped: No candidate changes staged."
+                    print("Notice: No candidate changes staged; skipping git commit and push.", file=sys.stderr)
+                else:
+                    changes_detected = True
+                    commit_msg = f"worker-{task_index}: execute swarm brief"
+                    run_command(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True)
+                    commit_res = run_command(["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True)
+                    commit_sha = commit_res.stdout.strip()
+                    diff_res = run_command(["git", "diff", "--stat", "HEAD~1", "HEAD"], cwd=repo_dir, check=False)
+                    diff_stat = diff_res.stdout.strip()
+            except subprocess.CalledProcessError as exc:
+                err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
+                print(f"Warning: Git commit preparation failed: {err_msg.strip()}", file=sys.stderr)
+    elif agent_status != "PASS":
+        diff_stat = f"Commit skipped: worker status is {agent_status} (PASS required; ghost commits prohibited)."
+        print(f"Notice: Agent status is {agent_status}. Skipping git commit and push.", file=sys.stderr)
+    else:
+        diff_stat = "Commit skipped: No candidate files modified outside bootstrap scaffolding."
+        print("Notice: No candidate modifications outside bootstrap files; skipping git commit and push.", file=sys.stderr)
 
     if gcs_bucket:
         try:
@@ -474,6 +573,7 @@ directory = "vendor"
             push_target = "origin"
 
         try:
+            emit_milestone(task_index, "PUSHING_CANDIDATE")
             run_command(["git", "push", "-u", push_target, branch_name, "--force"], cwd=repo_dir, check=True)
             changes_pushed = True
         except subprocess.CalledProcessError as exc:
@@ -490,6 +590,7 @@ directory = "vendor"
                 file=sys.stderr,
             )
         else:
+            emit_milestone(task_index, "COMPLETE", "ISSUES")
             print(
                 f"[STATUS: ISSUES]\nEvidence: Git commit or push failed: {push_error.strip()}\nSummary: Agent completed execution but branch push failed.",
                 flush=True,
@@ -497,6 +598,7 @@ directory = "vendor"
             sys.exit(0)
 
     final_status = agent_status
+    emit_milestone(task_index, "COMPLETE", final_status)
     print("=" * 80)
     print(f"[STATUS: {final_status}]")
     print("Evidence:")

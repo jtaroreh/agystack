@@ -35,14 +35,54 @@ Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"
 
 ### Cloud Run Dispatch (N > 8 or Cloud Run Runtime)
 
-1. Write the array of task briefs to a JSON manifest:
-   `<appDataDir>/brain/<conversation-id>/scratch/swarm-<slug>/manifest.json`
-2. Launch cloud dispatch CLI:
+Cloud Run swarms enable parallel execution across dozens or hundreds of container tasks.
+
+**Quota & Auth Prerequisites:**
+- **Paid Tier API Key or Vertex AI:** Cloud Run swarms require either a paid Google AI Studio tier (Pay-as-you-go / Tier 1+) or verified Vertex AI permissions (`roles/aiplatform.user` on the target project). Free-tier API keys (5 RPM) are prohibited as parallel container workers will immediately exhaust quota and fail.
+- **Git Authentication:** A valid GitHub token (`gh auth token` or `GH_TOKEN` / `GITHUB_TOKEN`) with push access to the repository.
+
+**Dispatch Workflow:**
+
+1. **Prepare Task Manifest:**
+   Create a manifest JSON array at `<appDataDir>/brain/<conversation-id>/scratch/swarm-<slug>/manifest.json`.
+   The manifest supports both autonomous agent coding (`"type": "agent"`, default) and direct command execution (`"type": "command"` for sweeps/benchmarks), along with optional `"verify_command"` and `"candidate_files"`:
+   ```json
+   [
+     {
+       "task_index": 0,
+       "type": "agent",
+       "branch": "worker-0",
+       "brief": "Implement hypothesis A in src/ordering/mod.rs and verify with test suite.",
+       "verify_command": "cargo test --release",
+       "candidate_files": ["src/ordering/mod.rs"]
+     },
+     {
+       "task_index": 1,
+       "type": "command",
+       "command": "python3 evaluate_slice.py --slice 0..50"
+     }
+   ]
+   ```
+
+2. **Execute Active Pre-Flight Check:**
+   Run active pre-flight validation to ensure credentials, git remotes, and model endpoints are reachable before spinning up compute:
    ```bash
-   python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-path> --tasks <N> --parallelism 100
+   python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --preflight --model gemini-3.8-flash --vertex
+   ```
+   (Pre-flight runs automatically by default during dispatch unless `--no-preflight` is specified.)
+
+3. **Launch the Swarm & Monitor Real-Time Milestones:**
+   Launch cloud dispatch CLI:
+   ```bash
+   python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" \
+     --manifest <manifest-path> \
+     --tasks <N> \
+     --parallelism 100 \
+     --model gemini-3.8-flash \
+     --vertex
    ```
    Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`.
-3. The dispatcher automatically retrieves `GH_TOKEN` via `gh auth token`, configures authentication (`GEMINI_API_KEY` or Vertex AI IAM/ADC), executes the Cloud Run Job, and streams output.
+   The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job, streams real-time `[MILESTONE]` progress from Cloud Logging, and aggregates final candidate commits into a summary report.
 
 Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS|ISSUES|BLOCKED]` with evidence).
 

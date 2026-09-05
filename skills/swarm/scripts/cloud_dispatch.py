@@ -8,9 +8,13 @@ Constructs and executes gcloud run jobs execute, streams status, and aggregates 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -61,6 +65,28 @@ def get_gh_token() -> str:
     except Exception:
         pass
     return ""
+
+
+def build_authenticated_git_url(repo_url: str, gh_token: str) -> str:
+    repo_clean = repo_url.strip()
+    if repo_clean.startswith("git@github.com:"):
+        path = repo_clean[len("git@github.com:") :]
+        return f"https://x-access-token:{gh_token}@github.com/{path}"
+    if repo_clean.startswith("https://"):
+        parsed = urllib.parse.urlsplit(repo_clean)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            netloc = netloc.split("@")[-1]
+        return f"https://x-access-token:{gh_token}@{netloc}{parsed.path}"
+    if repo_clean.startswith("http://"):
+        parsed = urllib.parse.urlsplit(repo_clean)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            netloc = netloc.split("@")[-1]
+        return f"http://x-access-token:{gh_token}@{netloc}{parsed.path}"
+    if "/" in repo_clean and not repo_clean.startswith("/"):
+        return f"https://x-access-token:{gh_token}@github.com/{repo_clean.rstrip('.git')}.git"
+    return repo_clean
 
 
 def load_manifest(manifest_path_or_str: str) -> List[Any]:
@@ -155,6 +181,403 @@ def parse_worker_logs(log_output: str) -> List[Dict[str, Any]]:
     return results
 
 
+MILESTONE_REGEX = re.compile(
+    r"\[MILESTONE\]\s+\[TASK\s+(\d+)\]\s+\[PHASE:\s*([^\]]+)\](?:\s+(.*))?"
+)
+
+
+def parse_milestone_log(line: str) -> Optional[Dict[str, str]]:
+    m = MILESTONE_REGEX.search(line)
+    if not m:
+        return None
+    return {
+        "task_index": m.group(1),
+        "phase": m.group(2).strip(),
+        "detail": m.group(3).strip() if m.group(3) else "",
+    }
+
+
+def monitor_execution(
+    execution_name: str,
+    project: Optional[str],
+    region: str,
+    task_count: int,
+    poll_interval: float = 4,
+) -> Optional[Dict[str, Any]]:
+    seen_log_entries = set()
+    last_counts = None
+    desc_data: Optional[Dict[str, Any]] = None
+
+    while True:
+        try:
+            describe_cmd = [
+                "gcloud",
+                "run",
+                "jobs",
+                "executions",
+                "describe",
+                execution_name,
+                f"--region={region}",
+                "--format=json",
+            ]
+            if project:
+                describe_cmd.append(f"--project={project}")
+
+            res = subprocess.run(
+                describe_cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if res.returncode != 0:
+                time.sleep(poll_interval)
+                continue
+
+            desc_data = json.loads(res.stdout)
+            status = desc_data.get("status", {}) if isinstance(desc_data, dict) else {}
+
+            if task_count <= 4:
+                log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}"'
+                log_cmd = [
+                    "gcloud",
+                    "logging",
+                    "read",
+                    log_filter,
+                    "--limit=500",
+                    "--format=value(textPayload)",
+                    "--order=asc",
+                ]
+                if project:
+                    log_cmd.extend(["--project", project])
+
+                try:
+                    log_res = subprocess.run(
+                        log_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if log_res.returncode == 0 and log_res.stdout:
+                        for line in log_res.stdout.splitlines():
+                            line_str = line.strip()
+                            if not line_str:
+                                continue
+                            if line_str in seen_log_entries:
+                                continue
+                            if any(
+                                k in line_str
+                                for k in [
+                                    "[MILESTONE]",
+                                    "[STATUS:",
+                                    "PASS",
+                                    "ISSUES",
+                                    "BLOCKED",
+                                ]
+                            ):
+                                seen_log_entries.add(line_str)
+                                print(line_str, flush=True)
+                except Exception:
+                    pass
+            else:
+                succeeded = status.get("succeededCount", 0)
+                running = status.get("runningCount", 0)
+                failed = status.get("failedCount", 0)
+                current_counts = (succeeded, running, failed)
+                if current_counts != last_counts:
+                    last_counts = current_counts
+                    print(
+                        f"[Cloud Swarm] Progress: {succeeded}/{task_count} succeeded, {running} running, {failed} failed.",
+                        flush=True,
+                    )
+
+            conditions = status.get("conditions", []) if isinstance(status, dict) else []
+            is_completed = False
+            for cond in conditions:
+                if isinstance(cond, dict) and cond.get("type") == "Completed":
+                    c_status = str(cond.get("status", "")).strip()
+                    if c_status in ("True", "False"):
+                        is_completed = True
+                        break
+
+            if is_completed:
+                if task_count <= 4:
+                    log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}"'
+                    log_cmd = [
+                        "gcloud",
+                        "logging",
+                        "read",
+                        log_filter,
+                        "--limit=500",
+                        "--format=value(textPayload)",
+                        "--order=asc",
+                    ]
+                    if project:
+                        log_cmd.extend(["--project", project])
+                    try:
+                        log_res = subprocess.run(
+                            log_cmd,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        if log_res.returncode == 0 and log_res.stdout:
+                            for line in log_res.stdout.splitlines():
+                                line_str = line.strip()
+                                if not line_str or line_str in seen_log_entries:
+                                    continue
+                                if any(
+                                    k in line_str
+                                    for k in [
+                                        "[MILESTONE]",
+                                        "[STATUS:",
+                                        "PASS",
+                                        "ISSUES",
+                                        "BLOCKED",
+                                    ]
+                                ):
+                                    seen_log_entries.add(line_str)
+                                    print(line_str, flush=True)
+                    except Exception:
+                        pass
+                break
+
+        except Exception:
+            pass
+
+        time.sleep(poll_interval)
+
+    return desc_data
+
+
+def run_preflight(
+    repo_url: str,
+    gh_token: str,
+    use_vertex: bool,
+    gemini_api_key: str,
+    project: Optional[str],
+    region: str,
+    model: str,
+    dry_run: bool = False,
+    vertex_location: Optional[str] = None,
+) -> None:
+    print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, and repository access...", flush=True)
+
+    if not vertex_location:
+        vertex_location = "global" if model.startswith("gemini-3") else region
+
+    # 1. Git Authentication & Repository Accessibility Check
+    if not repo_url:
+        raise RuntimeError("Git repo URL could not be determined.")
+
+    if not gh_token:
+        raise RuntimeError(
+            "GH_TOKEN could not be resolved from environment or `gh auth token`.\n"
+            "Cloud swarm workers require a valid GitHub token to clone and push candidate branches."
+        )
+
+    auth_url = build_authenticated_git_url(repo_url, gh_token)
+    try:
+        subprocess.run(
+            ["git", "ls-remote", auth_url, "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
+        )
+        print(f"  [PASS] Git remote authentication & repository accessibility verified ({repo_url}).")
+    except subprocess.CalledProcessError as exc:
+        err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
+        raise RuntimeError(
+            f"Git repository accessibility check failed for '{repo_url}'.\n"
+            f"git ls-remote exited with code {exc.returncode}: {err_msg.strip()}\n"
+            "Please verify GH_TOKEN permissions and repository URL."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Timed out connecting to git repository '{repo_url}'.") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Git remote accessibility error: {exc}") from exc
+
+    # 2. Model & Quota Tier Check
+    if use_vertex:
+        token_cmd = subprocess.run(
+            ["gcloud", "auth", "print-access-token"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if token_cmd.returncode != 0 or not token_cmd.stdout.strip():
+            raise RuntimeError(
+                "Failed to obtain gcloud access token for Vertex AI mode.\n"
+                f"gcloud error: {token_cmd.stderr.strip()}\n"
+                "Run `gcloud auth login` or `gcloud auth application-default login`."
+            )
+        access_token = token_cmd.stdout.strip()
+
+        if not project:
+            raise RuntimeError(
+                "GCP project ID is required for Vertex AI mode (--project or agystack-runtime.json)."
+            )
+
+        if vertex_location == "global":
+            probe_url = f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/google/models/{model}:generateContent"
+        else:
+            probe_url = f"https://{vertex_location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{vertex_location}/publishers/google/models/{model}:generateContent"
+        req_data = json.dumps({
+            "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+            "generationConfig": {"maxOutputTokens": 1},
+        }).encode("utf-8")
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "X-Goog-User-Project": project,
+        }
+        req = urllib.request.Request(
+            probe_url,
+            data=req_data,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                pass
+            print(f"  [PASS] Vertex AI credentials and publisher model '{model}' verified in {vertex_location} (project: {project}).")
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 403:
+                raise RuntimeError(
+                    f"Vertex AI probe returned 403 Forbidden for project '{project}' in location '{vertex_location}'.\n"
+                    f"Server Response:\n{err_body}\n"
+                    "Required Permissions:\n"
+                    "- Ensure active principal has the 'Vertex AI User' role (roles/aiplatform.user).\n"
+                    f"- Ensure Vertex AI API (aiplatform.googleapis.com) is enabled on project '{project}'."
+                ) from exc
+            elif exc.code == 404:
+                raise RuntimeError(
+                    f"Vertex AI publisher model '{model}' not found in location '{vertex_location}' (404 Not Found).\n"
+                    f"Server Response:\n{err_body}\n"
+                    f"Verify that model '{model}' is supported and published in location '{vertex_location}'."
+                ) from exc
+            else:
+                raise RuntimeError(
+                    f"Vertex AI probe failed with HTTP {exc.code} for project '{project}' in location '{vertex_location}':\n{err_body}"
+                ) from exc
+        except Exception as exc:
+            if isinstance(exc, RuntimeError):
+                raise
+            raise RuntimeError(f"Vertex AI connection error: {exc}") from exc
+    else:
+        if not gemini_api_key:
+            if dry_run:
+                print("  [DRY-RUN] GEMINI_API_KEY not set; skipping live quota ping during dry-run.")
+                return
+            raise RuntimeError(
+                "GEMINI_API_KEY environment variable is required when not in Vertex AI mode."
+            )
+
+        probe_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_api_key}"
+        req_data = json.dumps({
+            "contents": [{"parts": [{"text": "ping"}]}],
+            "generationConfig": {"maxOutputTokens": 1},
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            probe_url,
+            data=req_data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        free_tier_indicators = [
+            "freetier",
+            "free_tier",
+            "free-tier",
+            "free_tier_requests",
+            "5 rpm",
+            "5rpm",
+            "rate limit <= 5 rpm",
+            "5 requests per minute",
+        ]
+
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                resp_text = resp.read().decode("utf-8", errors="replace")
+                combined = (resp_text + " " + str(resp.headers)).lower()
+                matched = next((ind for ind in free_tier_indicators if ind in combined), None)
+                if matched:
+                    raise RuntimeError(
+                        f"Free-tier Gemini API key detected ('{matched}' found in response).\n"
+                        "Free-tier keys are limited to 5 requests per minute (RPM) and cannot support parallel swarms.\n"
+                        "Cloud Run swarms require a paid Google AI Studio tier (Pay-as-you-go / Tier 1+) or Vertex AI (--vertex)."
+                    )
+            print(f"  [PASS] Gemini API key validated (paid tier / model '{model}' accessible).")
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="replace")
+            combined_err = (err_body + " " + str(exc.headers)).lower()
+            matched = next((ind for ind in free_tier_indicators if ind in combined_err), None)
+            if matched or exc.code == 429:
+                detail_msg = f" ('{matched}' detected)" if matched else ""
+                raise RuntimeError(
+                    f"Gemini API rate-limit/quota restriction detected{detail_msg} (HTTP {exc.code}).\n"
+                    f"Details:\n{err_body}\n"
+                    "Free-tier API keys (5 RPM) cannot support parallel swarms.\n"
+                    "Upgrade your Google AI Studio key to paid/unmetered billing (Pay-as-you-go / Tier 1+) or use Vertex AI (--vertex)."
+                ) from exc
+            else:
+                raise RuntimeError(
+                    f"Gemini API request failed with HTTP {exc.code}:\n{err_body}"
+                ) from exc
+        except Exception as exc:
+            if isinstance(exc, RuntimeError):
+                raise
+            raise RuntimeError(f"Gemini API ping failed: {exc}") from exc
+
+
+def resolve_swarm_model(
+    cli_model: Optional[str] = None,
+    runtime_model: Optional[str] = None,
+    agystack_models_path: Optional[Path] = None,
+) -> str:
+    if cli_model and cli_model.strip():
+        chosen = cli_model.strip()
+    elif runtime_model and runtime_model.strip() and runtime_model.strip().lower() != "inherit":
+        chosen = runtime_model.strip()
+    else:
+        role_model = None
+        paths_to_check = [
+            agystack_models_path,
+            Path("agystack-models.md"),
+            Path("rules/agystack-models.md"),
+            Path(".agents/plugins/agystack/rules/agystack-models.md"),
+            Path(os.path.expanduser("~/.gemini/config/plugins/agystack/rules/agystack-models.md")),
+        ]
+        for p in paths_to_check:
+            if p and p.is_file():
+                try:
+                    for line in p.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if line.startswith("#") or not line:
+                            continue
+                        if ":" in line:
+                            role, m = line.split(":", 1)
+                            if "swarm worker" in role.lower():
+                                role_model = m.strip().split(",")[0].strip()
+                                break
+                    if role_model:
+                        break
+                except Exception:
+                    pass
+        chosen = role_model or "inherit"
+
+    tier_map = {
+        "inherit": "gemini-3.8-flash",
+        "flash": "gemini-3.8-flash",
+        "pro": "gemini-3.1-pro",
+        "flash_lite": "gemini-3.1-flash-lite",
+    }
+    return tier_map.get(chosen.lower(), chosen)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dispatch parallel Cloud Run swarm workers.")
     parser.add_argument("--manifest", type=str, help="Path to manifest JSON or JSON string.")
@@ -168,8 +591,11 @@ def main() -> None:
     parser.add_argument("--job-name", type=str, help="Cloud Run Job name.")
     parser.add_argument("--region", type=str, help="GCP region (e.g. us-central1).")
     parser.add_argument("--project", type=str, help="GCP project ID.")
-    parser.add_argument("--model", type=str, help="Model override for workers.")
+    parser.add_argument("--model", type=str, help="Model override for workers (default: inherit).")
     parser.add_argument("--vertex", action="store_true", help="Enable Vertex AI mode.")
+    parser.add_argument("--vertex-location", type=str, default=None, help="Vertex AI location (e.g. global or us-central1).")
+    parser.add_argument("--preflight", action="store_true", help="Run pre-flight quota, auth, and git connectivity checks.")
+    parser.add_argument("--no-preflight", action="store_true", help="Skip pre-flight checks.")
     parser.add_argument("--dry-run", action="store_true", help="Print payload and command without executing.")
     parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion.")
     parser.set_defaults(wait=True)
@@ -182,19 +608,42 @@ def main() -> None:
     project = args.project or runtime_cfg.get("project_id")
     parallelism = args.parallelism if args.parallelism != 100 else runtime_cfg.get("parallelism", 100)
     use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
-    model = args.model or runtime_cfg.get("model") or "gemini-3.8-flash"
+    model = resolve_swarm_model(cli_model=args.model, runtime_model=runtime_cfg.get("model"))
+    vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith("gemini-3") else region)
 
     repo_url = args.repo or get_git_remote_url()
+    gh_token = get_gh_token()
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+
+    should_run_preflight = args.preflight or (not args.no_preflight and not args.dry_run)
+    if should_run_preflight:
+        try:
+            run_preflight(
+                repo_url=repo_url,
+                gh_token=gh_token,
+                use_vertex=use_vertex,
+                gemini_api_key=gemini_api_key,
+                project=project,
+                region=region,
+                model=model,
+                dry_run=args.dry_run,
+                vertex_location=vertex_location,
+            )
+        except RuntimeError as exc:
+            print(f"Error [Pre-Flight]: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if args.preflight and not args.dry_run:
+            print("Pre-flight checks passed successfully.")
+            return
+
     if not repo_url:
         print("Error: Git repo URL not provided and could not be inferred from remote.origin.url", file=sys.stderr)
         sys.exit(1)
 
-    gh_token = get_gh_token()
     if not gh_token:
         print("Error: GH_TOKEN could not be resolved from environment or `gh auth token`", file=sys.stderr)
         sys.exit(1)
 
-    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not use_vertex and not gemini_api_key and not args.dry_run:
         print("Error: GEMINI_API_KEY environment variable is required when not in Vertex AI mode.", file=sys.stderr)
         sys.exit(1)
@@ -228,8 +677,7 @@ def main() -> None:
         env_vars["USE_VERTEX_AI"] = "1"
         if project:
             env_vars["VERTEXAI_PROJECT"] = project
-        if region:
-            env_vars["VERTEXAI_LOCATION"] = region
+        env_vars["VERTEXAI_LOCATION"] = vertex_location
 
     gcs_bucket = args.gcs_bucket or runtime_cfg.get("gcs_bucket", "")
     gcs_prefix = args.gcs_prefix or runtime_cfg.get("gcs_prefix", "")
@@ -243,14 +691,14 @@ def main() -> None:
     if model:
         env_vars["MODEL_OVERRIDE"] = model
 
-    gcloud_cmd = build_gcloud_command(
+    dispatch_cmd = build_gcloud_command(
         job_name=job_name,
         tasks_count=task_count,
         parallelism=parallelism,
         region=region,
         project=project,
         env_vars=env_vars,
-        wait=args.wait,
+        wait=False,
     )
 
     if args.dry_run:
@@ -283,12 +731,11 @@ def main() -> None:
     print(f"Launching Cloud Run Job '{job_name}' with {task_count} tasks (parallelism: {parallelism})...")
     try:
         proc = subprocess.run(
-            gcloud_cmd,
+            dispatch_cmd,
             capture_output=True,
             text=True,
             check=True,
         )
-        print("Job execution completed successfully.")
 
         execution_name = None
         if proc.stdout:
@@ -298,6 +745,28 @@ def main() -> None:
                     execution_name = json_data.get("metadata", {}).get("name") or json_data.get("name")
             except Exception:
                 pass
+        if not execution_name:
+            m = re.search(r"\[([a-zA-Z0-9_\-]+)\]", proc.stderr + " " + proc.stdout)
+            if m:
+                execution_name = m.group(1)
+
+        if not args.wait:
+            if execution_name:
+                print(f"Execution: {execution_name}")
+            else:
+                print("Dispatched Cloud Run Job execution asynchronously.")
+            return
+
+        if execution_name:
+            print(f"Monitoring execution '{execution_name}' in region '{region}'...")
+            monitor_execution(
+                execution_name=execution_name,
+                project=project,
+                region=region,
+                task_count=task_count,
+            )
+
+        print("Job execution completed successfully.")
 
         logs_content = proc.stdout + "\n" + proc.stderr
         log_cmd_str = ""
@@ -335,7 +804,7 @@ def main() -> None:
                     print(f"Warning: Failed to fetch container logs: {exc}", file=sys.stderr)
 
         parsed_results = parse_worker_logs(logs_content)
-        
+
         print("\n" + "=" * 80)
         print(f"SWARM EXECUTION REPORT: {job_name}")
         print("=" * 80)

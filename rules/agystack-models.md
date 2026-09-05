@@ -20,7 +20,7 @@ reflect tooling: inherit
 reflect judgment, divergent, synthesizer: inherit
 arena runners: inherit, flash, pro
 arena cross-judge pool: inherit, flash, pro
-swarm workers: flash
+swarm workers: inherit
 architect runners: inherit, flash, pro
 interrogate reviewers: inherit, flash, pro
 

@@ -8,4 +8,8 @@ bun.lock
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+vendor_cache/
+vendor/
+agystack-runtime.json
 
