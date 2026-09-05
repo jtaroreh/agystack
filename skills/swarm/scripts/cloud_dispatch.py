@@ -118,9 +118,11 @@ def build_gcloud_command(
     project: Optional[str],
     env_vars: Dict[str, str],
     wait: bool = True,
+    max_retries: int = 0,
 ) -> List[str]:
     cmd = ["gcloud", "run", "jobs", "execute", job_name]
     cmd.append(f"--tasks={tasks_count}")
+    cmd.append(f"--max-retries={max_retries}")
     cmd.append(f"--region={region}")
     if project:
         cmd.append(f"--project={project}")
@@ -588,6 +590,7 @@ def main() -> None:
     parser.add_argument("--repo", type=str, help="Git repository URL.")
     parser.add_argument("--tasks", type=int, help="Task count override.")
     parser.add_argument("--parallelism", type=int, default=100, help="Concurrency limit (default: 100).")
+    parser.add_argument("--max-retries", type=int, default=0, help="Max retry attempts per task (default: 0 for fast fail).")
     parser.add_argument("--job-name", type=str, help="Cloud Run Job name.")
     parser.add_argument("--region", type=str, help="GCP region (e.g. us-central1).")
     parser.add_argument("--project", type=str, help="GCP project ID.")
@@ -699,6 +702,7 @@ def main() -> None:
         project=project,
         env_vars=env_vars,
         wait=False,
+        max_retries=args.max_retries,
     )
 
     if args.dry_run:
@@ -715,11 +719,13 @@ def main() -> None:
             project=project,
             env_vars=display_env,
             wait=args.wait,
+            max_retries=args.max_retries,
         )
         payload = {
             "job_name": job_name,
             "tasks_count": task_count,
             "parallelism": parallelism,
+            "max_retries": args.max_retries,
             "region": region,
             "project": project,
             "env_vars": display_env,

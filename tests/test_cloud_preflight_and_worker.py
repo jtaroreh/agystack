@@ -139,10 +139,12 @@ Optimized Subtree Round 5 gating successfully.
             project="test-project",
             env_vars={"KEY1": "VAL1"},
             wait=False,
+            max_retries=0,
         )
         self.assertIn("--async", cmd_async)
         self.assertNotIn("--wait", cmd_async)
         self.assertIn("--tasks=4", cmd_async)
+        self.assertIn("--max-retries=0", cmd_async)
 
         cmd_sync = build_gcloud_command(
             job_name="test-swarm-job",
@@ -152,9 +154,11 @@ Optimized Subtree Round 5 gating successfully.
             project="test-project",
             env_vars={"KEY1": "VAL1"},
             wait=True,
+            max_retries=2,
         )
         self.assertIn("--wait", cmd_sync)
         self.assertNotIn("--async", cmd_sync)
+        self.assertIn("--max-retries=2", cmd_sync)
 
     @patch("subprocess.run")
     def test_monitor_execution_under_threshold(self, mock_subproc):
