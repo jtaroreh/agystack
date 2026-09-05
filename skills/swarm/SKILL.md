@@ -71,26 +71,27 @@ Cloud Run swarms enable parallel execution across dozens or hundreds of containe
    ```
    (Pre-flight runs automatically by default during dispatch unless `--no-preflight` is specified.)
 
-3. **Launch the Swarm & Monitor Real-Time Milestones:**
-   Launch cloud dispatch CLI:
+3. **Launch the Swarm & Stream Real-Time Milestones:**
+   Launch cloud dispatch CLI with unbuffered streaming and zero retries to fail broken hypotheses fast:
    ```bash
    python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" \
      --manifest <manifest-path> \
      --tasks <N> \
      --parallelism 100 \
+     --max-retries 0 \
      --model gemini-3.8-flash \
      --vertex
    ```
    Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`.
-   The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job, streams real-time `[MILESTONE]` progress from Cloud Logging, and aggregates final candidate commits into a summary report.
+   The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job with `--max-retries 0`, streams real-time unbuffered `[MILESTONE]` execution progress directly to stdout as events occur, and aggregates final candidate commits into a summary report. Dispatchers and coordinators must never block passively on buffered command execution.
 
 Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS|ISSUES|BLOCKED]` with evidence).
 
-## Phase C: Aggregate
+## Phase C: Aggregate & Early Harvest
 
 1. For local workers: collect terminal reports from `invoke_subagent`.
-2. For cloud workers: `cloud_dispatch.py` parses structured container logs and provides an aggregated status table. Fetch worker branches (`git fetch origin`) to inspect code changes on `worker-{task_index}`.
-3. Apply selection rule (first pass, rank all, best-of).
+2. For cloud workers: `cloud_dispatch.py` parses structured container logs and provides an aggregated status table. Actively poll and fetch remote worker branches as tasks progress (`git fetch origin "refs/heads/worker-*:refs/remotes/origin/worker-*"`) and inspect storage manifests (`gs://<bucket>/task-*`).
+3. Apply selection rule (first pass, rank all, best-of) with early candidate evaluation: evaluate winning branches as soon as they appear without waiting for 100% completion or hanging stragglers.
 4. Build a compact result table, one-line evidenced issues, and explicit dropouts.
 
 ## Phase D: Report
