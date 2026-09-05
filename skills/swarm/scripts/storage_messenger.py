@@ -12,6 +12,9 @@ import os
 from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional, Union
+import urllib.error
+import urllib.parse
+import urllib.request
 
 
 class MessageType(str, Enum):
@@ -81,6 +84,86 @@ class MailboxEnvelope:
     @classmethod
     def from_json(cls, json_str: str) -> "MailboxEnvelope":
         return cls.from_dict(json.loads(json_str))
+
+
+class _GcsRestBlob:
+    def __init__(self, bucket_name: str, name: str, token: str):
+        self.bucket_name = bucket_name
+        self.name = name.replace("\\", "/")
+        self.token = token
+
+    def exists(self) -> bool:
+        encoded_bkt = urllib.parse.quote(self.bucket_name, safe="")
+        encoded_name = urllib.parse.quote(self.name, safe="")
+        url = f"https://storage.googleapis.com/storage/v1/b/{encoded_bkt}/o/{encoded_name}"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status == 200
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return False
+            return False
+        except Exception:
+            return False
+
+    def upload_from_string(self, data: str, content_type: str = "application/json") -> None:
+        encoded_bkt = urllib.parse.quote(self.bucket_name, safe="")
+        encoded_name = urllib.parse.quote(self.name, safe="")
+        url = f"https://storage.googleapis.com/upload/storage/v1/b/{encoded_bkt}/o?uploadType=media&name={encoded_name}"
+        req = urllib.request.Request(
+            url,
+            data=data.encode("utf-8"),
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": content_type},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if resp.status not in (200, 201):
+                raise RuntimeError(f"GCS upload failed with status {resp.status}")
+
+    def download_as_text(self) -> str:
+        encoded_bkt = urllib.parse.quote(self.bucket_name, safe="")
+        encoded_name = urllib.parse.quote(self.name, safe="")
+        url = f"https://storage.googleapis.com/storage/v1/b/{encoded_bkt}/o/{encoded_name}?alt=media"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="GET")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.read().decode("utf-8")
+
+
+class _GcsRestBucket:
+    def __init__(self, name: str, token: str):
+        self.name = name
+        self.token = token
+
+    def blob(self, name: str) -> _GcsRestBlob:
+        return _GcsRestBlob(self.name, name, self.token)
+
+    def list_blobs(self, prefix: str = "") -> List[_GcsRestBlob]:
+        encoded_bkt = urllib.parse.quote(self.name, safe="")
+        url = f"https://storage.googleapis.com/storage/v1/b/{encoded_bkt}/o"
+        if prefix:
+            encoded_prefix = urllib.parse.quote(prefix, safe="")
+            url += f"?prefix={encoded_prefix}"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                items = data.get("items", [])
+                blobs = []
+                for it in items:
+                    name = it.get("name", "")
+                    blobs.append(_GcsRestBlob(self.name, name, self.token))
+                return sorted(blobs, key=lambda b: b.name)
+        except Exception:
+            return []
+
+
+class _GcsRestClient:
+    def __init__(self, token: str):
+        self.token = token
+
+    def bucket(self, name: str) -> _GcsRestBucket:
+        return _GcsRestBucket(name, self.token)
 
 
 class _LocalBlob:
@@ -164,8 +247,17 @@ class StorageMessenger:
                 from google.cloud import storage
                 self.client = storage.Client()
             except Exception:
-                import tempfile
-                self.client = _LocalClient(Path(tempfile.gettempdir()) / "agystack_storage")
+                token = None
+                try:
+                    import storage_uploader
+                    token = storage_uploader.get_oauth_token()
+                except Exception:
+                    pass
+                if token:
+                    self.client = _GcsRestClient(token)
+                else:
+                    import tempfile
+                    self.client = _LocalClient(Path(tempfile.gettempdir()) / "agystack_storage")
 
         self.bucket = self.client.bucket(self.bucket_name)
 

@@ -40,6 +40,7 @@ RUN pip install --no-cache-dir google-antigravity google-cloud-storage google-cl
 
 COPY cloud_worker.py /app/cloud_worker.py
 COPY storage_uploader.py /app/storage_uploader.py
+COPY storage_messenger.py /app/storage_messenger.py
 
 RUN mkdir -p /workspace \
     && chown -R worker:worker /workspace /app
