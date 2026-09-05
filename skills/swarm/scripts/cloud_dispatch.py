@@ -18,6 +18,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    from storage_messenger import StorageMessenger
+except ImportError:
+    StorageMessenger = None
+
 
 def find_runtime_config() -> Optional[Dict[str, Any]]:
     paths_to_check = [
@@ -277,7 +282,10 @@ def monitor_execution(
                                 ]
                             ):
                                 seen_log_entries.add(line_str)
-                                print(line_str, flush=True)
+                                if "WAITING_FOR_ORCHESTRATOR" in line_str:
+                                    print(f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<", flush=True)
+                                else:
+                                    print(line_str, flush=True)
                 except Exception:
                     pass
             else:
@@ -580,6 +588,86 @@ def resolve_swarm_model(
     return tier_map.get(chosen.lower(), chosen)
 
 
+def handle_mailbox_list(
+    session_id: str,
+    bucket_name: Optional[str] = None,
+    messenger: Optional[Any] = None,
+) -> List[Any]:
+    if messenger is None:
+        if not bucket_name:
+            runtime_cfg = find_runtime_config() or {}
+            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        if not bucket_name:
+            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
+            sys.exit(1)
+        if StorageMessenger is None:
+            print("Error: StorageMessenger is not available", file=sys.stderr)
+            sys.exit(1)
+        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
+
+    pending = messenger.list_pending_questions()
+    if not pending:
+        print(f"No pending questions for session '{session_id}'.")
+    else:
+        print(f"\nPending questions for session '{session_id}':")
+        print(f"{'TASK':<6} | {'SEQ':<5} | {'TIMESTAMP':<20} | {'QUESTION'}")
+        print("-" * 75)
+        for q in pending:
+            q_text = q.payload.get("question", "")
+            ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(q.timestamp))
+            print(f"{q.task_index:<6} | {q.seq:<5} | {ts_str:<20} | {q_text}")
+    return pending
+
+
+def handle_mailbox_reply(
+    task_index: int,
+    seq: int,
+    text: str,
+    session_id: str,
+    bucket_name: Optional[str] = None,
+    messenger: Optional[Any] = None,
+) -> Any:
+    if messenger is None:
+        if not bucket_name:
+            runtime_cfg = find_runtime_config() or {}
+            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        if not bucket_name:
+            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
+            sys.exit(1)
+        if StorageMessenger is None:
+            print("Error: StorageMessenger is not available", file=sys.stderr)
+            sys.exit(1)
+        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
+
+    reply_env = messenger.send_reply(task_index=task_index, seq=seq, reply_text=text)
+    print(f"Reply sent to task {task_index} (seq {seq}): {text}")
+    return reply_env
+
+
+def handle_mailbox_steer(
+    task_index: int,
+    text: str,
+    session_id: str,
+    bucket_name: Optional[str] = None,
+    messenger: Optional[Any] = None,
+) -> Any:
+    if messenger is None:
+        if not bucket_name:
+            runtime_cfg = find_runtime_config() or {}
+            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        if not bucket_name:
+            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
+            sys.exit(1)
+        if StorageMessenger is None:
+            print("Error: StorageMessenger is not available", file=sys.stderr)
+            sys.exit(1)
+        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
+
+    steer_env = messenger.send_steer(task_index=task_index, instruction=text)
+    print(f"Steer instruction sent to task {task_index} (seq {steer_env.seq}): {text}")
+    return steer_env
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dispatch parallel Cloud Run swarm workers.")
     parser.add_argument("--manifest", type=str, help="Path to manifest JSON or JSON string.")
@@ -601,9 +689,49 @@ def main() -> None:
     parser.add_argument("--no-preflight", action="store_true", help="Skip pre-flight checks.")
     parser.add_argument("--dry-run", action="store_true", help="Print payload and command without executing.")
     parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion.")
+    parser.add_argument("--session", "--session-id", dest="session_id", type=str, help="Swarm session ID (default: swarm-<timestamp>).")
+    parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
     parser.set_defaults(wait=True)
 
+    subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
+    mailbox_parser = subparsers.add_parser("mailbox", help="Interact with worker mailboxes")
+    mailbox_subparsers = mailbox_parser.add_subparsers(dest="mailbox_action", help="Mailbox action")
+
+    # mailbox list
+    list_p = mailbox_subparsers.add_parser("list", help="List pending questions across workers")
+    list_p.add_argument("--session", type=str, help="Session ID")
+    list_p.add_argument("--gcs-bucket", type=str, help="GCS bucket name")
+
+    # mailbox reply
+    reply_p = mailbox_subparsers.add_parser("reply", help="Reply to a worker question")
+    reply_p.add_argument("--task", type=int, required=True, help="Task index")
+    reply_p.add_argument("--seq", type=int, required=True, help="Sequence number of the question")
+    reply_p.add_argument("--text", type=str, required=True, help="Reply text")
+    reply_p.add_argument("--session", type=str, help="Session ID")
+    reply_p.add_argument("--gcs-bucket", type=str, help="GCS bucket name")
+
+    # mailbox steer
+    steer_p = mailbox_subparsers.add_parser("steer", help="Send a steering instruction to a worker")
+    steer_p.add_argument("--task", type=int, required=True, help="Task index")
+    steer_p.add_argument("--text", type=str, required=True, help="Steering instruction text")
+    steer_p.add_argument("--session", type=str, help="Session ID")
+    steer_p.add_argument("--gcs-bucket", type=str, help="GCS bucket name")
+
     args = parser.parse_args()
+
+    if args.subcommand == "mailbox":
+        runtime_cfg = find_runtime_config() or {}
+        session_id = args.session or os.environ.get("SWARM_SESSION_ID") or os.environ.get("SESSION_ID") or "default"
+        bkt = args.gcs_bucket or runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        if args.mailbox_action == "list":
+            handle_mailbox_list(session_id=session_id, bucket_name=bkt)
+        elif args.mailbox_action == "reply":
+            handle_mailbox_reply(task_index=args.task, seq=args.seq, text=args.text, session_id=session_id, bucket_name=bkt)
+        elif args.mailbox_action == "steer":
+            handle_mailbox_steer(task_index=args.task, text=args.text, session_id=session_id, bucket_name=bkt)
+        else:
+            mailbox_parser.print_help()
+        return
 
     runtime_cfg = find_runtime_config() or {}
     job_name = args.job_name or runtime_cfg.get("job_name") or "agystack-swarm-worker"
@@ -682,9 +810,16 @@ def main() -> None:
             env_vars["VERTEXAI_PROJECT"] = project
         env_vars["VERTEXAI_LOCATION"] = vertex_location
 
+    session_id = args.session_id or f"swarm-{int(time.time())}"
+    env_vars["SWARM_SESSION_ID"] = session_id
+    env_vars["SESSION_ID"] = session_id
+    if args.orchestrator_timeout:
+        env_vars["ORCHESTRATOR_TIMEOUT"] = str(args.orchestrator_timeout)
+
     gcs_bucket = args.gcs_bucket or runtime_cfg.get("gcs_bucket", "")
     gcs_prefix = args.gcs_prefix or runtime_cfg.get("gcs_prefix", "")
     if gcs_bucket:
+        env_vars["GCS_BUCKET"] = gcs_bucket
         env_vars["GCS_RESULTS_BUCKET"] = gcs_bucket
         if gcs_prefix:
             env_vars["GCS_PREFIX"] = gcs_prefix

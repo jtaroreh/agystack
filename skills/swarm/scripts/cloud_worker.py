@@ -17,12 +17,42 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from storage_messenger import StorageMessenger
+except ImportError:
+    StorageMessenger = None
+
 
 def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     msg = f"[MILESTONE] [TASK {task_index}] [PHASE: {phase}]"
     if detail:
         msg += f" {detail}"
     print(msg, flush=True)
+
+
+def create_ask_orchestrator_tool(
+    messenger: Any,
+    task_index: int,
+    timeout_seconds: float = 600.0,
+):
+    async def ask_orchestrator(question: str, context: str = "") -> str:
+        emit_milestone(task_index, "WAITING_FOR_ORCHESTRATOR", question[:80])
+        envelope = messenger.send_question(question=question, context=context)
+        reply = messenger.wait_for_reply(seq=envelope.seq, timeout_seconds=timeout_seconds)
+        if reply is None:
+            emit_milestone(
+                task_index,
+                "ORCHESTRATOR_TIMEOUT",
+                f"Seq {envelope.seq} timed out. Proceeding autonomously.",
+            )
+            return (
+                "Orchestrator did not respond within timeout. "
+                "Use your best autonomous judgment and document your assumptions."
+            )
+        emit_milestone(task_index, "ORCHESTRATOR_REPLY_RECEIVED", f"Seq {envelope.seq}")
+        return reply
+
+    return ask_orchestrator
 
 
 def get_env_var(name: str, default: Optional[str] = None, required: bool = False) -> str:
@@ -243,6 +273,8 @@ def execute_task(
     project: Optional[str] = None,
     location: Optional[str] = None,
     task_index: int = 0,
+    messenger: Optional[Any] = None,
+    orchestrator_timeout: float = 600.0,
 ) -> Tuple[str, str]:
     task_type = "agent"
     if isinstance(task_item, dict):
@@ -286,6 +318,24 @@ def execute_task(
         resolved_model = model_override.strip() if model_override.strip() else "gemini-3.8-flash"
         policies = [policy.allow_all()]
 
+        custom_tools = []
+        if messenger:
+            ask_tool = create_ask_orchestrator_tool(
+                messenger=messenger,
+                task_index=task_index,
+                timeout_seconds=orchestrator_timeout,
+            )
+            custom_tools.append(ask_tool)
+
+        config_kwargs = {
+            "model": resolved_model,
+            "capabilities": capabilities,
+            "workspace_dir": str(repo_dir),
+            "policies": policies,
+        }
+        if custom_tools:
+            config_kwargs["custom_tools"] = custom_tools
+
         if use_vertex:
             resolved_project = (
                 project
@@ -300,35 +350,19 @@ def execute_task(
                 or os.environ.get("REGION")
                 or "us-central1"
             )
+            config_kwargs["vertex"] = True
+            config_kwargs["project"] = resolved_project
+            config_kwargs["location"] = resolved_location
             if api_key:
-                config = LocalAgentConfig(
-                    model=resolved_model,
-                    capabilities=capabilities,
-                    workspace_dir=str(repo_dir),
-                    vertex=True,
-                    api_key=api_key,
-                    project=resolved_project,
-                    location=resolved_location,
-                    policies=policies,
-                )
-            else:
-                config = LocalAgentConfig(
-                    model=resolved_model,
-                    capabilities=capabilities,
-                    workspace_dir=str(repo_dir),
-                    vertex=True,
-                    project=resolved_project,
-                    location=resolved_location,
-                    policies=policies,
-                )
+                config_kwargs["api_key"] = api_key
         else:
-            config = LocalAgentConfig(
-                model=resolved_model,
-                capabilities=capabilities,
-                workspace_dir=str(repo_dir),
-                policies=policies,
-                api_key=api_key,
-            )
+            config_kwargs["api_key"] = api_key
+
+        try:
+            config = LocalAgentConfig(**config_kwargs)
+        except TypeError:
+            config_kwargs.pop("custom_tools", None)
+            config = LocalAgentConfig(**config_kwargs)
 
         async def _run_agent_turn() -> str:
             async with Agent(config=config) as agent:
@@ -442,6 +476,33 @@ def main() -> None:
                 print(f"Bootstrap hook {hook.name} completed successfully.", flush=True)
             break
 
+    gcs_bucket = (
+        os.environ.get("GCS_BUCKET", "").strip()
+        or os.environ.get("GCS_RESULTS_BUCKET", "").strip()
+    )
+    session_id = (
+        os.environ.get("SWARM_SESSION_ID", "").strip()
+        or os.environ.get("SESSION_ID", "").strip()
+        or "default"
+    )
+    timeout_str = os.environ.get("ORCHESTRATOR_TIMEOUT", "").strip()
+    try:
+        orchestrator_timeout = float(timeout_str) if timeout_str else 600.0
+    except ValueError:
+        orchestrator_timeout = 600.0
+
+    messenger = None
+    if gcs_bucket and StorageMessenger is not None:
+        try:
+            messenger = StorageMessenger(
+                bucket_name=gcs_bucket,
+                session_id=session_id,
+                task_index=task_index,
+                is_worker=True,
+            )
+        except Exception as exc:
+            print(f"Warning: Failed to initialize StorageMessenger: {exc}", file=sys.stderr)
+
     agent_status, agent_summary = execute_task(
         task_item=task_item,
         task_brief=task_brief,
@@ -452,6 +513,8 @@ def main() -> None:
         project=project,
         location=location,
         task_index=task_index,
+        messenger=messenger,
+        orchestrator_timeout=orchestrator_timeout,
     )
 
     if agent_status == "BLOCKED":
@@ -500,6 +563,24 @@ def main() -> None:
         verify_cmd_str = task_item.get("verify_command")
     if not verify_cmd_str:
         verify_cmd_str = os.environ.get("DEFAULT_VERIFY_COMMAND", "").strip() or None
+
+    # Check steering messages before verification and commit
+    steer_messages: List[str] = []
+    if messenger:
+        try:
+            steer_envelopes = messenger.check_steer_instructions()
+            for s_env in steer_envelopes:
+                instruction = s_env.payload.get("instruction") or s_env.payload.get("text") or ""
+                if instruction:
+                    steer_messages.append(instruction)
+                    emit_milestone(task_index, "STEER_RECEIVED", instruction[:80])
+        except Exception as exc:
+            print(f"Warning: Failed to check steer instructions: {exc}", file=sys.stderr)
+
+    if steer_messages:
+        steer_summary = "; ".join(steer_messages)
+        agent_summary += f"\n[Steering Instructions Applied]: {steer_summary}"
+        print(f"Notice: Applied {len(steer_messages)} steering instruction(s): {steer_summary}", flush=True)
 
     # Prevent ghost commits: Only commit and push when agent_status == "PASS" and candidate files exist
     if agent_status == "PASS" and candidate_files:
