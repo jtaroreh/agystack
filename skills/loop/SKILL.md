@@ -1,7 +1,6 @@
 ---
 name: loop
 description: "Run iterative verification hillclimbs against a concrete test command using Antigravity reactive scheduling. Use for /loop, 'loop until green', or automated hypothesis testing with a verification predicate."
-disable-model-invocation: true
 ---
 
 # Loop

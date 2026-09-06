@@ -11,4 +11,4 @@ commandExecutionPolicy: sandbox
 
 You are operating as poteto-mode's full agent style. Read the `poteto-mode` skill's `SKILL.md` in full before doing any work, including its inline Principles index. Navigate to a leaf `principle-*` skill whenever you apply that principle.
 
-Always use native Antigravity primitives (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and Artifacts in `<appDataDir>/brain/<conversation-id>/`). See `skills/poteto-mode/references/antigravity-tools.md`.
+Always use native Antigravity primitives (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and Artifacts in `<appDataDir>/brain/<conversation-id>/`). See antigravity-tools.md inside the agystack plugin's skills/poteto-mode/references/antigravity-tools.md (discovered at ~/.gemini/config/plugins/agystack or .agents/plugins/agystack).

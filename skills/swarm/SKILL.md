@@ -1,7 +1,6 @@
 ---
 name: swarm
 description: "Fan out N parallel workers, drain them, and return one report. Use for /swarm, 'swarm this', or parallel coverage, races, gauntlets, and exploration."
-disable-model-invocation: true
 ---
 
 # Swarm
@@ -67,14 +66,14 @@ Cloud Run swarms enable parallel execution across dozens or hundreds of containe
 2. **Execute Active Pre-Flight Check:**
    Run active pre-flight validation to ensure credentials, git remotes, and model endpoints are reachable before spinning up compute:
    ```bash
-   python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --preflight --model gemini-3.8-flash --vertex
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$HOME/.gemini/config/plugins/agystack/skills/swarm/scripts/cloud_dispatch.py}" --preflight --model gemini-3.8-flash --vertex
    ```
    (Pre-flight runs automatically by default during dispatch unless `--no-preflight` is specified.)
 
 3. **Launch the Swarm & Stream Real-Time Milestones:**
    Launch cloud dispatch CLI with unbuffered streaming and zero retries to fail broken hypotheses fast:
    ```bash
-   python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" \
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$HOME/.gemini/config/plugins/agystack/skills/swarm/scripts/cloud_dispatch.py}" \
      --manifest <manifest-path> \
      --tasks <N> \
      --parallelism 100 \
@@ -85,7 +84,7 @@ Cloud Run swarms enable parallel execution across dozens or hundreds of containe
    Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`.
    The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job with `--max-retries 0`, streams real-time unbuffered `[MILESTONE]` execution progress directly to stdout as events occur, and aggregates final candidate commits into a summary report. Dispatchers and coordinators must never block passively on buffered command execution.
 
-Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS|ISSUES|BLOCKED]` with evidence).
+Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: SMOKE_PASS|DEV_IMPROVED|REGRESSED|BLOCKED]` with evidence).
 
 ## Phase C: Aggregate & Early Harvest
 
@@ -93,6 +92,7 @@ Every brief stands alone. Include goal, scope, exact slice, verification command
 2. For cloud workers: `cloud_dispatch.py` parses structured container logs and provides an aggregated status table. Actively poll and fetch remote worker branches as tasks progress (`git fetch origin "refs/heads/worker-*:refs/remotes/origin/worker-*"`) and inspect storage manifests (`gs://<bucket>/task-*`).
 3. Apply selection rule (first pass, rank all, best-of) with early candidate evaluation: evaluate winning branches as soon as they appear without waiting for 100% completion or hanging stragglers.
 4. Build a compact result table, one-line evidenced issues, and explicit dropouts.
+5. **Candidate Integration Protocol:** When multiple worker branches succeed, rank candidates by isolated score delta descending. Cherry-pick candidate #1 onto the target trunk and run verification. If verified, re-baseline and evaluate candidate #2 against the updated trunk. Never compose or merge multiple worker branches simultaneously without intermediate verification (`principle-sequence-verifiable-units`).
 
 ## Phase D: Report
 

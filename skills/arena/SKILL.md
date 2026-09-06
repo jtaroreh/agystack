@@ -1,7 +1,6 @@
 ---
 name: arena
 description: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. Use for /arena, 'arena this', 'throw it in the arena', or when one attempt at a non-trivial artifact would lock in the wrong shape."
-disable-model-invocation: true
 ---
 
 # Arena
@@ -54,9 +53,11 @@ Record the pick and the reason in a short synthesis note alongside the base arti
 
 Walk each losing candidate once more and identify what is worth porting into the base. The signal is usually one or two things per candidate, not most of it.
 
-Fold each graft in by hand, per the **redesign-from-first-principles** principle skill. Don't paste mechanically. The result has to remain coherent under one mental model.
+Grafts must be folded in sequentially, one candidate at a time (`principle-sequence-verifiable-units`), per the **redesign-from-first-principles** principle skill. Don't paste mechanically or merge bulk patches across candidates. The result has to remain coherent under one mental model:
+- For each graft: apply the candidate's minimal diff to the base and verify immediately against existing tests and the evaluation rubric.
+- If verification passes, accept the graft and proceed to the next candidate. If it regresses or introduces destructive interference, revert immediately.
 
-Record what was grafted, from which candidate, and what was rejected and why. The rejection notes are the highest-signal part of the record. Future readers learn from what you considered and dropped, not just what you kept.
+Record accepted grafts and rejected candidates individually, noting what was grafted from which candidate and why rejections occurred (`principle-sequence-verifiable-units`). The rejection notes are the highest-signal part of the record. Future readers learn from what you considered and dropped, not just what you kept.
 
 When N candidates converge on the same shape, that is a strong agreement signal. Note the convergence in the record and ship the consensus shape. No graft is needed. When N candidates wildly diverge, Phase A was under-specified. Reframe and re-run rather than averaging the divergence.
 
