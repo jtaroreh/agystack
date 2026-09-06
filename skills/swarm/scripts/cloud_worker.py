@@ -272,13 +272,66 @@ def clone_and_checkout_task(
     so tokens are not retained in plaintext in .git/config, configures git identity, and checks out the task branch.
     """
     repo_path = Path(repo_dir)
-    auth_url = build_authenticated_git_url(repo_url, gh_token)
-    run_command(["git", "clone", f"--depth={depth}", auth_url, str(repo_path)], check=True)
     clean_url = clean_repo_url(repo_url)
+    git_env = os.environ.copy()
+    if gh_token:
+        git_env["GH_TOKEN"] = gh_token
+        cred_helper = '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
+        cmd = [
+            "git",
+            "-c", f"credential.helper={cred_helper}",
+            "clone",
+            f"--depth={depth}",
+            clean_url,
+            str(repo_path),
+        ]
+    else:
+        cmd = ["git", "clone", f"--depth={depth}", clean_url, str(repo_path)]
+    run_command(cmd, env=git_env, check=True)
     run_command(["git", "remote", "set-url", "origin", clean_url], cwd=repo_path, check=True)
     run_command(["git", "config", "user.name", "Antigravity Cloud Worker"], cwd=repo_path, check=False)
     run_command(["git", "config", "user.email", "bot@antigravity.google"], cwd=repo_path, check=False)
     run_command(["git", "checkout", "-B", branch_name], cwd=repo_path, check=True)
+
+
+def push_candidate_branch(
+    repo_dir: Path,
+    repo_url: str,
+    branch_name: str,
+    gh_token: str,
+    fork_repo_url: str = "",
+) -> None:
+    if fork_repo_url:
+        clean_fork_url = clean_repo_url(fork_repo_url)
+        remotes = run_command(["git", "remote"], cwd=repo_dir, check=False).stdout.split()
+        if "fork" in remotes:
+            run_command(["git", "remote", "set-url", "fork", clean_fork_url], cwd=repo_dir, check=True)
+        else:
+            run_command(["git", "remote", "add", "fork", clean_fork_url], cwd=repo_dir, check=True)
+        push_target = "fork"
+    else:
+        push_target = "origin"
+        run_command(["git", "remote", "set-url", "origin", clean_repo_url(repo_url)], cwd=repo_dir, check=True)
+
+    git_env = os.environ.copy()
+    if gh_token:
+        git_env["GH_TOKEN"] = gh_token
+        cred_helper = '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
+        push_cmd = [
+            "git",
+            "-c", f"credential.helper={cred_helper}",
+            "push",
+            "-u", push_target, branch_name, "--force",
+        ]
+    else:
+        push_cmd = ["git", "push", "-u", push_target, branch_name, "--force"]
+
+    try:
+        run_command(push_cmd, cwd=repo_dir, env=git_env, check=True)
+    finally:
+        run_command(["git", "remote", "set-url", "origin", clean_repo_url(repo_url)], cwd=repo_dir, check=False)
+        if fork_repo_url:
+            run_command(["git", "remote", "set-url", "fork", clean_repo_url(fork_repo_url)], cwd=repo_dir, check=False)
 
 
 def run_command(
@@ -817,30 +870,19 @@ def main() -> None:
 
     if changes_detected:
         fork_repo_url = os.environ.get("FORK_REPO_URL", "").strip()
-        if fork_repo_url:
-            fork_auth_url = build_authenticated_git_url(fork_repo_url, gh_token)
-            remotes = run_command(["git", "remote"], cwd=repo_dir, check=False).stdout.split()
-            if "fork" in remotes:
-                run_command(["git", "remote", "set-url", "fork", fork_auth_url], cwd=repo_dir, check=True)
-            else:
-                run_command(["git", "remote", "add", "fork", fork_auth_url], cwd=repo_dir, check=True)
-            push_target = "fork"
-        else:
-            push_target = "origin"
-            auth_origin_url = build_authenticated_git_url(repo_url, gh_token)
-            run_command(["git", "remote", "set-url", "origin", auth_origin_url], cwd=repo_dir, check=True)
-
         try:
             emit_milestone(task_index, "PUSHING_CANDIDATE")
-            run_command(["git", "push", "-u", push_target, branch_name, "--force"], cwd=repo_dir, check=True)
+            push_candidate_branch(
+                repo_dir=repo_dir,
+                repo_url=repo_url,
+                branch_name=branch_name,
+                gh_token=gh_token,
+                fork_repo_url=fork_repo_url,
+            )
             changes_pushed = True
         except subprocess.CalledProcessError as exc:
             push_error = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
             changes_pushed = False
-        finally:
-            run_command(["git", "remote", "set-url", "origin", clean_repo_url(repo_url)], cwd=repo_dir, check=False)
-            if fork_repo_url:
-                run_command(["git", "remote", "set-url", "fork", clean_repo_url(fork_repo_url)], cwd=repo_dir, check=False)
 
     has_gcs_results = bool(gcs_uris) or bool(gcs_bucket)
     has_score_json = (repo_dir / "score.json").is_file()

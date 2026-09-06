@@ -19,6 +19,7 @@ from cloud_worker import (
     execute_task,
     is_candidate_file,
     parse_task_manifest,
+    push_candidate_branch,
 )
 from cloud_dispatch import (
     build_gcloud_command,
@@ -522,12 +523,18 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
 
         worker_dest = self.temp_dir / "cloned-worker-repo"
         fake_token = "ghp_VERYSECRETTOKEN123456789"
-        clone_and_checkout_task(
-            repo_url=str(source_repo_dir),
-            gh_token=fake_token,
-            branch_name="worker-7",
-            repo_dir=worker_dest,
-        )
+        with patch("cloud_worker.subprocess.run", wraps=subprocess.run) as mock_subproc:
+            clone_and_checkout_task(
+                repo_url=str(source_repo_dir),
+                gh_token=fake_token,
+                branch_name="worker-7",
+                repo_dir=worker_dest,
+            )
+            clone_calls = [call[0][0] for call in mock_subproc.call_args_list if "clone" in call[0][0]]
+            self.assertTrue(len(clone_calls) > 0)
+            for cmd in clone_calls:
+                for arg in cmd:
+                    self.assertNotIn(fake_token, arg)
 
         # Inspect .git/config in cloned repo
         git_config_path = worker_dest / ".git" / "config"
@@ -555,6 +562,48 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
             check=True,
         )
         self.assertEqual(branch_res.stdout.strip(), "worker-7")
+
+    def test_git_push_scrubs_tokens_from_argv_and_remote(self):
+        worker_dest = self.temp_dir / "test-push-repo"
+        worker_dest.mkdir(parents=True, exist_ok=True)
+        fake_token = "ghp_VERYSECRETTOKEN123456789"
+
+        with patch("cloud_worker.run_command") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            push_candidate_branch(
+                repo_dir=worker_dest,
+                repo_url="https://github.com/my-org/my-repo.git",
+                branch_name="worker-7",
+                gh_token=fake_token,
+            )
+            push_calls = [call for call in mock_run.call_args_list if len(call[0][0]) > 1 and "push" in call[0][0]]
+            self.assertTrue(len(push_calls) > 0)
+            for call in push_calls:
+                cmd = call[0][0]
+                for arg in cmd:
+                    self.assertNotIn(fake_token, arg)
+                kwargs = call[1]
+                self.assertIn("env", kwargs)
+                self.assertEqual(kwargs["env"].get("GH_TOKEN"), fake_token)
+
+            mock_run.reset_mock()
+            mock_run.return_value = MagicMock(returncode=0, stdout="origin fork", stderr="")
+            push_candidate_branch(
+                repo_dir=worker_dest,
+                repo_url="https://github.com/my-org/my-repo.git",
+                branch_name="worker-7",
+                gh_token=fake_token,
+                fork_repo_url="https://github.com/fork-org/my-repo.git",
+            )
+            push_calls = [call for call in mock_run.call_args_list if len(call[0][0]) > 1 and "push" in call[0][0]]
+            self.assertTrue(len(push_calls) > 0)
+            for call in push_calls:
+                cmd = call[0][0]
+                for arg in cmd:
+                    self.assertNotIn(fake_token, arg)
+                kwargs = call[1]
+                self.assertIn("env", kwargs)
+                self.assertEqual(kwargs["env"].get("GH_TOKEN"), fake_token)
 
     def test_build_gcloud_command_supports_set_secrets_and_vertex_mode(self):
         # 1. Supports --set-secrets with dict mapping
