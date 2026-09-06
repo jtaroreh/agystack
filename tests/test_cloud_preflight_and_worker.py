@@ -20,6 +20,7 @@ from cloud_worker import (
     is_candidate_file,
     parse_task_manifest,
     push_candidate_branch,
+    resolve_worker_branch,
 )
 from cloud_dispatch import (
     build_gcloud_command,
@@ -844,6 +845,81 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         self.assertIn("--set-secrets=", gcloud_cmd_cfg)
         self.assertIn("GH_TOKEN=gh-token:latest", gcloud_cmd_cfg)
         self.assertIn("GEMINI_API_KEY=gemini-key:latest", gcloud_cmd_cfg)
+
+    @patch("cloud_worker.run_command")
+    def test_clone_and_checkout_task_passes_base_branch(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        clone_and_checkout_task(
+            repo_url="https://github.com/test-org/test-repo.git",
+            gh_token="test-token",
+            branch_name="worker-1",
+            repo_dir=Path("/tmp/fake-dir"),
+            base_branch="feature/custom-base",
+        )
+        clone_calls = [call[0][0] for call in mock_run.call_args_list if len(call[0][0]) > 1 and "clone" in call[0][0]]
+        self.assertTrue(len(clone_calls) > 0)
+        clone_cmd = clone_calls[0]
+        self.assertIn("--branch", clone_cmd)
+        branch_idx = clone_cmd.index("--branch")
+        self.assertEqual(clone_cmd[branch_idx + 1], "feature/custom-base")
+
+    @patch("urllib.request.urlopen")
+    @patch("subprocess.run")
+    def test_run_preflight_with_base_branch_probe_and_missing_rejection(self, mock_subproc, mock_urlopen):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        mock_res.stdout = ""
+        mock_subproc.return_value = mock_res
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = b'{"candidates": []}'
+        mock_resp.headers = {}
+        mock_urlopen.return_value = mock_resp
+
+        with self.assertRaises(RuntimeError) as ctx:
+            run_preflight(
+                repo_url="https://github.com/test/repo.git",
+                gh_token="gh-token",
+                use_vertex=False,
+                gemini_api_key="AIzaTestKey",
+                project="test-proj",
+                region="us-central1",
+                model="gemini-3.8-flash",
+                dry_run=True,
+                base_branch="non-existent-branch",
+            )
+        self.assertIn("Base branch 'non-existent-branch' not found on remote origin", str(ctx.exception))
+
+        call_args = mock_subproc.call_args[0][0]
+        self.assertEqual(call_args[0:3], ["git", "ls-remote", "--heads"])
+        self.assertEqual(call_args[-1], "non-existent-branch")
+
+        mock_res.stdout = "abc1234567890abcdef\trefs/heads/valid-branch\n"
+        run_preflight(
+            repo_url="https://github.com/test/repo.git",
+            gh_token="gh-token",
+            use_vertex=False,
+            gemini_api_key="AIzaTestKey",
+            project="test-proj",
+            region="us-central1",
+            model="gemini-3.8-flash",
+            dry_run=True,
+            base_branch="valid-branch",
+        )
+
+    def test_manifest_and_session_branch_resolution(self):
+        with patch.dict(os.environ, {"SWARM_SESSION_ID": "session-xyz-123"}):
+            branch = resolve_worker_branch(task_item={}, task_index=3)
+            self.assertEqual(branch, "agystack/session-xyz-123/worker-3")
+
+        with patch.dict(os.environ, {"SWARM_SESSION_ID": "session-xyz-123"}):
+            branch_override = resolve_worker_branch(task_item={"branch": "custom-override-branch"}, task_index=3)
+            self.assertEqual(branch_override, "custom-override-branch")
+
+        with patch.dict(os.environ, {}, clear=True):
+            branch_fallback = resolve_worker_branch(task_item={}, task_index=2)
+            self.assertEqual(branch_fallback, "worker-2")
 
 
 class TestSetupRuntimeProvisioner(unittest.TestCase):

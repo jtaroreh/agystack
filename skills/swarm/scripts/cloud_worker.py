@@ -238,6 +238,29 @@ def clean_repo_url(url: str) -> str:
     return url_clean
 
 
+def resolve_worker_branch(
+    task_item: Any,
+    task_index: int,
+    session_id: Optional[str] = None,
+) -> str:
+    explicit_branch = task_item.get("branch") if isinstance(task_item, dict) else None
+    if explicit_branch and str(explicit_branch).strip():
+        return str(explicit_branch).strip()
+
+    if session_id is None:
+        session_id = (
+            os.environ.get("SWARM_SESSION_ID")
+            or os.environ.get("SESSION_ID")
+            or ""
+        ).strip()
+    else:
+        session_id = str(session_id).strip()
+
+    if session_id:
+        return f"agystack/{session_id}/worker-{task_index}"
+    return f"worker-{task_index}"
+
+
 def build_authenticated_git_url(repo_url: str, gh_token: str) -> str:
     repo_clean = repo_url.strip()
     if repo_clean.startswith("git@github.com:"):
@@ -266,6 +289,7 @@ def clone_and_checkout_task(
     branch_name: str,
     repo_dir: Path,
     depth: int = 50,
+    base_branch: Optional[str] = None,
 ) -> None:
     """
     Clones the repository using authenticated credentials, scrubs credentials from remote.origin.url
@@ -282,11 +306,12 @@ def clone_and_checkout_task(
             "-c", f"credential.helper={cred_helper}",
             "clone",
             f"--depth={depth}",
-            clean_url,
-            str(repo_path),
         ]
     else:
-        cmd = ["git", "clone", f"--depth={depth}", clean_url, str(repo_path)]
+        cmd = ["git", "clone", f"--depth={depth}"]
+    if base_branch:
+        cmd.extend(["--branch", base_branch])
+    cmd.extend([clean_url, str(repo_path)])
     run_command(cmd, env=git_env, check=True)
     run_command(["git", "remote", "set-url", "origin", clean_url], cwd=repo_path, check=True)
     run_command(["git", "config", "user.name", "Antigravity Cloud Worker"], cwd=repo_path, check=False)
@@ -641,7 +666,6 @@ def main() -> None:
     project = os.environ.get("VERTEXAI_PROJECT") or os.environ.get("GCP_PROJECT") or os.environ.get("PROJECT_ID")
     location = os.environ.get("VERTEXAI_LOCATION") or os.environ.get("GCP_REGION") or os.environ.get("REGION")
     model_override = os.environ.get("MODEL_OVERRIDE", "")
-    branch_name = f"worker-{task_index}"
 
     try:
         task_item, task_brief = parse_task_manifest(
@@ -657,6 +681,10 @@ def main() -> None:
         )
         sys.exit(1)
 
+    branch_name = resolve_worker_branch(task_item, task_index)
+
+    base_branch = os.environ.get("BASE_BRANCH", "").strip() or None
+
     work_base = Path("/workspace") if Path("/workspace").exists() else Path(tempfile.gettempdir())
     repo_dir = work_base / f"repo-task-{task_index}"
     if repo_dir.exists():
@@ -670,6 +698,7 @@ def main() -> None:
             gh_token=gh_token,
             branch_name=branch_name,
             repo_dir=repo_dir,
+            base_branch=base_branch,
         )
     except subprocess.CalledProcessError as exc:
         emit_milestone(task_index, "COMPLETE", "BLOCKED")

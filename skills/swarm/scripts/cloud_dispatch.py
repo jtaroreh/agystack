@@ -94,6 +94,22 @@ def build_authenticated_git_url(repo_url: str, gh_token: str) -> str:
     return repo_clean
 
 
+def clean_repo_url(url: str) -> str:
+    """Removes any embedded username:password or token credentials from a repository URL."""
+    if not url:
+        return ""
+    url_clean = url.strip()
+    if url_clean.startswith("git@"):
+        return url_clean
+    if "://" in url_clean:
+        parsed = urllib.parse.urlsplit(url_clean)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            netloc = netloc.split("@")[-1]
+        return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+    return url_clean
+
+
 def load_manifest(manifest_path_or_str: str) -> List[Any]:
     if not manifest_path_or_str:
         return []
@@ -523,6 +539,7 @@ def run_preflight(
     model: str,
     dry_run: bool = False,
     vertex_location: Optional[str] = None,
+    base_branch: Optional[str] = None,
 ) -> None:
     print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, and repository access...", flush=True)
 
@@ -540,15 +557,22 @@ def run_preflight(
         )
 
     auth_url = build_authenticated_git_url(repo_url, gh_token)
+    probe_target = ["git", "ls-remote", "--heads", auth_url, base_branch] if base_branch else ["git", "ls-remote", auth_url, "HEAD"]
     try:
-        subprocess.run(
-            ["git", "ls-remote", auth_url, "HEAD"],
+        ls_res = subprocess.run(
+            probe_target,
             capture_output=True,
             text=True,
             check=True,
             timeout=15,
         )
-        print(f"  [PASS] Git remote authentication & repository accessibility verified ({repo_url}).")
+        if base_branch and not ls_res.stdout.strip():
+            raise RuntimeError(
+                f"Base branch '{base_branch}' not found on remote origin '{clean_repo_url(repo_url)}'.\n"
+                f"Please verify the branch name and push it to remote before dispatching cloud swarm workers."
+            )
+        target_desc = f"base branch '{base_branch}'" if base_branch else "HEAD"
+        print(f"  [PASS] Git remote authentication & repository accessibility verified ({repo_url}, {target_desc}).")
     except subprocess.CalledProcessError as exc:
         err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
         raise RuntimeError(
@@ -847,6 +871,7 @@ def main() -> None:
     parser.add_argument("--session", "--session-id", dest="session_id", type=str, help="Swarm session ID (default: swarm-<timestamp>).")
     parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
     parser.add_argument("--set-secrets", type=str, help="Comma-separated secrets mapping for Cloud Run Job (e.g. GEMINI_API_KEY=gemini-key:latest).")
+    parser.add_argument("--base-branch", type=str, default=None, help="Base branch for workers to checkout (default: remote default branch).")
     parser.set_defaults(wait=True)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
@@ -915,6 +940,7 @@ def main() -> None:
                 model=model,
                 dry_run=args.dry_run,
                 vertex_location=vertex_location,
+                base_branch=args.base_branch,
             )
         except RuntimeError as exc:
             print(f"Error [Pre-Flight]: {exc}", file=sys.stderr)
@@ -1013,6 +1039,8 @@ def main() -> None:
     env_vars["SESSION_ID"] = session_id
     if args.orchestrator_timeout:
         env_vars["ORCHESTRATOR_TIMEOUT"] = str(args.orchestrator_timeout)
+    if args.base_branch:
+        env_vars["BASE_BRANCH"] = args.base_branch
 
     gcs_bucket = args.gcs_bucket if args.gcs_bucket is not None else runtime_cfg.get("gcs_bucket", "")
     gcs_prefix = args.gcs_prefix if args.gcs_prefix is not None else runtime_cfg.get("gcs_prefix", "")
