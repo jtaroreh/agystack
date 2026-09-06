@@ -853,8 +853,12 @@ def main() -> None:
                     diff_res = run_command(["git", "diff", "--stat", "HEAD~1", "HEAD"], cwd=repo_dir, check=False)
                     diff_stat = diff_res.stdout.strip()
             except subprocess.CalledProcessError as exc:
-                err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
-                print(f"Warning: Git commit preparation failed: {err_msg.strip()}", file=sys.stderr)
+                agent_status = "ISSUES"
+                commit_sha = None
+                err_text = (exc.stderr or str(exc)).strip()
+                diff_stat = f"Commit failed: {err_text}"
+                err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token and gh_token in exc.stderr else err_text
+                print(f"Warning: Git commit preparation failed: {err_msg}", file=sys.stderr)
     elif agent_status != "PASS":
         diff_stat = f"Commit skipped: worker status is {agent_status} (PASS required; ghost commits prohibited)."
         print(f"Notice: Agent status is {agent_status}. Skipping git commit.", file=sys.stderr)
@@ -875,7 +879,20 @@ def main() -> None:
     status_file.write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
 
     effective_bucket = gcs_bucket or os.environ.get("GCS_BUCKET", "").strip()
+    is_cloud = bool(os.environ.get("CLOUD_RUN_TASK_INDEX") or os.environ.get("SWARM_SESSION_ID") or os.environ.get("K_SERVICE"))
+
+    if is_cloud and candidate_files and not effective_bucket:
+        final_status = "ISSUES"
+        fail_evidence = "Fail-closed: No GCS bucket configured for cloud swarm worker. Candidate patch cannot be delivered under zero-push architecture."
+        agent_summary += f"\n{fail_evidence}"
+        print(f"Warning: {fail_evidence}", file=sys.stderr)
+        status_payload["status"] = final_status
+        status_payload["summary"] = agent_summary.strip()
+        status_payload["evidence"] = fail_evidence
+        status_file.write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
+
     upload_failed = False
+    gcs_uris = {}
     if effective_bucket:
         try:
             sys.path.insert(0, str(Path(__file__).parent))
@@ -888,6 +905,7 @@ def main() -> None:
                 task_index=task_index,
                 status=final_status,
                 candidate_files=candidate_files,
+                commit_sha=commit_sha,
             )
             if gcs_uris:
                 emit_milestone(task_index, "ARTIFACTS_UPLOADED")
@@ -895,6 +913,15 @@ def main() -> None:
         except Exception as exc:
             print(f"Warning: GCS upload failed: {exc}", file=sys.stderr)
             upload_failed = True
+
+        # Synchronize local status if storage_uploader overrode it
+        if status_file.is_file():
+            try:
+                disk_status = json.loads(status_file.read_text(encoding="utf-8"))
+                if disk_status.get("status") and disk_status.get("status") != final_status:
+                    final_status = disk_status.get("status")
+            except Exception:
+                pass
 
         # Fail-closed check: if final_status == "PASS" and candidate_files were modified,
         # but upload_run_artifacts() failed to upload patch.diff or status.json to GCS,
@@ -907,6 +934,7 @@ def main() -> None:
                 print(f"Warning: {fail_evidence}", file=sys.stderr)
                 status_payload["status"] = final_status
                 status_payload["summary"] = agent_summary.strip()
+                status_payload["evidence"] = fail_evidence
                 status_file.write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
 
     # Zero-push container architecture: cloud workers never push candidate branches to git remote.

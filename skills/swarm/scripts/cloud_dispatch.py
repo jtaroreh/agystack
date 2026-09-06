@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 try:
     from storage_messenger import StorageMessenger
@@ -380,6 +380,85 @@ def parse_milestone_log(line: str) -> Optional[Dict[str, str]]:
     }
 
 
+class MonitorResult(tuple):
+    def __new__(cls, data: Optional[Dict[str, Any]], succeeded: bool, error: Optional[str]):
+        return tuple.__new__(cls, (data, succeeded, error))
+
+    @property
+    def data(self) -> Optional[Dict[str, Any]]:
+        return self[0]
+
+    @property
+    def succeeded(self) -> bool:
+        return self[1]
+
+    @property
+    def error(self) -> Optional[str]:
+        return self[2]
+
+    def __getitem__(self, item: Any) -> Any:
+        if isinstance(item, str):
+            if item in ("data", "desc_data"):
+                return self[0]
+            elif item in ("succeeded", "execution_succeeded"):
+                return self[1]
+            elif item in ("error", "failure_msg"):
+                return self[2]
+            raise KeyError(item)
+        return tuple.__getitem__(self, item)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+
+def recover_session_id_from_execution(
+    execution_name: str,
+    region: str,
+    project: Optional[str] = None,
+) -> Optional[str]:
+    try:
+        cmd = [
+            "gcloud",
+            "run",
+            "jobs",
+            "executions",
+            "describe",
+            execution_name,
+            f"--region={region}",
+            "--format=json",
+        ]
+        if project:
+            cmd.append(f"--project={project}")
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if res.returncode != 0 or not res.stdout:
+            return None
+        data = json.loads(res.stdout)
+
+        def find_env_val(obj: Any) -> Optional[str]:
+            if isinstance(obj, dict):
+                if obj.get("name") in ("SWARM_SESSION_ID", "SESSION_ID"):
+                    val = obj.get("value")
+                    if val:
+                        return str(val).strip()
+                for v in obj.values():
+                    found = find_env_val(v)
+                    if found:
+                        return found
+            elif isinstance(obj, list):
+                for item in obj:
+                    found = find_env_val(item)
+                    if found:
+                        return found
+            return None
+
+        return find_env_val(data)
+    except Exception:
+        return None
+
+
 def monitor_execution(
     execution_name: str,
     project: Optional[str],
@@ -387,15 +466,18 @@ def monitor_execution(
     task_count: int,
     poll_interval: float = 4,
     timeout: float = 2700.0,
-) -> Optional[Dict[str, Any]]:
+) -> MonitorResult:
     seen_log_entries = set()
     last_counts = None
     desc_data: Optional[Dict[str, Any]] = None
+    execution_succeeded = False
+    failure_msg: Optional[str] = None
     start_time = time.time()
 
     while True:
         if timeout > 0 and (time.time() - start_time) > timeout:
-            print(f"Warning: Cloud Run execution monitoring timed out after {timeout} seconds.", file=sys.stderr)
+            failure_msg = f"Cloud Run execution monitoring timed out after {timeout} seconds."
+            print(f"Warning: {failure_msg}", file=sys.stderr)
             break
         try:
             describe_cmd = [
@@ -472,13 +554,34 @@ def monitor_execution(
             conditions = status.get("conditions", []) if isinstance(status, dict) else []
             is_completed = False
             for cond in conditions:
-                if isinstance(cond, dict) and cond.get("type") == "Completed":
-                    c_status = str(cond.get("status", "")).strip()
+                if not isinstance(cond, dict):
+                    continue
+                c_type = cond.get("type")
+                c_status = str(cond.get("status", "")).strip()
+                c_msg = cond.get("message") or cond.get("reason") or ""
+                if c_type == "Completed":
+                    if c_status == "True":
+                        is_completed = True
+                        execution_succeeded = True
+                        break
+                    elif c_status == "False":
+                        is_completed = True
+                        execution_succeeded = False
+                        failure_msg = c_msg or "Cloud Run execution condition Completed is False"
+                        break
+                elif c_type == "Failed" or "Fail" in str(c_type):
                     if c_status in ("True", "False"):
                         is_completed = True
+                        execution_succeeded = False
+                        failure_msg = c_msg or f"Cloud Run execution condition {c_type}={c_status}"
                         break
 
             if is_completed:
+                if failed > 0 and execution_succeeded:
+                    execution_succeeded = False
+                    if not failure_msg:
+                        failure_msg = f"{failed} task(s) failed in Cloud Run execution"
+
                 log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[STATUS:" OR textPayload:"[MILESTONE]" OR textPayload:"Score:" OR textPayload:"PASS")'
                 log_cmd = [
                     "gcloud",
@@ -514,7 +617,10 @@ def monitor_execution(
 
         time.sleep(poll_interval)
 
-    return desc_data
+    if not execution_succeeded and not failure_msg:
+        failure_msg = "Execution did not complete successfully or condition was not met."
+
+    return MonitorResult(desc_data, execution_succeeded, failure_msg)
 
 
 wait_for_execution = monitor_execution
@@ -858,13 +964,24 @@ def print_candidate_patches_table(
         print("No candidate patches found.")
         return
 
+    has_passing = any(
+        p.get("status") == "PASS" and p.get("patch_file") and str(p.get("patch_file")) != "None"
+        for p in harvested_patches
+    )
+
     print("\n" + "=" * 80)
     print("CANDIDATE PATCHES (RANKED):")
     print("=" * 80)
     print(f"{'Rank':<6} | {'Task':<8} | {'Score':<8} | {'Delta':<10} | {'Status':<10} | {'Patch File'}")
     print("-" * 80)
     for idx, p in enumerate(harvested_patches):
-        rank_str = f"{idx + 1}*" if idx == 0 else str(idx + 1)
+        is_winner = (
+            idx == 0
+            and p.get("status") == "PASS"
+            and bool(p.get("patch_file"))
+            and str(p.get("patch_file")) != "None"
+        )
+        rank_str = f"{idx + 1}*" if is_winner else str(idx + 1)
         task_id = p.get("task_index", "?")
         sc = p.get("score")
         sc_str = f"{sc:.2f}" if isinstance(sc, (int, float)) else "N/A"
@@ -874,9 +991,16 @@ def print_candidate_patches_table(
         pf = p.get("patch_file") or "None"
         print(f"{rank_str:<6} | {task_id:<8} | {sc_str:<8} | {delta_str:<10} | {st:<10} | {pf}")
     print("=" * 80)
-    if harvested_patches and harvested_patches[0].get("patch_file"):
+    if (
+        harvested_patches
+        and harvested_patches[0].get("status") == "PASS"
+        and harvested_patches[0].get("patch_file")
+        and str(harvested_patches[0].get("patch_file")) != "None"
+    ):
         print(f"* Winning Candidate #1: {harvested_patches[0]['patch_file']} (apply and verify locally)")
         print("=" * 80)
+    elif not has_passing:
+        print("Notice: No passing candidate patches produced.")
 
 
 def main() -> None:
@@ -986,17 +1110,31 @@ def main() -> None:
 
     if args.wait_execution:
         execution_name = args.wait_execution.strip()
-        session_id = args.session_id or os.environ.get("SWARM_SESSION_ID") or os.environ.get("SESSION_ID") or f"swarm-{int(time.time())}"
+        session_id = args.session_id or os.environ.get("SWARM_SESSION_ID") or os.environ.get("SESSION_ID")
+        if not session_id:
+            recovered_session = recover_session_id_from_execution(
+                execution_name=execution_name,
+                region=region,
+                project=project,
+            )
+            if recovered_session:
+                session_id = recovered_session
+            else:
+                session_id = f"swarm-{int(time.time())}"
+
         bkt = gcs_bucket or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
         task_count = args.tasks or 1
         print(f"Attaching to Cloud Run execution '{execution_name}' in region '{region}'...")
-        wait_for_execution(
+        desc_data, exec_succeeded, failure_msg = wait_for_execution(
             execution_name=execution_name,
             project=project,
             region=region,
             task_count=task_count,
         )
-        print("Job execution completed.")
+        if not exec_succeeded:
+            print(f"Error: Cloud Run execution '{execution_name}' failed: {failure_msg}", file=sys.stderr)
+        else:
+            print("Job execution completed.")
 
         harvest_target = args.harvest_gcs or (args.gcs_prefix or (f"swarms/{session_id}" if bkt else None))
         harvested_patches = []
@@ -1016,6 +1154,9 @@ def main() -> None:
 
         if harvested_patches:
             print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
+
+        if not exec_succeeded:
+            sys.exit(1)
         return
 
     repo_url = args.repo or get_git_remote_url()
@@ -1216,6 +1357,21 @@ def main() -> None:
         print(json.dumps(payload, indent=2))
         return
 
+    if getattr(args, "set_secrets", None) and not args.dry_run:
+        update_cmd = [
+            "gcloud", "run", "jobs", "update", job_name,
+            f"--region={region}",
+            f"--set-secrets={args.set_secrets}",
+        ]
+        if project:
+            update_cmd.append(f"--project={project}")
+        try:
+            print(f"Updating Cloud Run Job template '{job_name}' with secrets: {args.set_secrets}...")
+            subprocess.run(update_cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as exc:
+            print(f"Error updating job secrets: {exc.stderr.strip()}", file=sys.stderr)
+            sys.exit(exc.returncode)
+
     print(f"Launching Cloud Run Job '{job_name}' with {task_count} tasks (parallelism: {parallelism})...")
     try:
         proc = subprocess.run(
@@ -1241,20 +1397,29 @@ def main() -> None:
         if not args.wait:
             if execution_name:
                 print(f"Execution: {execution_name}")
+                print(f"Session: {session_id}")
+                print(f"To attach: python3 cloud_dispatch.py --wait-execution {execution_name} --session-id {session_id}")
             else:
                 print("Dispatched Cloud Run Job execution asynchronously.")
+                print(f"Session: {session_id}")
             return
 
+        exec_succeeded = True
+        exec_failure_msg = None
         if execution_name:
             print(f"Monitoring execution '{execution_name}' in region '{region}'...")
-            monitor_execution(
+            _, exec_succeeded, exec_failure_msg = monitor_execution(
                 execution_name=execution_name,
                 project=project,
                 region=region,
                 task_count=task_count,
             )
-
-        print("Job execution completed successfully.")
+            if not exec_succeeded:
+                print(f"Error: Cloud Run execution '{execution_name}' failed: {exec_failure_msg}", file=sys.stderr)
+            else:
+                print("Job execution completed successfully.")
+        else:
+            print("Job execution completed.")
 
         logs_content = proc.stdout + "\n" + proc.stderr
         log_cmd_str = ""
@@ -1349,6 +1514,9 @@ def main() -> None:
 
         if harvested_patches:
             print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
+
+        if not exec_succeeded:
+            sys.exit(1)
 
     except subprocess.CalledProcessError as exc:
         err_out = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr

@@ -456,21 +456,237 @@ class TestArchitectureRemediation(unittest.TestCase):
     def test_worker_fail_closed_on_upload_failure(self):
         worker_dir = self.tmp_path / "worker_fail_repo"
         worker_dir.mkdir(parents=True, exist_ok=True)
-        (worker_dir / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+        (worker_dir / ".git").mkdir()
+        (worker_dir / "target.py").write_text("v2", encoding="utf-8")
+        status_file = worker_dir / "status.json"
+        status_file.write_text(json.dumps({"status": "PASS", "task_index": 0}), encoding="utf-8")
 
-        with patch("storage_uploader.upload_run_artifacts", return_value={}):
-            # When bucket is configured and status is PASS with candidate files, upload failure must fail closed
-            effective_bucket = "test-bkt"
-            final_status = "PASS"
-            candidate_files = ["src/mod.py"]
-            upload_failed = False
-            gcs_uris = {}
+        mock_storage = self.tmp_path / "mock_gcs_fail"
 
-            if final_status == "PASS" and candidate_files:
-                if upload_failed or "patch.diff" not in gcs_uris or "status.json" not in gcs_uris:
-                    final_status = "ISSUES"
+        # When patch.diff fails to upload, upload_run_artifacts must override status to ISSUES
+        with patch.dict(os.environ, {"STORAGE_MESSENGER_LOCAL_DIR": str(mock_storage)}):
+            with patch("storage_uploader._generate_git_patch", return_value="diff --git a/target.py"):
+                with patch("storage_uploader.upload_to_gcs") as mock_upload:
+                    # Let status.json upload succeed, but patch.diff upload fail
+                    def fake_upload(bkt, dest, path):
+                        if "patch.diff" in str(dest):
+                            return False
+                        return True
 
-            self.assertEqual(final_status, "ISSUES")
+                    mock_upload.side_effect = fake_upload
+
+                    uploaded = storage_uploader.upload_run_artifacts(
+                        bucket_name="test-bkt",
+                        prefix="swarms/test-atomic",
+                        repo_dir=worker_dir,
+                        task_index=0,
+                        status="PASS",
+                        candidate_files=["target.py"],
+                    )
+
+                    # patch.diff must not be in uploaded
+                    self.assertNotIn("patch.diff", uploaded)
+                    # status.json on disk must be updated to ISSUES
+                    saved_status = json.loads(status_file.read_text(encoding="utf-8"))
+                    self.assertEqual(saved_status.get("status"), "ISSUES")
+                    self.assertIn("failed to upload", saved_status.get("evidence", ""))
+
+    def test_generate_git_patch_omits_head_commit_when_commit_sha_is_none(self):
+        repo_dir = self.tmp_path / "patch_repo"
+        repo_dir.mkdir(parents=True, exist_ok=True)
+        (repo_dir / ".git").mkdir()
+
+        executed_cmds = []
+
+        def fake_run(cmd, *args, **kwargs):
+            executed_cmds.append(cmd)
+            m = MagicMock()
+            m.returncode = 0
+            m.stdout = "diff --git a/mod.py\n+change"
+            return m
+
+        with patch("subprocess.run", side_effect=fake_run):
+            # When commit_sha is None, must NOT diff HEAD~1 HEAD
+            patch_content = storage_uploader._generate_git_patch(
+                repo_dir=repo_dir,
+                candidate_files=["mod.py"],
+                commit_sha=None,
+            )
+            self.assertTrue(patch_content)
+            for cmd in executed_cmds:
+                cmd_str = " ".join(cmd)
+                self.assertNotIn("HEAD~1", cmd_str)
+
+        # When commit_sha IS provided, must diff {sha}~1 {sha}
+        executed_cmds.clear()
+        with patch("subprocess.run", side_effect=fake_run):
+            patch_content = storage_uploader._generate_git_patch(
+                repo_dir=repo_dir,
+                candidate_files=["mod.py"],
+                commit_sha="a1b2c3d",
+            )
+            self.assertTrue(patch_content)
+            found_sha_diff = any("a1b2c3d~1" in cmd and "a1b2c3d" in cmd for cmd in executed_cmds)
+            self.assertTrue(found_sha_diff)
+
+    def test_result_harvester_sorts_non_numeric_and_nan_metrics(self):
+        mock_storage = self.tmp_path / "mock_nan_gcs"
+        bucket = "test-nan-bucket"
+        prefix = "swarms/nan-session"
+
+        t0 = mock_storage / bucket / prefix / "task-0"
+        t1 = mock_storage / bucket / prefix / "task-1"
+        t2 = mock_storage / bucket / prefix / "task-2"
+        t3 = mock_storage / bucket / prefix / "task-3"
+        for t in (t0, t1, t2, t3):
+            t.mkdir(parents=True, exist_ok=True)
+
+        # Task 0: string score "N/A"
+        (t0 / "score.json").write_text(json.dumps({"score": "N/A", "status": "PASS"}), encoding="utf-8")
+        # Task 1: valid float score 95.0
+        (t1 / "score.json").write_text(json.dumps({"score": 95.0, "status": "PASS"}), encoding="utf-8")
+        # Task 2: None score
+        (t2 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+        # Task 3: valid float score 99.0
+        (t3 / "score.json").write_text(json.dumps({"score": 99.0, "status": "PASS"}), encoding="utf-8")
+
+        dest_dir = self.tmp_path / "harvest_nan_out"
+        with patch.dict(os.environ, {"STORAGE_MESSENGER_LOCAL_DIR": str(mock_storage)}):
+            # Must not raise TypeError: must be real number, not str
+            results = result_harvester.harvest_candidate_patches(
+                bucket_name=bucket,
+                prefix=prefix,
+                dest_dir=dest_dir,
+                sort_by_delta=True,
+            )
+
+        self.assertEqual(len(results), 4)
+        self.assertEqual(results[0]["task_index"], 3)
+        self.assertEqual(results[0]["score"], 99.0)
+        self.assertEqual(results[1]["task_index"], 1)
+        self.assertEqual(results[1]["score"], 95.0)
+
+    def test_monitor_execution_detects_completed_false(self):
+        failed_describe_output = json.dumps({
+            "metadata": {"name": "test-exec-failed"},
+            "status": {
+                "conditions": [
+                    {
+                        "type": "Completed",
+                        "status": "False",
+                        "reason": "TasksFailed",
+                        "message": "1 of 2 tasks failed in execution",
+                    }
+                ],
+                "succeededCount": 1,
+                "failedCount": 1,
+            },
+        })
+
+        def fake_run(cmd, *args, **kwargs):
+            m = MagicMock()
+            m.returncode = 0
+            if "describe" in cmd:
+                m.stdout = failed_describe_output
+            elif "logging" in cmd:
+                m.stdout = ""
+            return m
+
+        with patch("subprocess.run", side_effect=fake_run):
+            res = cloud_dispatch.monitor_execution(
+                execution_name="test-exec-failed",
+                project="test-proj",
+                region="us-central1",
+                task_count=2,
+                poll_interval=0.01,
+            )
+            self.assertFalse(res.succeeded)
+            self.assertIn("failed", res.error.lower())
+            self.assertIsNotNone(res.data)
+
+    def test_candidate_table_notice_when_no_passing_patches(self):
+        import io
+        patches = [
+            {"task_index": 0, "status": "ISSUES", "score": 80.0, "patch_file": "path/0.diff"},
+            {"task_index": 1, "status": "ISSUES", "score": 75.0, "patch_file": "path/1.diff"},
+        ]
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            cloud_dispatch.print_candidate_patches_table(patches)
+            out = mock_out.getvalue()
+            self.assertIn("Notice: No passing candidate patches produced.", out)
+            self.assertNotIn("1*", out)
+            self.assertNotIn("Winning Candidate", out)
+
+    def test_recover_session_id_from_execution(self):
+        describe_output = json.dumps({
+            "metadata": {"name": "test-exec-123"},
+            "spec": {
+                "template": {
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "env": [
+                                            {"name": "REPO_URL", "value": "https://github.com/foo/bar.git"},
+                                            {"name": "SWARM_SESSION_ID", "value": "recovered-session-999"},
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        })
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=describe_output)
+            session = cloud_dispatch.recover_session_id_from_execution("test-exec-123", region="us-central1")
+            self.assertEqual(session, "recovered-session-999")
+
+    def test_cloud_worker_fail_closed_in_cloud_mode_without_gcs_bucket(self):
+        worker_repo = self.tmp_path / "worker_cloud_repo"
+        worker_repo.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=worker_repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=worker_repo, check=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=worker_repo, check=True)
+        (worker_repo / "app.py").write_text("v1", encoding="utf-8")
+        subprocess.run(["git", "add", "app.py"], cwd=worker_repo, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=worker_repo, check=True)
+
+        env = {
+            "CLOUD_RUN_TASK_INDEX": "0",
+            "SWARM_SESSION_ID": "sess-fail-closed",
+            "REPO_URL": "https://github.com/test/repo.git",
+            "GEMINI_API_KEY": "fake_key",
+            "TASK_BRIEF": "Optimize app.py",
+        }
+
+        def fake_clone(repo_url, gh_token, branch_name, repo_dir, base_branch=None):
+            # Mirror the worker_repo
+            import shutil
+            for item in worker_repo.iterdir():
+                if item.is_dir():
+                    shutil.copytree(item, repo_dir / item.name, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, repo_dir / item.name)
+
+        def fake_execute(*args, **kwargs):
+            # Modify app.py
+            repo_dir = kwargs.get("repo_dir")
+            (repo_dir / "app.py").write_text("v2", encoding="utf-8")
+            return ("PASS", "Work completed successfully")
+
+        with patch.dict(os.environ, env, clear=True):
+            with patch("cloud_worker.clone_and_checkout_task", side_effect=fake_clone):
+                with patch("cloud_worker.execute_task", side_effect=fake_execute):
+                    import io
+                    with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                        cloud_worker.main()
+                        out = mock_out.getvalue()
+                        self.assertIn("[STATUS: ISSUES]", out)
+                        self.assertIn("Fail-closed: No GCS bucket configured", out)
 
 
 if __name__ == "__main__":

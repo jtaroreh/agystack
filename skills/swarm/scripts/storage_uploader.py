@@ -192,7 +192,11 @@ def upload_artifact(
     return False
 
 
-def _generate_git_patch(repo_dir: Path, candidate_files: Optional[List[str]] = None) -> str:
+def _generate_git_patch(
+    repo_dir: Path,
+    candidate_files: Optional[List[str]] = None,
+    commit_sha: Optional[str] = None,
+) -> str:
     if not (repo_dir / ".git").exists():
         return ""
     try:
@@ -213,13 +217,20 @@ def _generate_git_patch(repo_dir: Path, candidate_files: Optional[List[str]] = N
         pass
 
     scope = ["--"] + candidate_files if candidate_files else []
-    commands = [
-        ["git", "diff", "HEAD~1", "HEAD"] + scope,
-        ["git", "diff", "origin/main", "HEAD"] + scope,
-        ["git", "diff", "HEAD"] + scope,
-        ["git", "diff", "--cached"] + scope,
-        ["git", "diff"] + scope,
-    ]
+    if commit_sha and str(commit_sha).strip():
+        sha = str(commit_sha).strip()
+        commands = [
+            ["git", "diff", f"{sha}~1", sha] + scope,
+        ]
+    else:
+        # If commit_sha is NOT provided (commit failed or uncommitted changes),
+        # do NOT diff HEAD~1 HEAD to avoid leaking unrelated commits.
+        commands = [
+            ["git", "diff", "HEAD"] + scope,
+            ["git", "diff", "--cached"] + scope,
+            ["git", "diff"] + scope,
+        ]
+
     for cmd in commands:
         try:
             res = subprocess.run(
@@ -244,6 +255,7 @@ def upload_run_artifacts(
     task_index: int,
     status: str = "UNKNOWN",
     candidate_files: Optional[List[str]] = None,
+    commit_sha: Optional[str] = None,
 ) -> Dict[str, str]:
     repo = Path(repo_dir)
     clean_prefix = prefix.strip().strip("/")
@@ -252,12 +264,29 @@ def upload_run_artifacts(
 
     uploaded: Dict[str, str] = {}
 
-    status_path = repo / "status.json"
-    if status_path.is_file():
-        dest = f"{target_prefix}/status.json"
-        if upload_to_gcs(bucket_name, dest, status_path):
-            uploaded["status.json"] = f"gs://{bucket_name}/{dest}"
+    # ATOMIC PUBLICATION:
+    # Under zero-push architecture, if status == "PASS":
+    # Generate patch.diff and upload it to GCS FIRST (target_prefix/patch.diff).
+    patch_uploaded = False
+    if status == "PASS":
+        patch_path = repo / "patch.diff"
+        if not patch_path.is_file():
+            patch_content = _generate_git_patch(repo, candidate_files=candidate_files, commit_sha=commit_sha)
+            if patch_content:
+                patch_path.write_text(patch_content, encoding="utf-8")
 
+        if patch_path.is_file() and patch_path.stat().st_size > 0:
+            dest = f"{target_prefix}/patch.diff"
+            if upload_to_gcs(bucket_name, dest, patch_path):
+                uploaded["patch.diff"] = f"gs://{bucket_name}/{dest}"
+                patch_uploaded = True
+
+        # If candidate_files were modified and patch.diff failed to upload or is missing/empty:
+        # Override status = "ISSUES"!
+        if candidate_files and not patch_uploaded:
+            status = "ISSUES"
+
+    # Upload score.json and results.tsv
     score_path = repo / "score.json"
     if score_path.is_file():
         dest = f"{target_prefix}/score.json"
@@ -270,17 +299,22 @@ def upload_run_artifacts(
         if upload_to_gcs(bucket_name, dest, results_path):
             uploaded["results.tsv"] = f"gs://{bucket_name}/{dest}"
 
-    # Under zero-push architecture, patch.diff is only generated and uploaded when status == "PASS"
-    if status == "PASS":
-        patch_path = repo / "patch.diff"
-        if not patch_path.is_file():
-            patch_content = _generate_git_patch(repo, candidate_files=candidate_files)
-            if patch_content:
-                patch_path.write_text(patch_content, encoding="utf-8")
+    # Write and upload status.json LAST with the finalized status.
+    status_path = repo / "status.json"
+    status_data = {}
+    if status_path.is_file():
+        try:
+            status_data = json.loads(status_path.read_text(encoding="utf-8"))
+        except Exception:
+            status_data = {}
+    status_data["task_index"] = task_index
+    status_data["status"] = status
+    if candidate_files and not patch_uploaded and status == "ISSUES":
+        status_data["evidence"] = "Candidate patch failed to upload or is missing under zero-push delivery."
+    status_path.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
 
-        if patch_path.is_file() and patch_path.stat().st_size > 0:
-            dest = f"{target_prefix}/patch.diff"
-            if upload_to_gcs(bucket_name, dest, patch_path):
-                uploaded["patch.diff"] = f"gs://{bucket_name}/{dest}"
+    dest = f"{target_prefix}/status.json"
+    if upload_to_gcs(bucket_name, dest, status_path):
+        uploaded["status.json"] = f"gs://{bucket_name}/{dest}"
 
     return uploaded

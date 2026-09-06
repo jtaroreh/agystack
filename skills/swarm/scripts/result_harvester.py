@@ -266,8 +266,15 @@ def harvest_candidate_patches(
         def sort_key(r):
             is_pass = 1 if r.get("status") == "PASS" else 0
             metric = r.get("score_delta") if r.get("score_delta") is not None else r.get("score")
-            has_metric = 1 if (metric is not None and not math.isnan(metric)) else 0
-            metric_val = metric if has_metric else float("-inf")
+            has_metric = 0
+            metric_val = float("-inf")
+            if isinstance(metric, (int, float)):
+                try:
+                    if not math.isnan(metric):
+                        has_metric = 1
+                        metric_val = float(metric)
+                except Exception:
+                    pass
             task_idx = r.get("task_index") if isinstance(r.get("task_index"), int) else 999999
             return (-is_pass, -has_metric, -metric_val, task_idx)
 
