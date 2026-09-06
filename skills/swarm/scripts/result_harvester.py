@@ -120,6 +120,8 @@ def harvest_candidate_patches(
     bucket_name: str,
     prefix: str,
     dest_dir: Union[Path, str],
+    baseline_score: Optional[float] = None,
+    sort_by_delta: bool = True,
 ) -> List[Dict[str, Any]]:
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
@@ -244,9 +246,14 @@ def harvest_candidate_patches(
             except Exception:
                 pass
 
+        score_delta = None
+        if isinstance(score, (int, float)) and isinstance(baseline_score, (int, float)):
+            score_delta = round(float(score) - float(baseline_score), 4)
+
         results.append({
             "task_index": task_idx,
             "score": score,
+            "score_delta": score_delta,
             "status": status,
             "summary": summary,
             "candidate_files": candidate_files,
@@ -254,5 +261,16 @@ def harvest_candidate_patches(
             "score_file": str(score_file) if score_file else None,
             "status_file": str(status_file) if status_file else None,
         })
-    return results
 
+    if sort_by_delta:
+        def sort_key(r):
+            is_pass = 1 if r.get("status") == "PASS" else 0
+            metric = r.get("score_delta") if r.get("score_delta") is not None else r.get("score")
+            has_metric = 1 if (metric is not None and not math.isnan(metric)) else 0
+            metric_val = metric if has_metric else float("-inf")
+            task_idx = r.get("task_index") if isinstance(r.get("task_index"), int) else 999999
+            return (-is_pass, -has_metric, -metric_val, task_idx)
+
+        results.sort(key=sort_key)
+
+    return results

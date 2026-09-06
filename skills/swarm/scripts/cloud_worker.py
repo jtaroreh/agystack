@@ -3,7 +3,8 @@
 Cloud worker entrypoint executed inside Cloud Run Job container instances.
 Reads task parameters from environment, clones the repo on an isolated branch,
 executes the task brief via Google Antigravity SDK Agent or direct command runner,
-validates changes via verification command, commits and pushes candidate changes,
+validates changes via verification command, commits candidate changes locally,
+delivers candidate patches via GCS under zero-push architecture,
 and outputs a structured report.
 """
 
@@ -328,46 +329,6 @@ def clone_and_checkout_task(
     run_command(["git", "config", "user.name", "Antigravity Cloud Worker"], cwd=repo_path, check=False)
     run_command(["git", "config", "user.email", "bot@antigravity.google"], cwd=repo_path, check=False)
     run_command(["git", "checkout", "-B", branch_name], cwd=repo_path, check=True)
-
-
-def push_candidate_branch(
-    repo_dir: Path,
-    repo_url: str,
-    branch_name: str,
-    gh_token: str,
-    fork_repo_url: str = "",
-) -> None:
-    if fork_repo_url:
-        clean_fork_url = clean_repo_url(fork_repo_url)
-        remotes = run_command(["git", "remote"], cwd=repo_dir, check=False).stdout.split()
-        if "fork" in remotes:
-            run_command(["git", "remote", "set-url", "fork", clean_fork_url], cwd=repo_dir, check=True)
-        else:
-            run_command(["git", "remote", "add", "fork", clean_fork_url], cwd=repo_dir, check=True)
-        push_target = "fork"
-    else:
-        push_target = "origin"
-        run_command(["git", "remote", "set-url", "origin", clean_repo_url(repo_url)], cwd=repo_dir, check=True)
-
-    git_env = os.environ.copy()
-    if gh_token:
-        git_env["GH_TOKEN"] = gh_token
-        cred_helper = '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
-        push_cmd = [
-            "git",
-            "-c", f"credential.helper={cred_helper}",
-            "push",
-            "-u", push_target, branch_name, "--force",
-        ]
-    else:
-        push_cmd = ["git", "push", "-u", push_target, branch_name, "--force"]
-
-    try:
-        run_command(push_cmd, cwd=repo_dir, env=git_env, check=True)
-    finally:
-        run_command(["git", "remote", "set-url", "origin", clean_repo_url(repo_url)], cwd=repo_dir, check=False)
-        if fork_repo_url:
-            run_command(["git", "remote", "set-url", "fork", clean_repo_url(fork_repo_url)], cwd=repo_dir, check=False)
 
 
 def run_command(
@@ -817,7 +778,6 @@ def main() -> None:
     diff_stat = ""
     changes_detected = False
     changes_pushed = False
-    push_error: Optional[str] = None
 
     # Inspect git modifications
     status_res = run_command(["git", "status", "--porcelain"], cwd=repo_dir, check=False)
@@ -858,7 +818,7 @@ def main() -> None:
         agent_summary += f"\n[Steering Instructions Applied]: {steer_summary}"
         print(f"Notice: Applied {len(steer_messages)} steering instruction(s): {steer_summary}", flush=True)
 
-    # Prevent ghost commits: Only commit and push when agent_status == "PASS" and candidate files exist
+    # Prevent ghost commits: Only commit when agent_status == "PASS" and candidate files exist
     if agent_status == "PASS" and candidate_files:
         emit_milestone(task_index, "VALIDATING_CANDIDATE")
         if verify_cmd_str:
@@ -883,7 +843,7 @@ def main() -> None:
                 cached_diff = run_command(["git", "diff", "--cached", "--name-only"], cwd=repo_dir, check=False)
                 if not cached_diff.stdout.strip():
                     diff_stat = "Commit skipped: No candidate changes staged."
-                    print("Notice: No candidate changes staged; skipping git commit and push.", file=sys.stderr)
+                    print("Notice: No candidate changes staged; skipping git commit.", file=sys.stderr)
                 else:
                     changes_detected = True
                     commit_msg = f"worker-{task_index}: execute swarm brief"
@@ -897,10 +857,10 @@ def main() -> None:
                 print(f"Warning: Git commit preparation failed: {err_msg.strip()}", file=sys.stderr)
     elif agent_status != "PASS":
         diff_stat = f"Commit skipped: worker status is {agent_status} (PASS required; ghost commits prohibited)."
-        print(f"Notice: Agent status is {agent_status}. Skipping git commit and push.", file=sys.stderr)
+        print(f"Notice: Agent status is {agent_status}. Skipping git commit.", file=sys.stderr)
     else:
         diff_stat = "Commit skipped: No candidate files modified outside bootstrap scaffolding."
-        print("Notice: No candidate modifications outside bootstrap files; skipping git commit and push.", file=sys.stderr)
+        print("Notice: No candidate modifications outside bootstrap files; skipping git commit.", file=sys.stderr)
 
     final_status = agent_status
     status_payload = {
@@ -915,6 +875,7 @@ def main() -> None:
     status_file.write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
 
     effective_bucket = gcs_bucket or os.environ.get("GCS_BUCKET", "").strip()
+    upload_failed = False
     if effective_bucket:
         try:
             sys.path.insert(0, str(Path(__file__).parent))
@@ -925,12 +886,28 @@ def main() -> None:
                 prefix=gcs_prefix,
                 repo_dir=repo_dir,
                 task_index=task_index,
+                status=final_status,
+                candidate_files=candidate_files,
             )
             if gcs_uris:
                 emit_milestone(task_index, "ARTIFACTS_UPLOADED")
                 print("[MILESTONE] ARTIFACTS_UPLOADED", flush=True)
         except Exception as exc:
             print(f"Warning: GCS upload failed: {exc}", file=sys.stderr)
+            upload_failed = True
+
+        # Fail-closed check: if final_status == "PASS" and candidate_files were modified,
+        # but upload_run_artifacts() failed to upload patch.diff or status.json to GCS,
+        # or if upload explicitly failed, override final_status = "ISSUES".
+        if final_status == "PASS" and candidate_files:
+            if upload_failed or "patch.diff" not in gcs_uris or "status.json" not in gcs_uris:
+                final_status = "ISSUES"
+                fail_evidence = "Artifact upload to GCS failed; candidate patch could not be preserved."
+                agent_summary += f"\n{fail_evidence}"
+                print(f"Warning: {fail_evidence}", file=sys.stderr)
+                status_payload["status"] = final_status
+                status_payload["summary"] = agent_summary.strip()
+                status_file.write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
 
     # Zero-push container architecture: cloud workers never push candidate branches to git remote.
     changes_pushed = False
@@ -964,8 +941,6 @@ def main() -> None:
         print(f"- GCS Patch: {gcs_uris['patch.diff']}")
     if "score.json" in gcs_uris:
         print(f"- GCS Score: {gcs_uris['score.json']}")
-    if push_error:
-        print(f"- Push Status: Rejected (non-fatal, results captured)\n- Push Error: {push_error.strip()}")
     print(f"- Diff Stat:\n{diff_stat}")
     print("Summary:")
     print(agent_summary.strip())

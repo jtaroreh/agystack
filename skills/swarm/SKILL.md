@@ -64,25 +64,43 @@ Cloud Run swarms enable parallel execution across dozens or hundreds of containe
    ```
 
 2. **Execute Active Pre-Flight Check:**
-   Run active pre-flight validation to ensure credentials, git remotes, and model endpoints are reachable before spinning up compute:
+   Run active pre-flight validation to ensure credentials, git remotes, model endpoints, and GCS buckets are reachable before spinning up compute:
    ```bash
-   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" --preflight --model gemini-3.8-flash --vertex
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" --preflight --gcs-bucket <bucket> --model gemini-3.8-flash --vertex
    ```
    (Pre-flight runs automatically by default during dispatch unless `--no-preflight` is specified.)
 
 3. **Launch the Swarm & Stream Real-Time Milestones:**
-   Launch cloud dispatch CLI with unbuffered streaming and zero retries to fail broken hypotheses fast:
+   Launch cloud dispatch CLI with unbuffered streaming and fail-fast candidate evaluation:
    ```bash
-   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
      --manifest <manifest-path> \
      --tasks <N> \
-     --parallelism 100 \
-     --max-retries 0 \
+     --gcs-bucket <bucket> \
      --model gemini-3.8-flash \
      --vertex
    ```
-   Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`. When coordinating asynchronously, pass `--no-wait` to `cloud_dispatch.py` to prevent blocking the agent turn.
-   The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job with `--max-retries 0`, streams real-time unbuffered `[MILESTONE]` execution progress directly to stdout as events occur, and aggregates final candidate patches into a summary report. Dispatchers and coordinators must never block passively on buffered command execution.
+   Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`. Concurrency (default 100) and fail-fast zero retries (`--max-retries=0`) are configured directly on the Cloud Run job template during `/setup-agystack` (`setup_runtime.py`).
+
+   **Asynchronous Coordination & Detached Monitoring:**
+   When coordinating asynchronously, pass `--no-wait` to `cloud_dispatch.py` to prevent blocking the agent turn:
+   ```bash
+   # Dispatch asynchronously and return execution handle immediately
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+     --manifest <manifest-path> \
+     --tasks <N> \
+     --gcs-bucket <bucket> \
+     --no-wait
+
+   # Harvest and rank candidate patches from an existing session without launching compute
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+     --harvest-session <session_id> --gcs-bucket <bucket> --baseline-score <float>
+
+   # Attach to a running execution to stream milestones and harvest upon completion
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+     --wait-execution <execution_name> --session <session_id> --gcs-bucket <bucket>
+   ```
+   The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job, streams real-time unbuffered `[MILESTONE]` execution progress directly to stdout as events occur, and aggregates final candidate patches into a ranked summary report. Dispatchers and coordinators must never block passively on buffered command execution.
 
 Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS]`, `[STATUS: ISSUES]`, or `[STATUS: BLOCKED]` with evidence).
 

@@ -49,6 +49,7 @@ class TestCloudDispatchGemini25Preflight(unittest.TestCase):
             region="us-central1",
             model="gemini-2.5-flash",
             dry_run=False,
+            gcs_bucket="test-bucket",
         )
 
         mock_urlopen.assert_called_once()
@@ -85,6 +86,7 @@ class TestCloudDispatchGemini25Preflight(unittest.TestCase):
             region="europe-west4",
             model="gemini-2.5-pro",
             dry_run=False,
+            gcs_bucket="test-bucket",
         )
 
         mock_urlopen.assert_called_once()

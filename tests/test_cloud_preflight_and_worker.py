@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "setup-agystack" / "scripts"))
 import setup_runtime
+import cloud_worker
 from cloud_worker import (
     clean_repo_url,
     clone_and_checkout_task,
@@ -19,7 +20,6 @@ from cloud_worker import (
     execute_task,
     is_candidate_file,
     parse_task_manifest,
-    push_candidate_branch,
     resolve_worker_branch,
 )
 from cloud_dispatch import (
@@ -410,6 +410,7 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
             region="us-central1",
             model="gemini-3.8-flash",
             dry_run=False,
+            gcs_bucket="test-bucket",
         )
 
         mock_urlopen.assert_called_once()
@@ -447,6 +448,7 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
             region="europe-west4",
             model="gemini-1.5-flash",
             dry_run=False,
+            gcs_bucket="test-bucket",
         )
 
         mock_urlopen.assert_called_once()
@@ -478,6 +480,7 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
                 region="us-central1",
                 model="gemini-3.8-flash",
                 dry_run=False,
+                gcs_bucket="test-bucket",
             )
         self.assertIn("Free-tier Gemini API key detected", str(ctx.exception))
 
@@ -675,47 +678,8 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         )
         self.assertEqual(branch_res.stdout.strip(), "worker-7")
 
-    def test_git_push_scrubs_tokens_from_argv_and_remote(self):
-        worker_dest = self.temp_dir / "test-push-repo"
-        worker_dest.mkdir(parents=True, exist_ok=True)
-        fake_token = "ghp_VERYSECRETTOKEN123456789"
-
-        with patch("cloud_worker.run_command") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            push_candidate_branch(
-                repo_dir=worker_dest,
-                repo_url="https://github.com/my-org/my-repo.git",
-                branch_name="worker-7",
-                gh_token=fake_token,
-            )
-            push_calls = [call for call in mock_run.call_args_list if len(call[0][0]) > 1 and "push" in call[0][0]]
-            self.assertTrue(len(push_calls) > 0)
-            for call in push_calls:
-                cmd = call[0][0]
-                for arg in cmd:
-                    self.assertNotIn(fake_token, arg)
-                kwargs = call[1]
-                self.assertIn("env", kwargs)
-                self.assertEqual(kwargs["env"].get("GH_TOKEN"), fake_token)
-
-            mock_run.reset_mock()
-            mock_run.return_value = MagicMock(returncode=0, stdout="origin fork", stderr="")
-            push_candidate_branch(
-                repo_dir=worker_dest,
-                repo_url="https://github.com/my-org/my-repo.git",
-                branch_name="worker-7",
-                gh_token=fake_token,
-                fork_repo_url="https://github.com/fork-org/my-repo.git",
-            )
-            push_calls = [call for call in mock_run.call_args_list if len(call[0][0]) > 1 and "push" in call[0][0]]
-            self.assertTrue(len(push_calls) > 0)
-            for call in push_calls:
-                cmd = call[0][0]
-                for arg in cmd:
-                    self.assertNotIn(fake_token, arg)
-                kwargs = call[1]
-                self.assertIn("env", kwargs)
-                self.assertEqual(kwargs["env"].get("GH_TOKEN"), fake_token)
+    def test_zero_push_architecture_omits_git_push(self):
+        self.assertFalse(hasattr(cloud_worker, "push_candidate_branch"))
 
     def test_build_gcloud_command_supports_set_secrets_and_vertex_mode(self):
         # 1. Supports --set-secrets with dict mapping

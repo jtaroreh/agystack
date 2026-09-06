@@ -46,7 +46,7 @@ When running massive swarms (N > 8) or when Cloud Run runtime is configured, agy
 1. **Coordinator:** Generates task briefs into a JSON manifest and invokes `cloud_dispatch.py` via dynamic discovery.
 2. **Cloud Run Job:** Spawns up to 100+ container tasks concurrently across Google Cloud compute.
 3. **Container Instances:** Each instance executes `cloud_worker.py`, index-matched to its `CLOUD_RUN_TASK_INDEX`.
-4. **Git Branch Isolation:** Each worker clones the repository using an auto-forwarded GitHub token, creates branch `worker-{task_index}`, executes the task using the Google Antigravity SDK Agent, commits changes, and pushes to origin.
+4. **Zero-Push Patch Delivery:** Worker clones, executes task, uploads score.json and patch.diff if verified PASS under zero-push architecture.
 5. **Aggregation:** The dispatcher aggregates container logs and outputs a structured execution report.
 
 ### Runtime Configuration (`agystack-runtime.json`)
@@ -59,9 +59,9 @@ Saved at `~/.gemini/config/plugins/agystack/agystack-runtime.json` or `.agents/p
   "project_id": "my-gcp-project",
   "region": "us-central1",
   "job_name": "agystack-swarm-worker",
-  "image": "us-central1-docker.pkg.dev/my-gcp-project/agystack/cloud-worker:latest",
+  "image": "us-central1-docker.pkg.dev/my-gcp-project/agystack/worker:latest",
   "parallelism": 100,
-  "model": "gemini-2.5-flash"
+  "model": "gemini-3.8-flash"
 }
 ```
 

@@ -59,6 +59,7 @@ class TestArtifactDiscovery(unittest.TestCase):
             prefix="runs/experiment-1",
             repo_dir=self.repo_dir,
             task_index=3,
+            status="PASS",
         )
 
         self.assertIn("score.json", results)
@@ -98,6 +99,7 @@ class TestArtifactDiscovery(unittest.TestCase):
             prefix="test-prefix",
             repo_dir=self.repo_dir,
             task_index=1,
+            status="PASS",
         )
 
         self.assertIn("patch.diff", results)

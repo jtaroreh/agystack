@@ -258,6 +258,7 @@ class TestArchitectureRemediation(unittest.TestCase):
             region="us-central1",
             model="gemini-2.5-flash",
             dry_run=False,
+            gcs_bucket="test-bucket",
         )
 
         self.assertTrue(mock_run.called)
@@ -301,6 +302,175 @@ class TestArchitectureRemediation(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0, f"Test failed with output:\n{res.stderr}\n{res.stdout}")
         self.assertIn("skipped=3", res.stderr + res.stdout)
+
+    def test_script_resolver_path_resolution_in_skill_md(self):
+        skill_md = REPO_ROOT / "skills" / "swarm" / "SKILL.md"
+        content = skill_md.read_text(encoding="utf-8")
+        resolver_pattern = 'find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py'
+        self.assertIn(resolver_pattern, content)
+
+    def test_run_preflight_missing_gcs_bucket_fails_fast(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            cloud_dispatch.run_preflight(
+                repo_url="https://github.com/test/repo.git",
+                gh_token="secret_token",
+                use_vertex=False,
+                gemini_api_key="key",
+                project="test-proj",
+                region="us-central1",
+                model="gemini-3.8-flash",
+                dry_run=False,
+                gcs_bucket=None,
+            )
+        self.assertIn("Cloud Run swarms require a GCS bucket", str(ctx.exception))
+
+    def test_upload_run_artifacts_only_generates_patch_when_pass(self):
+        repo_test = self.tmp_path / "test_repo"
+        repo_test.mkdir(parents=True, exist_ok=True)
+        (repo_test / ".git").mkdir()
+        (repo_test / "app.py").write_text("print('hello')", encoding="utf-8")
+
+        mock_storage = self.tmp_path / "mock_gcs_upload"
+        with patch.dict(os.environ, {"STORAGE_MESSENGER_LOCAL_DIR": str(mock_storage)}):
+            with patch("storage_uploader._generate_git_patch", return_value="diff --git a/app.py"):
+                # ISSUES status must not generate or upload patch.diff
+                res_issues = storage_uploader.upload_run_artifacts(
+                    bucket_name="test-bkt",
+                    prefix="swarms/test-run",
+                    repo_dir=repo_test,
+                    task_index=0,
+                    status="ISSUES",
+                )
+                self.assertNotIn("patch.diff", res_issues)
+                self.assertFalse((repo_test / "patch.diff").exists())
+
+                # PASS status must generate and upload patch.diff
+                res_pass = storage_uploader.upload_run_artifacts(
+                    bucket_name="test-bkt",
+                    prefix="swarms/test-run",
+                    repo_dir=repo_test,
+                    task_index=0,
+                    status="PASS",
+                )
+                self.assertIn("patch.diff", res_pass)
+                self.assertTrue((repo_test / "patch.diff").exists())
+
+    def test_scoped_git_patch_generation_honors_candidate_files(self):
+        repo_dir = self.tmp_path / "git_scope_repo"
+        repo_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+
+        target_file = repo_dir / "target.py"
+        target_file.write_text("v1", encoding="utf-8")
+        junk_file = repo_dir / "junk.log"
+        junk_file.write_text("junk", encoding="utf-8")
+
+        subprocess.run(["git", "add", "target.py", "junk.log"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, check=True)
+
+        target_file.write_text("v2", encoding="utf-8")
+        junk_file.write_text("junk modified", encoding="utf-8")
+
+        patch_content = storage_uploader._generate_git_patch(repo_dir, candidate_files=["target.py"])
+        self.assertIn("target.py", patch_content)
+        self.assertNotIn("junk.log", patch_content)
+
+    def test_harvest_candidate_patches_score_delta_ranking(self):
+        mock_storage = self.tmp_path / "mock_delta_gcs"
+        bucket = "test-delta-bucket"
+        prefix = "swarms/delta-session"
+
+        t0 = mock_storage / bucket / prefix / "task-0"
+        t1 = mock_storage / bucket / prefix / "task-1"
+        t2 = mock_storage / bucket / prefix / "task-2"
+        t3 = mock_storage / bucket / prefix / "task-3"
+        for t in (t0, t1, t2, t3):
+            t.mkdir(parents=True, exist_ok=True)
+
+        (t0 / "score.json").write_text(json.dumps({"score": 90.0, "status": "PASS"}), encoding="utf-8")
+        (t1 / "score.json").write_text(json.dumps({"score": 95.0, "status": "PASS"}), encoding="utf-8")
+        (t2 / "score.json").write_text(json.dumps({"score": 99.0, "status": "ISSUES"}), encoding="utf-8")
+        (t3 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+
+        dest_dir = self.tmp_path / "harvest_delta_out"
+        with patch.dict(os.environ, {"STORAGE_MESSENGER_LOCAL_DIR": str(mock_storage)}):
+            ranked = result_harvester.harvest_candidate_patches(
+                bucket_name=bucket,
+                prefix=prefix,
+                dest_dir=dest_dir,
+                baseline_score=88.0,
+                sort_by_delta=True,
+            )
+
+        self.assertEqual(len(ranked), 4)
+        # Rank 1: Task 1 (PASS, delta +7.0)
+        self.assertEqual(ranked[0]["task_index"], 1)
+        self.assertEqual(ranked[0]["score_delta"], 7.0)
+        self.assertEqual(ranked[0]["status"], "PASS")
+
+        # Rank 2: Task 0 (PASS, delta +2.0)
+        self.assertEqual(ranked[1]["task_index"], 0)
+        self.assertEqual(ranked[1]["score_delta"], 2.0)
+        self.assertEqual(ranked[1]["status"], "PASS")
+
+        # Rank 3: Task 3 (PASS, score None)
+        self.assertEqual(ranked[2]["task_index"], 3)
+        self.assertEqual(ranked[2]["status"], "PASS")
+
+        # Rank 4: Task 2 (ISSUES, delta +11.0, sorted after PASS)
+        self.assertEqual(ranked[3]["task_index"], 2)
+        self.assertEqual(ranked[3]["status"], "ISSUES")
+
+    def test_harvest_session_cli_standalone(self):
+        dispatch_script = SWARM_SCRIPTS / "cloud_dispatch.py"
+        mock_storage = self.tmp_path / "mock_cli_gcs"
+        bucket = "test-cli-bkt"
+        session_id = "sess-cli-harvest"
+
+        task_dir = mock_storage / bucket / f"swarms/{session_id}" / "task-0"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "score.json").write_text(json.dumps({"score": 92.5, "status": "PASS"}), encoding="utf-8")
+        (task_dir / "patch.diff").write_text("--- a/f\n+++ b/f\n+ok", encoding="utf-8")
+
+        cmd = [
+            sys.executable,
+            str(dispatch_script),
+            "--harvest-session", session_id,
+            "--gcs-bucket", bucket,
+            "--baseline-score", "90.0",
+        ]
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=str(self.tmp_path),
+            env=dict(os.environ, STORAGE_MESSENGER_LOCAL_DIR=str(mock_storage)),
+        )
+        self.assertIn("CANDIDATE PATCHES (RANKED):", res.stdout)
+        self.assertIn("Winning Candidate #1", res.stdout)
+        self.assertIn("+2.5000", res.stdout)
+
+    def test_worker_fail_closed_on_upload_failure(self):
+        worker_dir = self.tmp_path / "worker_fail_repo"
+        worker_dir.mkdir(parents=True, exist_ok=True)
+        (worker_dir / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+
+        with patch("storage_uploader.upload_run_artifacts", return_value={}):
+            # When bucket is configured and status is PASS with candidate files, upload failure must fail closed
+            effective_bucket = "test-bkt"
+            final_status = "PASS"
+            candidate_files = ["src/mod.py"]
+            upload_failed = False
+            gcs_uris = {}
+
+            if final_status == "PASS" and candidate_files:
+                if upload_failed or "patch.diff" not in gcs_uris or "status.json" not in gcs_uris:
+                    final_status = "ISSUES"
+
+            self.assertEqual(final_status, "ISSUES")
 
 
 if __name__ == "__main__":

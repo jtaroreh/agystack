@@ -273,6 +273,10 @@ Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SK
 
 Run the Python test suite:
 ```bash
+# Standard library test runner (zero external dependencies required)
+python3 -m unittest discover -s tests
+
+# Or via pytest if installed
 pytest -q
 ```
 

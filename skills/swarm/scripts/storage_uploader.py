@@ -7,7 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 
 def get_oauth_token() -> Optional[str]:
@@ -192,12 +192,17 @@ def upload_artifact(
     return False
 
 
-def _generate_git_patch(repo_dir: Path) -> str:
+def _generate_git_patch(repo_dir: Path, candidate_files: Optional[List[str]] = None) -> str:
     if not (repo_dir / ".git").exists():
         return ""
     try:
+        add_cmd = ["git", "add", "-N"]
+        if candidate_files:
+            add_cmd.extend(["--"] + candidate_files)
+        else:
+            add_cmd.append(".")
         subprocess.run(
-            ["git", "add", "-N", "."],
+            add_cmd,
             cwd=repo_dir,
             capture_output=True,
             text=True,
@@ -206,11 +211,14 @@ def _generate_git_patch(repo_dir: Path) -> str:
         )
     except Exception:
         pass
+
+    scope = ["--"] + candidate_files if candidate_files else []
     commands = [
-        ["git", "diff", "HEAD~1", "HEAD"],
-        ["git", "diff", "origin/main", "HEAD"],
-        ["git", "diff", "HEAD"],
-        ["git", "diff"],
+        ["git", "diff", "HEAD~1", "HEAD"] + scope,
+        ["git", "diff", "origin/main", "HEAD"] + scope,
+        ["git", "diff", "HEAD"] + scope,
+        ["git", "diff", "--cached"] + scope,
+        ["git", "diff"] + scope,
     ]
     for cmd in commands:
         try:
@@ -234,6 +242,8 @@ def upload_run_artifacts(
     prefix: str,
     repo_dir: Path,
     task_index: int,
+    status: str = "UNKNOWN",
+    candidate_files: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     repo = Path(repo_dir)
     clean_prefix = prefix.strip().strip("/")
@@ -260,15 +270,17 @@ def upload_run_artifacts(
         if upload_to_gcs(bucket_name, dest, results_path):
             uploaded["results.tsv"] = f"gs://{bucket_name}/{dest}"
 
-    patch_path = repo / "patch.diff"
-    if not patch_path.is_file():
-        patch_content = _generate_git_patch(repo)
-        if patch_content:
-            patch_path.write_text(patch_content, encoding="utf-8")
+    # Under zero-push architecture, patch.diff is only generated and uploaded when status == "PASS"
+    if status == "PASS":
+        patch_path = repo / "patch.diff"
+        if not patch_path.is_file():
+            patch_content = _generate_git_patch(repo, candidate_files=candidate_files)
+            if patch_content:
+                patch_path.write_text(patch_content, encoding="utf-8")
 
-    if patch_path.is_file() and patch_path.stat().st_size > 0:
-        dest = f"{target_prefix}/patch.diff"
-        if upload_to_gcs(bucket_name, dest, patch_path):
-            uploaded["patch.diff"] = f"gs://{bucket_name}/{dest}"
+        if patch_path.is_file() and patch_path.stat().st_size > 0:
+            dest = f"{target_prefix}/patch.diff"
+            if upload_to_gcs(bucket_name, dest, patch_path):
+                uploaded["patch.diff"] = f"gs://{bucket_name}/{dest}"
 
     return uploaded

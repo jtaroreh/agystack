@@ -528,8 +528,15 @@ def run_preflight(
     dry_run: bool = False,
     vertex_location: Optional[str] = None,
     base_branch: Optional[str] = None,
+    gcs_bucket: Optional[str] = None,
 ) -> None:
-    print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, and repository access...", flush=True)
+    print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, repository access, and GCS bucket...", flush=True)
+
+    if not dry_run and not gcs_bucket:
+        raise RuntimeError(
+            "Cloud Run swarms require a GCS bucket to store and deliver candidate patches under the zero-push architecture.\n"
+            "Please specify --gcs-bucket <name> or configure 'gcs_bucket' in agystack-runtime.json."
+        )
 
     if not vertex_location:
         vertex_location = "global" if model.startswith(("gemini-2.5", "gemini-3")) else region
@@ -541,7 +548,7 @@ def run_preflight(
     if not gh_token:
         raise RuntimeError(
             "GH_TOKEN could not be resolved from environment or `gh auth token`.\n"
-            "Cloud swarm workers require a valid GitHub token to clone and push candidate branches."
+            "Cloud swarm workers require a valid GitHub token to clone private repositories."
         )
 
     clean_url = clean_repo_url(repo_url)
@@ -839,6 +846,35 @@ def handle_mailbox_steer(
     return steer_env
 
 
+def print_candidate_patches_table(
+    harvested_patches: List[Dict[str, Any]],
+    baseline_score: Optional[float] = None,
+) -> None:
+    if not harvested_patches:
+        print("No candidate patches found.")
+        return
+
+    print("\n" + "=" * 80)
+    print("CANDIDATE PATCHES (RANKED):")
+    print("=" * 80)
+    print(f"{'Rank':<6} | {'Task':<8} | {'Score':<8} | {'Delta':<10} | {'Status':<10} | {'Patch File'}")
+    print("-" * 80)
+    for idx, p in enumerate(harvested_patches):
+        rank_str = f"{idx + 1}*" if idx == 0 else str(idx + 1)
+        task_id = p.get("task_index", "?")
+        sc = p.get("score")
+        sc_str = f"{sc:.2f}" if isinstance(sc, (int, float)) else "N/A"
+        delta = p.get("score_delta")
+        delta_str = f"{delta:+.4f}" if delta is not None else "N/A"
+        st = p.get("status", "UNKNOWN")
+        pf = p.get("patch_file") or "None"
+        print(f"{rank_str:<6} | {task_id:<8} | {sc_str:<8} | {delta_str:<10} | {st:<10} | {pf}")
+    print("=" * 80)
+    if harvested_patches and harvested_patches[0].get("patch_file"):
+        print(f"* Winning Candidate #1: {harvested_patches[0]['patch_file']} (apply and verify locally)")
+        print("=" * 80)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dispatch parallel Cloud Run swarm workers.")
     parser.add_argument("--manifest", type=str, help="Path to manifest JSON or JSON string.")
@@ -846,10 +882,13 @@ def main() -> None:
     parser.add_argument("--gcs-bucket", type=str, help="GCS bucket name for run artifacts.")
     parser.add_argument("--gcs-prefix", type=str, default=None, help="GCS object prefix.")
     parser.add_argument("--harvest-gcs", type=str, help="GCS prefix to harvest results after execution.")
+    parser.add_argument("--harvest-session", type=str, default=None, help="Harvest and rank candidate patches for an existing session ID from GCS without launching a new Cloud Run job")
+    parser.add_argument("--wait-execution", type=str, default=None, help="Attach to a running Cloud Run execution, stream milestones, and harvest patches")
+    parser.add_argument("--baseline-score", type=float, default=None, help="Baseline score float to compute score delta ranking against")
     parser.add_argument("--repo", type=str, help="Git repository URL.")
     parser.add_argument("--tasks", type=int, help="Task count override.")
-    parser.add_argument("--parallelism", type=int, default=None, help="Concurrency limit (default: 100).")
-    parser.add_argument("--max-retries", type=int, default=0, help="Max retry attempts per task (default: 0 for fast fail).")
+    parser.add_argument("--parallelism", type=int, default=None, help="Concurrency limit (configured on Cloud Run Job template via setup_runtime.py; execute inherits template setting).")
+    parser.add_argument("--max-retries", type=int, default=0, help="Max retry attempts per task (configured on Cloud Run Job template via setup_runtime.py; execute inherits template setting).")
     parser.add_argument("--job-name", type=str, help="Cloud Run Job name.")
     parser.add_argument("--region", type=str, help="GCP region (e.g. us-central1).")
     parser.add_argument("--project", type=str, help="GCP project ID.")
@@ -915,6 +954,65 @@ def main() -> None:
     use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
     model = resolve_swarm_model(cli_model=args.model, runtime_model=runtime_cfg.get("model"))
     vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith(("gemini-2.5", "gemini-3")) else region)
+    gcs_bucket = args.gcs_bucket if args.gcs_bucket is not None else runtime_cfg.get("gcs_bucket", "")
+
+    if args.harvest_session:
+        session_id = args.harvest_session.strip()
+        bkt = gcs_bucket or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        if not bkt:
+            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
+            sys.exit(1)
+        prefix = args.gcs_prefix or f"swarms/{session_id}"
+        dest_dir = Path(".slices") / session_id
+        try:
+            from result_harvester import harvest_candidate_patches
+            harvested_patches = harvest_candidate_patches(
+                bucket_name=bkt,
+                prefix=prefix,
+                dest_dir=dest_dir,
+                baseline_score=args.baseline_score,
+                sort_by_delta=True,
+            )
+        except Exception as exc:
+            print(f"Error: Failed to harvest GCS results for session {session_id}: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
+        return
+
+    if args.wait_execution:
+        execution_name = args.wait_execution.strip()
+        session_id = args.session_id or os.environ.get("SWARM_SESSION_ID") or os.environ.get("SESSION_ID") or f"swarm-{int(time.time())}"
+        bkt = gcs_bucket or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        task_count = args.tasks or 1
+        print(f"Attaching to Cloud Run execution '{execution_name}' in region '{region}'...")
+        monitor_execution(
+            execution_name=execution_name,
+            project=project,
+            region=region,
+            task_count=task_count,
+        )
+        print("Job execution completed.")
+
+        harvest_target = args.harvest_gcs or (args.gcs_prefix or (f"swarms/{session_id}" if bkt else None))
+        harvested_patches = []
+        if harvest_target is not None and bkt:
+            try:
+                from result_harvester import harvest_candidate_patches
+                dest_dir = Path(".slices") / session_id
+                harvested_patches = harvest_candidate_patches(
+                    bucket_name=bkt,
+                    prefix=harvest_target,
+                    dest_dir=dest_dir,
+                    baseline_score=args.baseline_score,
+                    sort_by_delta=True,
+                )
+            except Exception as exc:
+                print(f"Warning: Failed to harvest GCS results: {exc}", file=sys.stderr)
+
+        if harvested_patches:
+            print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
+        return
 
     repo_url = args.repo or get_git_remote_url()
     gh_token = get_gh_token()
@@ -934,6 +1032,7 @@ def main() -> None:
                 dry_run=args.dry_run,
                 vertex_location=vertex_location,
                 base_branch=args.base_branch,
+                gcs_bucket=gcs_bucket,
             )
         except RuntimeError as exc:
             print(f"Error [Pre-Flight]: {exc}", file=sys.stderr)
@@ -1193,7 +1292,13 @@ def main() -> None:
                 from result_harvester import harvest_gcs_results, harvest_candidate_patches
 
                 dest_dir = Path(".slices") / session_id
-                harvested_patches = harvest_candidate_patches(bucket_name=gcs_bucket, prefix=harvest_target, dest_dir=dest_dir)
+                harvested_patches = harvest_candidate_patches(
+                    bucket_name=gcs_bucket,
+                    prefix=harvest_target,
+                    dest_dir=dest_dir,
+                    baseline_score=args.baseline_score,
+                    sort_by_delta=True,
+                )
             except Exception as exc:
                 print(f"Warning: Failed to harvest GCS results: {exc}", file=sys.stderr)
 
@@ -1238,16 +1343,7 @@ def main() -> None:
             print("=" * 80)
 
         if harvested_patches:
-            print("\n" + "=" * 80)
-            print("CANDIDATE PATCHES:")
-            print("=" * 80)
-            print(f"{'Task':<8} | {'Score':<8} | {'Status':<10} | {'Patch File'}")
-            print("-" * 80)
-            for p in harvested_patches:
-                sc_str = str(p.get("score")) if p.get("score") is not None else "N/A"
-                pf_str = str(p.get("patch_file")) if p.get("patch_file") else "None"
-                print(f"{p.get('task_index', '?'):<8} | {sc_str:<8} | {p.get('status', 'UNKNOWN'):<10} | {pf_str}")
-            print("=" * 80)
+            print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
 
     except subprocess.CalledProcessError as exc:
         err_out = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
