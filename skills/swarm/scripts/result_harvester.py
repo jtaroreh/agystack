@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 import json
 import math
+import os
+import re
+import shutil
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 
 def _extract_metric_value(trial: Dict[str, Any], key: str) -> Optional[float]:
@@ -110,3 +114,145 @@ def harvest_gcs_results(
         return results
     except Exception:
         return []
+
+
+def harvest_candidate_patches(
+    bucket_name: str,
+    prefix: str,
+    dest_dir: Union[Path, str],
+) -> List[Dict[str, Any]]:
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    clean_prefix = prefix.strip("/")
+    tasks_found: Dict[int, Dict[str, Any]] = {}
+
+    local_dir = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
+    if local_dir:
+        src_base = Path(local_dir) / bucket_name / clean_prefix
+        if src_base.is_dir():
+            for task_folder in sorted(src_base.iterdir()):
+                if not task_folder.is_dir():
+                    continue
+                m = re.search(r"task-(\d+)", task_folder.name)
+                if not m:
+                    continue
+                task_idx = int(m.group(1))
+                target_task_dir = dest / f"task-{task_idx}"
+                target_task_dir.mkdir(parents=True, exist_ok=True)
+                score_src = task_folder / "score.json"
+                patch_src = task_folder / "patch.diff"
+                status_src = task_folder / "status.json"
+                sf = None
+                pf = None
+                stf = None
+                if score_src.is_file():
+                    target_score = target_task_dir / "score.json"
+                    shutil.copy2(score_src, target_score)
+                    sf = target_score
+                if patch_src.is_file():
+                    target_patch = target_task_dir / "patch.diff"
+                    shutil.copy2(patch_src, target_patch)
+                    pf = target_patch
+                if status_src.is_file():
+                    target_status = target_task_dir / "status.json"
+                    shutil.copy2(status_src, target_status)
+                    stf = target_status
+                tasks_found[task_idx] = {"score_file": sf, "patch_file": pf, "status_file": stf}
+
+    if not tasks_found:
+        try:
+            from google.cloud import storage
+
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blobs = bucket.list_blobs(prefix=clean_prefix)
+            for blob in blobs:
+                m = re.search(r"task-(\d+)/([^/]+)$", blob.name)
+                if not m:
+                    continue
+                task_idx = int(m.group(1))
+                filename = m.group(2)
+                if filename not in ("score.json", "patch.diff", "status.json"):
+                    continue
+                if task_idx not in tasks_found:
+                    tasks_found[task_idx] = {}
+                target_task_dir = dest / f"task-{task_idx}"
+                target_task_dir.mkdir(parents=True, exist_ok=True)
+                target_file = target_task_dir / filename
+                blob.download_to_filename(str(target_file))
+                if filename == "score.json":
+                    tasks_found[task_idx]["score_file"] = target_file
+                elif filename == "patch.diff":
+                    tasks_found[task_idx]["patch_file"] = target_file
+                elif filename == "status.json":
+                    tasks_found[task_idx]["status_file"] = target_file
+        except Exception:
+            pass
+
+    if not tasks_found:
+        src_uri = f"gs://{bucket_name}/{clean_prefix}/*"
+        try:
+            subprocess.run(
+                ["gcloud", "storage", "cp", "-r", src_uri, str(dest)],
+                capture_output=True,
+                check=False,
+            )
+            for item in dest.glob("task-*"):
+                if item.is_dir():
+                    m = re.search(r"task-(\d+)", item.name)
+                    if m:
+                        task_idx = int(m.group(1))
+                        sf = item / "score.json"
+                        pf = item / "patch.diff"
+                        stf = item / "status.json"
+                        tasks_found[task_idx] = {
+                            "score_file": sf if sf.is_file() else None,
+                            "patch_file": pf if pf.is_file() else None,
+                            "status_file": stf if stf.is_file() else None,
+                        }
+        except Exception:
+            pass
+
+    results = []
+    for task_idx in sorted(tasks_found.keys()):
+        info = tasks_found[task_idx]
+        score_file = info.get("score_file")
+        patch_file = info.get("patch_file")
+        status_file = info.get("status_file")
+        score = None
+        status = "UNKNOWN"
+        summary = ""
+        candidate_files = []
+
+        if score_file and Path(score_file).is_file():
+            try:
+                data = json.loads(Path(score_file).read_text(encoding="utf-8"))
+                score = data.get("score")
+                status = data.get("status", "PASS" if score is not None else "UNKNOWN")
+            except Exception:
+                pass
+
+        if status_file and Path(status_file).is_file():
+            try:
+                st_data = json.loads(Path(status_file).read_text(encoding="utf-8"))
+                if "status" in st_data and st_data["status"]:
+                    status = st_data["status"]
+                if "score" in st_data and st_data["score"] is not None:
+                    score = st_data["score"]
+                summary = st_data.get("summary", "")
+                candidate_files = st_data.get("candidate_files", [])
+            except Exception:
+                pass
+
+        results.append({
+            "task_index": task_idx,
+            "score": score,
+            "status": status,
+            "summary": summary,
+            "candidate_files": candidate_files,
+            "patch_file": str(patch_file) if patch_file else None,
+            "score_file": str(score_file) if score_file else None,
+            "status_file": str(status_file) if status_file else None,
+        })
+    return results
+

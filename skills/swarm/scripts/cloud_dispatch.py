@@ -278,11 +278,10 @@ def build_gcloud_command(
     auth_mode: Optional[str] = None,
     use_vertex: bool = False,
 ) -> List[str]:
+    if env_vars is None:
+        env_vars = {}
     cmd = ["gcloud", "run", "jobs", "execute", job_name]
     cmd.append(f"--tasks={tasks_count}")
-    if parallelism > 0:
-        cmd.append(f"--parallelism={parallelism}")
-    cmd.append(f"--max-retries={max_retries}")
     cmd.append(f"--region={region}")
     if project:
         cmd.append(f"--project={project}")
@@ -316,27 +315,6 @@ def build_gcloud_command(
     if env_pairs:
         cmd.append(f"--update-env-vars=^##^{ '##'.join(env_pairs) }")
 
-    sec_entries: List[str] = []
-    for source in (set_secrets, secrets_mapping):
-        if not source:
-            continue
-        if isinstance(source, dict):
-            sec_entries.extend(f"{k}={v}" for k, v in source.items())
-        elif isinstance(source, (list, tuple)):
-            sec_entries.extend(str(item).strip() for item in source if str(item).strip())
-        elif isinstance(source, str):
-            sec_entries.extend(part.strip() for part in source.split(",") if part.strip())
-
-    if sec_entries:
-        seen_keys = set()
-        deduped = []
-        for entry in sec_entries:
-            key = entry.split("=", 1)[0].split(":", 1)[0].strip()
-            if key not in seen_keys:
-                seen_keys.add(key)
-                deduped.append(entry)
-        cmd.append(f"--set-secrets={','.join(deduped)}")
-
     return cmd
 
 
@@ -347,15 +325,25 @@ def parse_worker_logs(log_output: str) -> List[Dict[str, Any]]:
     current_summary: List[str] = []
     mode = None
 
+    def _flush():
+        nonlocal current_status, current_evidence, current_summary
+        if current_status:
+            evidence_str = "\n".join(current_evidence)
+            summary_str = "\n".join(current_summary)
+            entry: Dict[str, Any] = {
+                "status": current_status,
+                "evidence": evidence_str,
+                "summary": summary_str,
+            }
+            m = re.search(r"-\s*Task Index:\s*(\d+)", evidence_str, re.IGNORECASE)
+            if m:
+                entry["task_index"] = int(m.group(1))
+            results.append(entry)
+
     for line in log_output.splitlines():
         trimmed = line.strip()
         if trimmed.startswith("[STATUS:"):
-            if current_status:
-                results.append({
-                    "status": current_status,
-                    "evidence": "\n".join(current_evidence),
-                    "summary": "\n".join(current_summary),
-                })
+            _flush()
             current_status = trimmed.split("[STATUS:")[1].split("]")[0].strip()
             current_evidence = []
             current_summary = []
@@ -372,13 +360,7 @@ def parse_worker_logs(log_output: str) -> List[Dict[str, Any]]:
             elif mode == "summary":
                 current_summary.append(line)
 
-    if current_status:
-        results.append({
-            "status": current_status,
-            "evidence": "\n".join(current_evidence),
-            "summary": "\n".join(current_summary),
-        })
-
+    _flush()
     return results
 
 
@@ -404,12 +386,17 @@ def monitor_execution(
     region: str,
     task_count: int,
     poll_interval: float = 4,
+    timeout: float = 2700.0,
 ) -> Optional[Dict[str, Any]]:
     seen_log_entries = set()
     last_counts = None
     desc_data: Optional[Dict[str, Any]] = None
+    start_time = time.time()
 
     while True:
+        if timeout > 0 and (time.time() - start_time) > timeout:
+            print(f"Warning: Cloud Run execution monitoring timed out after {timeout} seconds.", file=sys.stderr)
+            break
         try:
             describe_cmd = [
                 "gcloud",
@@ -431,6 +418,7 @@ def monitor_execution(
                 check=False,
             )
             if res.returncode != 0:
+                print(f"Warning: Execution describe failed (code {res.returncode}): {res.stderr.strip()}", file=sys.stderr)
                 time.sleep(poll_interval)
                 continue
 
@@ -517,12 +505,12 @@ def monitor_execution(
                                 continue
                             seen_log_entries.add(line_str)
                             print(line_str, flush=True)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"Warning: Error reading completion logs: {exc}", file=sys.stderr)
                 break
 
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"Warning: Exception in monitor_execution: {exc}", file=sys.stderr)
 
         time.sleep(poll_interval)
 
@@ -556,8 +544,13 @@ def run_preflight(
             "Cloud swarm workers require a valid GitHub token to clone and push candidate branches."
         )
 
-    auth_url = build_authenticated_git_url(repo_url, gh_token)
-    probe_target = ["git", "ls-remote", "--heads", auth_url, base_branch] if base_branch else ["git", "ls-remote", auth_url, "HEAD"]
+    clean_url = clean_repo_url(repo_url)
+    cred_helper = f"!f() {{ echo password={gh_token}; }}; f"
+    probe_target = ["git", "-c", f"credential.helper={cred_helper}", "ls-remote"]
+    if base_branch:
+        probe_target.extend(["--heads", clean_url, base_branch])
+    else:
+        probe_target.extend([clean_url, "HEAD"])
     try:
         ls_res = subprocess.run(
             probe_target,
@@ -851,11 +844,11 @@ def main() -> None:
     parser.add_argument("--manifest", type=str, help="Path to manifest JSON or JSON string.")
     parser.add_argument("--seed-lottery", type=int, help="Generate N coprime seed lottery tasks.")
     parser.add_argument("--gcs-bucket", type=str, help="GCS bucket name for run artifacts.")
-    parser.add_argument("--gcs-prefix", type=str, default="", help="GCS object prefix.")
+    parser.add_argument("--gcs-prefix", type=str, default=None, help="GCS object prefix.")
     parser.add_argument("--harvest-gcs", type=str, help="GCS prefix to harvest results after execution.")
     parser.add_argument("--repo", type=str, help="Git repository URL.")
     parser.add_argument("--tasks", type=int, help="Task count override.")
-    parser.add_argument("--parallelism", type=int, default=100, help="Concurrency limit (default: 100).")
+    parser.add_argument("--parallelism", type=int, default=None, help="Concurrency limit (default: 100).")
     parser.add_argument("--max-retries", type=int, default=0, help="Max retry attempts per task (default: 0 for fast fail).")
     parser.add_argument("--job-name", type=str, help="Cloud Run Job name.")
     parser.add_argument("--region", type=str, help="GCP region (e.g. us-central1).")
@@ -918,7 +911,7 @@ def main() -> None:
     job_name = args.job_name or runtime_cfg.get("job_name") or "agystack-swarm-worker"
     region = args.region or runtime_cfg.get("region") or "us-central1"
     project = args.project or runtime_cfg.get("project_id")
-    parallelism = args.parallelism if args.parallelism != 100 else runtime_cfg.get("parallelism", 100)
+    parallelism = args.parallelism if args.parallelism is not None else runtime_cfg.get("parallelism", 100)
     use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
     model = resolve_swarm_model(cli_model=args.model, runtime_model=runtime_cfg.get("model"))
     vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith(("gemini-2.5", "gemini-3")) else region)
@@ -1043,12 +1036,14 @@ def main() -> None:
         env_vars["BASE_BRANCH"] = args.base_branch
 
     gcs_bucket = args.gcs_bucket if args.gcs_bucket is not None else runtime_cfg.get("gcs_bucket", "")
-    gcs_prefix = args.gcs_prefix if args.gcs_prefix is not None else runtime_cfg.get("gcs_prefix", "")
+    gcs_prefix = args.gcs_prefix if args.gcs_prefix is not None else runtime_cfg.get("gcs_prefix")
+    if not gcs_prefix and session_id:
+        gcs_prefix = f"swarms/{session_id}"
     if gcs_bucket:
         env_vars["GCS_BUCKET"] = gcs_bucket
         env_vars["GCS_RESULTS_BUCKET"] = gcs_bucket
-        if gcs_prefix:
-            env_vars["GCS_PREFIX"] = gcs_prefix
+    if gcs_prefix:
+        env_vars["GCS_PREFIX"] = gcs_prefix
 
     manifest_uri = None
     if gcs_bucket and manifest_serialized:
@@ -1191,7 +1186,23 @@ def main() -> None:
                 except Exception as exc:
                     print(f"Warning: Failed to fetch container logs: {exc}", file=sys.stderr)
 
-        parsed_results = parse_worker_logs(logs_content)
+        harvest_target = args.harvest_gcs or (gcs_prefix if gcs_bucket else None)
+        harvested_patches = []
+        if harvest_target is not None and gcs_bucket:
+            try:
+                from result_harvester import harvest_gcs_results, harvest_candidate_patches
+
+                dest_dir = Path(".slices") / session_id
+                harvested_patches = harvest_candidate_patches(bucket_name=gcs_bucket, prefix=harvest_target, dest_dir=dest_dir)
+            except Exception as exc:
+                print(f"Warning: Failed to harvest GCS results: {exc}", file=sys.stderr)
+
+        # Prioritize assembling report from harvested status.json files on GCS
+        harvested_with_status = [p for p in harvested_patches if p.get("status_file") and p.get("status") != "UNKNOWN"]
+        if harvested_with_status:
+            report_items = harvested_patches
+        else:
+            report_items = parse_worker_logs(logs_content)
 
         print("\n" + "=" * 80)
         print(f"SWARM EXECUTION REPORT: {job_name}")
@@ -1202,7 +1213,8 @@ def main() -> None:
         issues_count = 0
         blocked_count = 0
 
-        for i, item in enumerate(parsed_results):
+        for i, item in enumerate(report_items):
+            task_id = item.get("task_index", i)
             st = item.get("status", "UNKNOWN")
             sm = item.get("summary", "").replace("\n", " ")[:60]
             if st == "PASS":
@@ -1211,9 +1223,9 @@ def main() -> None:
                 issues_count += 1
             elif st == "BLOCKED":
                 blocked_count += 1
-            print(f"{i:<8} | {st:<10} | {sm}")
+            print(f"{task_id:<8} | {st:<10} | {sm}")
 
-        if not parsed_results:
+        if not report_items:
             print(f"Total tasks: {task_count}.")
             if execution_name:
                 print(f"Execution: {execution_name}")
@@ -1222,14 +1234,20 @@ def main() -> None:
                 print("Review Cloud Run console logs for per-container traces.")
         else:
             print("=" * 80)
-            print(f"Total: {len(parsed_results)} | PASS: {pass_count} | ISSUES: {issues_count} | BLOCKED: {blocked_count}")
+            print(f"Total: {len(report_items)} | PASS: {pass_count} | ISSUES: {issues_count} | BLOCKED: {blocked_count}")
             print("=" * 80)
 
-        harvest_target = args.harvest_gcs or (gcs_prefix if gcs_bucket else None)
-        if harvest_target is not None and gcs_bucket:
-            from result_harvester import harvest_gcs_results
-            harvested_data = harvest_gcs_results(bucket_name=gcs_bucket, prefix=harvest_target)
-            print(f"\nHarvested {len(harvested_data)} task result payloads from gs://{gcs_bucket}/{harvest_target}")
+        if harvested_patches:
+            print("\n" + "=" * 80)
+            print("CANDIDATE PATCHES:")
+            print("=" * 80)
+            print(f"{'Task':<8} | {'Score':<8} | {'Status':<10} | {'Patch File'}")
+            print("-" * 80)
+            for p in harvested_patches:
+                sc_str = str(p.get("score")) if p.get("score") is not None else "N/A"
+                pf_str = str(p.get("patch_file")) if p.get("patch_file") else "None"
+                print(f"{p.get('task_index', '?'):<8} | {sc_str:<8} | {p.get('status', 'UNKNOWN'):<10} | {pf_str}")
+            print("=" * 80)
 
     except subprocess.CalledProcessError as exc:
         err_out = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
