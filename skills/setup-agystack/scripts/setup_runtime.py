@@ -105,7 +105,7 @@ def configure_iam_permissions(project_id, service_account=None):
         ])
     return service_account
 
-def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name="agystack-swarm-worker"):
+def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name="agystack-swarm-worker", service_account=None):
     print(f"Creating Artifact Registry repository in {region}...")
     res = run_cmd([
         "gcloud", "artifacts", "repositories", "describe", "agystack",
@@ -137,7 +137,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
     ], check=False)
     
     action = "update" if res.returncode == 0 else "create"
-    run_cmd([
+    cmd = [
         "gcloud", "run", "jobs", action, job_name,
         f"--image={image_tag}",
         f"--region={region}",
@@ -146,9 +146,12 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
         "--task-timeout=30m",
         "--memory=2Gi",
         "--cpu=2"
-    ])
+    ]
+    if service_account:
+        cmd.append(f"--service-account={service_account}")
+    run_cmd(cmd)
 
-def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="vertex", gcs_bucket="", vertex_location="global", target_paths=None):
+def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="vertex", gcs_bucket="", vertex_location="global", target_paths=None, service_account=None):
     config = {
         "runtime": "cloud-run",
         "project_id": project_id,
@@ -161,6 +164,8 @@ def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="ver
         "vertex_location": vertex_location,
         "gcs_bucket": gcs_bucket if gcs_bucket is not None else "",
     }
+    if service_account:
+        config["service_account"] = service_account
     
     paths = target_paths or [
         Path("agystack-runtime.json"),
@@ -200,8 +205,8 @@ def run_provisioning(
     print(f"Starting auto-provisioning for project: {project_id}")
     enable_apis(project_id)
     ensure_gcs_bucket(bucket_name, project_id, region)
-    configure_iam_permissions(project_id, service_account)
-    build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name=job_name)
+    sa_email = configure_iam_permissions(project_id, service_account)
+    build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name=job_name, service_account=sa_email)
     write_runtime_config(
         project_id=project_id,
         region=region,
@@ -209,6 +214,7 @@ def run_provisioning(
         image_tag=image_tag,
         auth_mode=auth_mode,
         gcs_bucket=bucket_name,
+        service_account=sa_email,
     )
     print("Auto-provisioning complete.")
     return {
@@ -217,6 +223,7 @@ def run_provisioning(
         "job_name": job_name,
         "image": image_tag,
         "gcs_bucket": bucket_name,
+        "service_account": sa_email,
     }
 
 def main():

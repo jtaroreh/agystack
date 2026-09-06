@@ -1160,6 +1160,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             region="us-central1",
             image_tag="us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest",
             scripts_dir="skills/swarm/scripts",
+            service_account="custom-sa@example.com",
         )
 
         job_cmd = mock_run_cmd.call_args_list[-1][0][0]
@@ -1169,6 +1170,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertIn("--image=us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest", job_cmd)
         self.assertIn("--region=us-central1", job_cmd)
         self.assertIn("--project=my-project-123", job_cmd)
+        self.assertIn("--service-account=custom-sa@example.com", job_cmd)
 
     @patch("setup_runtime.run_cmd")
     def test_build_and_deploy_worker_updates_job_with_memory_and_cpu(self, mock_run_cmd):
@@ -1183,12 +1185,14 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             region="us-central1",
             image_tag="us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest",
             scripts_dir="skills/swarm/scripts",
+            service_account="custom-sa@example.com",
         )
 
         job_cmd = mock_run_cmd.call_args_list[-1][0][0]
         self.assertEqual(job_cmd[0:4], ["gcloud", "run", "jobs", "update"])
         self.assertIn("--memory=2Gi", job_cmd)
         self.assertIn("--cpu=2", job_cmd)
+        self.assertIn("--service-account=custom-sa@example.com", job_cmd)
 
     def test_write_runtime_config_persists_gcs_bucket(self):
         target_file = self.temp_dir / "agystack-runtime.json"
@@ -1200,16 +1204,19 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             auth_mode="vertex",
             gcs_bucket="test-proj-swarm-results",
             target_paths=[target_file],
+            service_account="test-sa@developer.gserviceaccount.com",
         )
 
         self.assertEqual(config["gcs_bucket"], "test-proj-swarm-results")
         self.assertEqual(config["auth_mode"], "vertex")
         self.assertEqual(config["runtime"], "cloud-run")
+        self.assertEqual(config["service_account"], "test-sa@developer.gserviceaccount.com")
 
         loaded = json.loads(target_file.read_text(encoding="utf-8"))
         self.assertEqual(loaded["gcs_bucket"], "test-proj-swarm-results")
         self.assertEqual(loaded["job_name"], "agystack-swarm-worker")
         self.assertEqual(loaded["parallelism"], 100)
+        self.assertEqual(loaded["service_account"], "test-sa@developer.gserviceaccount.com")
 
     @patch("setup_runtime.write_runtime_config")
     @patch("setup_runtime.run_cmd")
@@ -1226,7 +1233,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             MagicMock(returncode=0, stdout="", stderr=""),  # job create
         ]
 
-        setup_runtime.run_provisioning(
+        summary = setup_runtime.run_provisioning(
             project_id="test-proj-full",
             region="us-central1",
             scripts_dir="skills/swarm/scripts",
@@ -1251,9 +1258,12 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         job_create_cmd = next(cmd for cmd in all_cmds if len(cmd) > 3 and cmd[0:4] == ["gcloud", "run", "jobs", "create"])
         self.assertIn("--memory=2Gi", job_create_cmd)
         self.assertIn("--cpu=2", job_create_cmd)
+        self.assertIn("--service-account=custom-sa@developer.gserviceaccount.com", job_create_cmd)
 
         mock_write_cfg.assert_called_once()
         self.assertEqual(mock_write_cfg.call_args[1].get("gcs_bucket"), "custom-bucket")
+        self.assertEqual(mock_write_cfg.call_args[1].get("service_account"), "custom-sa@developer.gserviceaccount.com")
+        self.assertEqual(summary.get("service_account"), "custom-sa@developer.gserviceaccount.com")
 
 
 if __name__ == "__main__":
