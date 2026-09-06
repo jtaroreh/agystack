@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +10,11 @@ def run_cmd(cmd, check=True, capture_output=True):
     try:
         res = subprocess.run(cmd, check=check, capture_output=capture_output, text=True)
         return res
+    except FileNotFoundError as e:
+        if check:
+            print(f"Command not found: {cmd[0]}", file=sys.stderr)
+            sys.exit(1)
+        return subprocess.CompletedProcess(cmd, returncode=127, stdout="", stderr=str(e))
     except subprocess.CalledProcessError as e:
         print(f"Command failed: {' '.join(cmd)}\nError: {e.stderr}", file=sys.stderr)
         if check:
@@ -23,6 +29,156 @@ def check_gcloud():
     res = run_cmd(["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"], check=False)
     account = res.stdout.strip()
     return {"installed": True, "account": account if account else None}
+
+def _parse_version(stdout):
+    if not stdout:
+        return None
+    match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", str(stdout).strip())
+    if match:
+        patch = int(match.group(3)) if match.group(3) is not None else 0
+        return match.group(0), int(match.group(1)), int(match.group(2)), patch
+    stripped = str(stdout).strip().splitlines()
+    if stripped:
+        return stripped[0], None, None, None
+    return None
+
+def check_dependencies(run_cmd_fn=None):
+    if run_cmd_fn is None:
+        run_cmd_fn = run_cmd
+
+    deps = {}
+
+    # 1. bun (v1.0+ required)
+    try:
+        res_bun = run_cmd_fn(["bun", "--version"], check=False)
+    except Exception:
+        res_bun = None
+
+    bun_code = getattr(res_bun, "returncode", 1)
+    bun_stdout = getattr(res_bun, "stdout", "") or ""
+    bun_parsed = _parse_version(bun_stdout) if bun_code == 0 else None
+
+    if bun_code == 0 and bun_parsed:
+        version_str, major, _, _ = bun_parsed
+        if major is not None and major >= 1:
+            deps["bun"] = {
+                "installed": True,
+                "version": version_str,
+                "ok": True,
+                "error": None,
+                "notes": "Mandatory runtime for orchestration and babysitting",
+                "required": True,
+            }
+        else:
+            deps["bun"] = {
+                "installed": True,
+                "version": version_str,
+                "ok": False,
+                "error": f"Bun version 1.0+ required, found {version_str}",
+                "notes": "Mandatory runtime for orchestration and babysitting (v1.0+ required)",
+                "required": True,
+            }
+    else:
+        deps["bun"] = {
+            "installed": False,
+            "version": None,
+            "ok": False,
+            "error": "bun is not installed or not found on PATH",
+            "notes": "Mandatory runtime for orchestration and babysitting (v1.0+ required)",
+            "required": True,
+        }
+
+    # 2. gh (GitHub CLI required)
+    try:
+        res_gh = run_cmd_fn(["gh", "--version"], check=False)
+    except Exception:
+        res_gh = None
+
+    gh_code = getattr(res_gh, "returncode", 1)
+    gh_stdout = getattr(res_gh, "stdout", "") or ""
+    gh_parsed = _parse_version(gh_stdout) if gh_code == 0 else None
+
+    if gh_code == 0 and gh_parsed:
+        version_str = gh_parsed[0]
+        deps["gh"] = {
+            "installed": True,
+            "version": version_str,
+            "ok": True,
+            "error": None,
+            "notes": "Required for PR automation and preflight checks",
+            "required": True,
+        }
+    else:
+        deps["gh"] = {
+            "installed": False,
+            "version": None,
+            "ok": False,
+            "error": "gh (GitHub CLI) is not installed or not found on PATH",
+            "notes": "Required for PR automation and preflight checks",
+            "required": True,
+        }
+
+    # 3. gt (Graphite CLI recommended)
+    try:
+        res_gt = run_cmd_fn(["gt", "--version"], check=False)
+    except Exception:
+        res_gt = None
+
+    gt_code = getattr(res_gt, "returncode", 1)
+    gt_stdout = getattr(res_gt, "stdout", "") or ""
+    gt_parsed = _parse_version(gt_stdout) if gt_code == 0 else None
+
+    if gt_code == 0 and gt_parsed:
+        version_str = gt_parsed[0]
+        deps["gt"] = {
+            "installed": True,
+            "version": version_str,
+            "ok": True,
+            "error": None,
+            "notes": "Recommended for stacked PRs",
+            "required": False,
+        }
+    else:
+        deps["gt"] = {
+            "installed": False,
+            "version": None,
+            "ok": False,
+            "error": "gt (Graphite CLI) is not installed",
+            "notes": "Recommended for stacked PRs",
+            "required": False,
+        }
+
+    # 4. gcloud (Google Cloud SDK optional)
+    try:
+        res_gcloud = run_cmd_fn(["gcloud", "--version"], check=False)
+    except Exception:
+        res_gcloud = None
+
+    gcloud_code = getattr(res_gcloud, "returncode", 1)
+    gcloud_stdout = getattr(res_gcloud, "stdout", "") or ""
+    gcloud_parsed = _parse_version(gcloud_stdout) if gcloud_code == 0 else None
+
+    if gcloud_code == 0 and gcloud_parsed:
+        version_str = gcloud_parsed[0]
+        deps["gcloud"] = {
+            "installed": True,
+            "version": version_str,
+            "ok": True,
+            "error": None,
+            "notes": "Required for Cloud Run parallel worker runtime",
+            "required": False,
+        }
+    else:
+        deps["gcloud"] = {
+            "installed": False,
+            "version": None,
+            "ok": False,
+            "error": "gcloud is not installed",
+            "notes": "Required for Cloud Run parallel worker runtime",
+            "required": False,
+        }
+
+    return deps
 
 def get_active_project():
     res = run_cmd(["gcloud", "config", "get-value", "project"], check=False)
@@ -228,6 +384,7 @@ def run_provisioning(
 
 def main():
     parser = argparse.ArgumentParser(description="AgyStack Runtime Setup Helper")
+    parser.add_argument("--doctor", action="store_true", help="Check dependencies (bun, gh, gt, gcloud) and report status")
     parser.add_argument("--check", action="store_true", help="Check gcloud status")
     parser.add_argument("--list-projects", action="store_true", help="List accessible GCP projects")
     parser.add_argument("--project", type=str, help="Use existing project ID")
@@ -240,6 +397,13 @@ def main():
     
     args = parser.parse_args()
     
+    if args.doctor:
+        deps = check_dependencies()
+        print(json.dumps(deps, indent=2))
+        bun_ok = deps.get("bun", {}).get("ok", False)
+        gh_ok = deps.get("gh", {}).get("ok", False)
+        sys.exit(0 if (bun_ok and gh_ok) else 1)
+
     if args.check:
         status = check_gcloud()
         status["active_project"] = get_active_project()

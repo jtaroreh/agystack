@@ -4,7 +4,15 @@ In this page you install the plugin, pick which models agystack uses, and run yo
 
 ## Prerequisites
 
-`bun` (version 1.0+) or `node` is required for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`).
+- `bun` (v1.0+) is mandatory for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`). Node.js is not supported.
+- `gh` (GitHub CLI) is required for PR automation and preflight checks.
+- `gt` (Graphite CLI) is recommended for stacked PRs.
+
+Verify installed dependencies by running `--doctor` via `setup_runtime.py`.
+
+```bash
+python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
+```
 
 ## Install the plugin
 
