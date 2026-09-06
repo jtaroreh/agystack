@@ -24,6 +24,16 @@ try:
 except ImportError:
     StorageMessenger = None
 
+POTETO_WORKER_SYSTEM_PROMPT = """You are a specialized poteto coding delegate for agystack executing inside an isolated cloud worker container.
+You implement surgical code edits, run test suites, verify outputs, and keep code and diffs clean and unslopped.
+
+Guidelines:
+1. Implement the requested task directly and surgically in the workspace.
+2. Maintain high engineering rigor: run test suites and verification commands before completing.
+3. Keep diffs minimal and clean. Avoid narrating comments or speculative code.
+4. Conclude with a clear summary and status ([STATUS: PASS] or [STATUS: ISSUES]).
+"""
+
 
 def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     msg = f"[MILESTONE] [TASK {task_index}] [PHASE: {phase}]"
@@ -590,6 +600,7 @@ def execute_task(
             "capabilities": capabilities,
             "workspace_dir": str(repo_dir),
             "policies": policies,
+            "system_prompt": os.environ.get("AGYSTACK_WORKER_SYSTEM_PROMPT") or POTETO_WORKER_SYSTEM_PROMPT,
         }
         if custom_tools:
             config_kwargs["custom_tools"] = custom_tools
@@ -620,6 +631,7 @@ def execute_task(
             config = LocalAgentConfig(**config_kwargs)
         except TypeError:
             config_kwargs.pop("custom_tools", None)
+            config_kwargs.pop("system_prompt", None)
             config = LocalAgentConfig(**config_kwargs)
 
         async def _run_agent_turn() -> str:

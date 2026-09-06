@@ -4,7 +4,9 @@ ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    PATH=/usr/local/cargo/bin:$PATH \
+    GEMINI_HOME=/home/worker/.gemini \
+    AGYSTACK_PLUGIN_DIR=/home/worker/.gemini/config/plugins/agystack
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -39,8 +41,8 @@ COPY cloud_worker.py /app/cloud_worker.py
 COPY storage_uploader.py /app/storage_uploader.py
 COPY storage_messenger.py /app/storage_messenger.py
 
-RUN mkdir -p /workspace \
-    && chown -R worker:worker /workspace /app
+RUN mkdir -p /workspace /home/worker/.gemini/config/plugins/agystack \
+    && chown -R worker:worker /workspace /app /home/worker
 
 USER worker
 

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "setup-agystack" / "scripts"))
@@ -270,6 +270,117 @@ class TestTaskExecutionAndValidation(unittest.TestCase):
         )
         self.assertEqual(status, "ISSUES")
         self.assertIn("failing command", output)
+
+    def test_agent_mode_passes_poteto_system_prompt_to_config(self):
+        mock_ag = MagicMock()
+        mock_config = MagicMock()
+        mock_ag.LocalAgentConfig = mock_config
+        mock_ag.CapabilitiesConfig = MagicMock()
+        mock_ag.policy.allow_all = MagicMock()
+
+        mock_agent_instance = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.text = AsyncMock(return_value="[STATUS: PASS] completed successfully")
+        mock_agent_instance.chat = AsyncMock(return_value=mock_resp)
+
+        mock_agent_cm = MagicMock()
+        mock_agent_cm.__aenter__ = AsyncMock(return_value=mock_agent_instance)
+        mock_agent_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_ag.Agent = MagicMock(return_value=mock_agent_cm)
+
+        modules_patch = {
+            "google": MagicMock(),
+            "google.antigravity": mock_ag,
+        }
+        with patch.dict(sys.modules, modules_patch):
+            status, output = execute_task(
+                task_item={"type": "agent"},
+                task_brief="Implement PR-5",
+                repo_dir=self.repo_dir,
+                model_override="gemini-3.8-flash",
+                api_key="test-key",
+            )
+            self.assertEqual(status, "PASS")
+            mock_config.assert_called_once()
+            call_kwargs = mock_config.call_args[1]
+            self.assertIn("system_prompt", call_kwargs)
+            self.assertIn("poteto", call_kwargs["system_prompt"].lower())
+            self.assertIn("surgical", call_kwargs["system_prompt"].lower())
+            self.assertIn("unslopped", call_kwargs["system_prompt"].lower())
+
+    def test_agent_mode_env_var_overrides_poteto_system_prompt(self):
+        mock_ag = MagicMock()
+        mock_config = MagicMock()
+        mock_ag.LocalAgentConfig = mock_config
+        mock_ag.CapabilitiesConfig = MagicMock()
+        mock_ag.policy.allow_all = MagicMock()
+
+        mock_agent_instance = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.text = AsyncMock(return_value="[STATUS: PASS] done")
+        mock_agent_instance.chat = AsyncMock(return_value=mock_resp)
+
+        mock_agent_cm = MagicMock()
+        mock_agent_cm.__aenter__ = AsyncMock(return_value=mock_agent_instance)
+        mock_agent_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_ag.Agent = MagicMock(return_value=mock_agent_cm)
+
+        modules_patch = {
+            "google": MagicMock(),
+            "google.antigravity": mock_ag,
+        }
+        custom_prompt = "Custom system prompt for worker override"
+        with patch.dict(sys.modules, modules_patch), patch.dict(os.environ, {"AGYSTACK_WORKER_SYSTEM_PROMPT": custom_prompt}):
+            status, output = execute_task(
+                task_item={"type": "agent"},
+                task_brief="Custom prompt task",
+                repo_dir=self.repo_dir,
+                model_override="gemini-3.8-flash",
+                api_key="test-key",
+            )
+            self.assertEqual(status, "PASS")
+            call_kwargs = mock_config.call_args[1]
+            self.assertEqual(call_kwargs.get("system_prompt"), custom_prompt)
+
+    def test_agent_mode_typeerror_fallback_pops_optional_keys(self):
+        mock_ag = MagicMock()
+        mock_ag.CapabilitiesConfig = MagicMock()
+        mock_ag.policy.allow_all = MagicMock()
+
+        def fake_local_agent_config(**kwargs):
+            if "system_prompt" in kwargs or "custom_tools" in kwargs:
+                raise TypeError("unsupported parameter")
+            return MagicMock()
+
+        mock_ag.LocalAgentConfig = MagicMock(side_effect=fake_local_agent_config)
+
+        mock_agent_instance = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.text = AsyncMock(return_value="[STATUS: PASS] fallback success")
+        mock_agent_instance.chat = AsyncMock(return_value=mock_resp)
+
+        mock_agent_cm = MagicMock()
+        mock_agent_cm.__aenter__ = AsyncMock(return_value=mock_agent_instance)
+        mock_agent_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_ag.Agent = MagicMock(return_value=mock_agent_cm)
+
+        modules_patch = {
+            "google": MagicMock(),
+            "google.antigravity": mock_ag,
+        }
+        with patch.dict(sys.modules, modules_patch):
+            status, output = execute_task(
+                task_item={"type": "agent"},
+                task_brief="Implement PR-5 with fallback",
+                repo_dir=self.repo_dir,
+                model_override="gemini-3.8-flash",
+                api_key="test-key",
+            )
+            self.assertEqual(status, "PASS")
+            self.assertEqual(mock_ag.LocalAgentConfig.call_count, 2)
+            fallback_kwargs = mock_ag.LocalAgentConfig.call_args[1]
+            self.assertNotIn("system_prompt", fallback_kwargs)
+            self.assertNotIn("custom_tools", fallback_kwargs)
 
 
 class TestPreflightGlobalAndRegionalURL(unittest.TestCase):

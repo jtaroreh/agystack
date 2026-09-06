@@ -30,12 +30,29 @@ class TestContainerSpec(unittest.TestCase):
             r"PATH=/usr/local/cargo/bin:\$PATH",
             r"PYTHONUNBUFFERED=1",
             r"DEBIAN_FRONTEND=noninteractive",
+            r"GEMINI_HOME=/home/worker/\.gemini",
+            r"AGYSTACK_PLUGIN_DIR=/home/worker/\.gemini/config/plugins/agystack",
         ]
         for env_var in required_env_vars:
             self.assertTrue(
                 re.search(env_var, self.dockerfile_content),
                 f"Missing required environment variable definition: {env_var}",
             )
+
+    def test_gemini_home_and_plugin_directory(self):
+        self.assertIn("GEMINI_HOME=/home/worker/.gemini", self.dockerfile_content)
+        self.assertIn(
+            "AGYSTACK_PLUGIN_DIR=/home/worker/.gemini/config/plugins/agystack",
+            self.dockerfile_content,
+        )
+        self.assertRegex(
+            self.dockerfile_content,
+            r"mkdir\s+-p\s+.*\/home\/worker\/\.gemini\/config\/plugins\/agystack",
+        )
+        self.assertRegex(
+            self.dockerfile_content,
+            r"chown\s+-R\s+worker:worker\s+.*\/home\/worker",
+        )
 
     def test_system_packages(self):
         required_packages = [
