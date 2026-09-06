@@ -172,8 +172,8 @@ class TestSimulationScenarioWorkflow(unittest.TestCase):
     def test_end_to_end_simulation_run(self):
         result = run_simulation(
             model="gemini-2.5-flash",
-            project="agystack-swarm-prod",
-            gcs_bucket="agystack-swarm-results-prod",
+            project="test-agystack-project",
+            gcs_bucket="test-swarm-results",
             tasks=3,
             skip_live_probe=True,
             temp_base_dir=self.base_dir,

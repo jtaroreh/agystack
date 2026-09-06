@@ -426,10 +426,10 @@ def execute_simulated_task(
 
 def run_simulation(
     model: str = "gemini-2.5-flash",
-    project: str = "agystack-swarm-prod",
-    gcs_bucket: str = "agystack-swarm-results-prod",
+    project: str = "example-agystack-project",
+    gcs_bucket: str = "example-swarm-results",
     tasks: int = 3,
-    skip_live_probe: bool = False,
+    skip_live_probe: bool = True,
     temp_base_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     print("=" * 80)
@@ -461,6 +461,7 @@ def run_simulation(
 
         session_id = f"sim-{int(time.time())}"
         use_local_storage = False
+        prev_local_storage = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
         if not check_gcs_accessible(gcs_bucket, session_id):
             use_local_storage = True
             local_storage_dir = base_dir / "simulated_gcs"
@@ -543,6 +544,10 @@ def run_simulation(
             "milestones": milestones,
         }
     finally:
+        if 'prev_local_storage' in locals() and prev_local_storage is not None:
+            os.environ["STORAGE_MESSENGER_LOCAL_DIR"] = prev_local_storage
+        elif "STORAGE_MESSENGER_LOCAL_DIR" in os.environ:
+            del os.environ["STORAGE_MESSENGER_LOCAL_DIR"]
         if cleanup_dir:
             temp_dir_obj.cleanup()
 
@@ -550,10 +555,11 @@ def run_simulation(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simulate Cloud Run agent swarm execution.")
     parser.add_argument("--model", type=str, default="gemini-2.5-flash", help="Model override (default: gemini-2.5-flash).")
-    parser.add_argument("--project", type=str, default="agystack-swarm-prod", help="GCP project ID (default: agystack-swarm-prod).")
-    parser.add_argument("--gcs-bucket", type=str, default="agystack-swarm-results-prod", help="GCS bucket name (default: agystack-swarm-results-prod).")
+    parser.add_argument("--project", type=str, default="example-agystack-project", help="GCP project ID (default: example-agystack-project).")
+    parser.add_argument("--gcs-bucket", type=str, default="example-swarm-results", help="GCS bucket name (default: example-swarm-results).")
     parser.add_argument("--tasks", type=int, default=3, help="Number of tasks to simulate (default: 3).")
-    parser.add_argument("--skip-live-probe", action="store_true", help="Skip live Vertex AI network probe.")
+    parser.add_argument("--skip-live-probe", action="store_true", default=True, help="Skip live Vertex AI network probe (default: True).")
+    parser.add_argument("--live-probe", dest="skip_live_probe", action="store_false", help="Run live Vertex AI network probe.")
 
     args = parser.parse_args()
 

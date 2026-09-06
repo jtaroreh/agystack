@@ -107,12 +107,15 @@ class TestArtifactDiscovery(unittest.TestCase):
 
 class TestGCSUploadFallback(unittest.TestCase):
     def setUp(self):
+        self.prev_local = os.environ.pop("STORAGE_MESSENGER_LOCAL_DIR", None)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.test_file = Path(self.temp_dir.name) / "sample.txt"
         self.test_file.write_text("test artifact payload", encoding="utf-8")
 
     def tearDown(self):
         self.temp_dir.cleanup()
+        if self.prev_local is not None:
+            os.environ["STORAGE_MESSENGER_LOCAL_DIR"] = self.prev_local
 
     def test_upload_to_gcs_nonexistent_file(self):
         missing = Path(self.temp_dir.name) / "does_not_exist.txt"

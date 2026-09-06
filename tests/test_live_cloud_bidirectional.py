@@ -32,7 +32,12 @@ from cloud_dispatch import (
 class TestLiveCloudBidirectional(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.bucket_name = "agystack-swarm-results-prod"
+        live_bucket = os.environ.get("AGYSTACK_LIVE_BUCKET")
+        if not live_bucket:
+            cls.live_gcs_available = False
+            return
+
+        cls.bucket_name = live_bucket
         cls.session_id = f"test-live-{int(time.time())}"
         cls.task_index = 99  # Isolated high index for verification
 
@@ -54,7 +59,7 @@ class TestLiveCloudBidirectional(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if not cls.live_gcs_available:
+        if not getattr(cls, "live_gcs_available", False):
             return
         # Clean up test session blobs from GCS
         try:
@@ -76,7 +81,7 @@ class TestLiveCloudBidirectional(unittest.TestCase):
 
     def setUp(self):
         if not self.live_gcs_available:
-            self.skipTest("Live GCS bucket not accessible in current environment.")
+            self.skipTest("AGYSTACK_LIVE_BUCKET not set; skipping live cloud tests")
 
     def test_01_live_gcs_question_and_reply_roundtrip(self):
         worker = StorageMessenger(

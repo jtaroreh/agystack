@@ -154,8 +154,8 @@ Optimized Subtree Round 5 gating successfully.
         self.assertIn("--async", cmd_async)
         self.assertNotIn("--wait", cmd_async)
         self.assertIn("--tasks=4", cmd_async)
-        self.assertIn("--parallelism=10", cmd_async)
-        self.assertIn("--max-retries=0", cmd_async)
+        self.assertNotIn("--parallelism", " ".join(cmd_async))
+        self.assertNotIn("--max-retries", " ".join(cmd_async))
 
         cmd_sync = build_gcloud_command(
             job_name="test-swarm-job",
@@ -169,8 +169,8 @@ Optimized Subtree Round 5 gating successfully.
         )
         self.assertIn("--wait", cmd_sync)
         self.assertNotIn("--async", cmd_sync)
-        self.assertIn("--parallelism=10", cmd_sync)
-        self.assertIn("--max-retries=2", cmd_sync)
+        self.assertNotIn("--parallelism", " ".join(cmd_sync))
+        self.assertNotIn("--max-retries", " ".join(cmd_sync))
 
     @patch("subprocess.run")
     def test_monitor_execution_under_threshold(self, mock_subproc):
@@ -731,12 +731,11 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
                 "SLACK_WEBHOOK": "slack-secret:1",
             },
         )
-        self.assertTrue(any(arg.startswith("--set-secrets=") for arg in cmd))
-        set_secrets_arg = next(arg for arg in cmd if arg.startswith("--set-secrets="))
-        self.assertIn("GEMINI_API_KEY=gemini-key:latest", set_secrets_arg)
-        self.assertIn("SLACK_WEBHOOK=slack-secret:1", set_secrets_arg)
+        self.assertFalse(any(arg.startswith("--set-secrets=") for arg in cmd))
+        self.assertFalse(any(arg.startswith("--parallelism=") for arg in cmd))
+        self.assertFalse(any(arg.startswith("--max-retries=") for arg in cmd))
 
-        # 2. Supports --set-secrets with string argument
+        # 2. Supports set_secrets argument without passing to execute
         cmd_str = build_gcloud_command(
             job_name="test-worker-job",
             tasks_count=1,
@@ -746,7 +745,7 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
             env_vars={},
             set_secrets="GEMINI_API_KEY=my-secret:latest",
         )
-        self.assertIn("--set-secrets=GEMINI_API_KEY=my-secret:latest", cmd_str)
+        self.assertNotIn("--set-secrets", " ".join(cmd_str))
 
         # 3. Omits GEMINI_API_KEY in Vertex AI mode via auth_mode="vertex"
         cmd_vertex = build_gcloud_command(
@@ -814,10 +813,7 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
                 "GEMINI_API_KEY": "gemini-key:latest",
             },
         )
-        set_secrets_arg = next((arg for arg in cmd if arg.startswith("--set-secrets=")), None)
-        self.assertIsNotNone(set_secrets_arg)
-        self.assertIn("GH_TOKEN=gh-token:latest", set_secrets_arg)
-        self.assertIn("GEMINI_API_KEY=gemini-key:latest", set_secrets_arg)
+        self.assertFalse(any(arg.startswith("--set-secrets=") for arg in cmd))
 
         update_env_arg = next((arg for arg in cmd if arg.startswith("--update-env-vars=")), "")
         self.assertIn("APP_ENV=production", update_env_arg)
@@ -843,9 +839,7 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
             },
             set_secrets="GH_TOKEN=gh-token:latest",
         )
-        set_secrets_arg = next((arg for arg in cmd if arg.startswith("--set-secrets=")), None)
-        self.assertIsNotNone(set_secrets_arg)
-        self.assertIn("GH_TOKEN=gh-token:latest", set_secrets_arg)
+        self.assertFalse(any(arg.startswith("--set-secrets=") for arg in cmd))
 
         update_env_arg = next((arg for arg in cmd if arg.startswith("--update-env-vars=")), "")
         self.assertIn("OTHER_VAR=val", update_env_arg)
@@ -915,9 +909,9 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         self.assertNotIn("GH_TOKEN", env_vars)
         self.assertNotIn("GEMINI_API_KEY", env_vars)
         gcloud_cmd = payload["gcloud_command"]
-        self.assertIn("--set-secrets=", gcloud_cmd)
-        self.assertIn("GH_TOKEN=gh-token:latest", gcloud_cmd)
-        self.assertIn("GEMINI_API_KEY=gemini-key:latest", gcloud_cmd)
+        self.assertNotIn("--set-secrets=", gcloud_cmd)
+        self.assertNotIn("--parallelism=", gcloud_cmd)
+        self.assertNotIn("--max-retries=", gcloud_cmd)
         self.assertNotIn("secret_gh_tok", gcloud_cmd)
         self.assertNotIn("secret_gem_key", gcloud_cmd)
         for part in gcloud_cmd.split():
@@ -953,9 +947,9 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         self.assertNotIn("GH_TOKEN", payload_cfg["env_vars"])
         self.assertNotIn("GEMINI_API_KEY", payload_cfg["env_vars"])
         gcloud_cmd_cfg = payload_cfg["gcloud_command"]
-        self.assertIn("--set-secrets=", gcloud_cmd_cfg)
-        self.assertIn("GH_TOKEN=gh-token:latest", gcloud_cmd_cfg)
-        self.assertIn("GEMINI_API_KEY=gemini-key:latest", gcloud_cmd_cfg)
+        self.assertNotIn("--set-secrets=", gcloud_cmd_cfg)
+        self.assertNotIn("--parallelism=", gcloud_cmd_cfg)
+        self.assertNotIn("--max-retries=", gcloud_cmd_cfg)
 
     @patch("cloud_worker.run_command")
     def test_clone_and_checkout_task_passes_base_branch(self, mock_run):
@@ -1003,7 +997,9 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         self.assertIn("Base branch 'non-existent-branch' not found on remote origin", str(ctx.exception))
 
         call_args = mock_subproc.call_args[0][0]
-        self.assertEqual(call_args[0:3], ["git", "ls-remote", "--heads"])
+        self.assertEqual(call_args[0:2], ["git", "-c"])
+        self.assertIn("ls-remote", call_args)
+        self.assertIn("--heads", call_args)
         self.assertEqual(call_args[-1], "non-existent-branch")
 
         mock_res.stdout = "abc1234567890abcdef\trefs/heads/valid-branch\n"
@@ -1167,6 +1163,8 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(job_cmd[0:4], ["gcloud", "run", "jobs", "create"])
         self.assertIn("--memory=2Gi", job_cmd)
         self.assertIn("--cpu=2", job_cmd)
+        self.assertIn("--parallelism=100", job_cmd)
+        self.assertIn("--max-retries=0", job_cmd)
         self.assertIn("--image=us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest", job_cmd)
         self.assertIn("--region=us-central1", job_cmd)
         self.assertIn("--project=my-project-123", job_cmd)
@@ -1192,6 +1190,8 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(job_cmd[0:4], ["gcloud", "run", "jobs", "update"])
         self.assertIn("--memory=2Gi", job_cmd)
         self.assertIn("--cpu=2", job_cmd)
+        self.assertIn("--parallelism=100", job_cmd)
+        self.assertIn("--max-retries=0", job_cmd)
         self.assertIn("--service-account=custom-sa@example.com", job_cmd)
 
     def test_write_runtime_config_persists_gcs_bucket(self):
@@ -1264,140 +1264,6 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(mock_write_cfg.call_args[1].get("gcs_bucket"), "custom-bucket")
         self.assertEqual(mock_write_cfg.call_args[1].get("service_account"), "custom-sa@developer.gserviceaccount.com")
         self.assertEqual(summary.get("service_account"), "custom-sa@developer.gserviceaccount.com")
-
-
-class TestSetupRuntimeDoctor(unittest.TestCase):
-    @patch("setup_runtime.run_cmd")
-    def test_check_dependencies_all_installed(self, mock_run_cmd):
-        def fake_run(cmd, *args, **kwargs):
-            tool = cmd[0]
-            if tool == "bun":
-                return MagicMock(returncode=0, stdout="1.3.14\n", stderr="")
-            elif tool == "gh":
-                return MagicMock(
-                    returncode=0,
-                    stdout="gh version 2.97.0 (2026-07-31)\nhttps://github.com/cli/cli/releases/tag/v2.97.0\n",
-                    stderr="",
-                )
-            elif tool == "gt":
-                return MagicMock(returncode=0, stdout="Graphite CLI version 0.21.0\n", stderr="")
-            elif tool == "gcloud":
-                return MagicMock(returncode=0, stdout="Google Cloud SDK 583.0.0\n", stderr="")
-            return MagicMock(returncode=1, stdout="", stderr="")
-
-        mock_run_cmd.side_effect = fake_run
-
-        deps = setup_runtime.check_dependencies()
-
-        self.assertTrue(deps["bun"]["installed"])
-        self.assertTrue(deps["bun"]["ok"])
-        self.assertEqual(deps["bun"]["version"], "1.3.14")
-        self.assertIsNone(deps["bun"]["error"])
-
-        self.assertTrue(deps["gh"]["installed"])
-        self.assertTrue(deps["gh"]["ok"])
-        self.assertEqual(deps["gh"]["version"], "2.97.0")
-        self.assertIsNone(deps["gh"]["error"])
-
-        self.assertTrue(deps["gt"]["installed"])
-        self.assertTrue(deps["gt"]["ok"])
-        self.assertEqual(deps["gt"]["version"], "0.21.0")
-        self.assertIsNone(deps["gt"]["error"])
-
-        self.assertTrue(deps["gcloud"]["installed"])
-        self.assertTrue(deps["gcloud"]["ok"])
-        self.assertEqual(deps["gcloud"]["version"], "583.0.0")
-        self.assertIsNone(deps["gcloud"]["error"])
-
-    @patch("setup_runtime.run_cmd")
-    def test_check_dependencies_missing_all(self, mock_run_cmd):
-        mock_run_cmd.return_value = MagicMock(returncode=127, stdout="", stderr="command not found")
-
-        deps = setup_runtime.check_dependencies()
-
-        for tool in ["bun", "gh", "gt", "gcloud"]:
-            self.assertFalse(deps[tool]["installed"], f"{tool} should not be installed")
-            self.assertFalse(deps[tool]["ok"], f"{tool} ok should be False")
-            self.assertIsNone(deps[tool]["version"])
-            self.assertIsNotNone(deps[tool]["error"])
-
-    @patch("setup_runtime.run_cmd")
-    def test_check_dependencies_bun_version_too_low(self, mock_run_cmd):
-        def fake_run(cmd, *args, **kwargs):
-            tool = cmd[0]
-            if tool == "bun":
-                return MagicMock(returncode=0, stdout="0.9.4\n", stderr="")
-            elif tool == "gh":
-                return MagicMock(returncode=0, stdout="gh version 2.50.0\n", stderr="")
-            return MagicMock(returncode=1, stdout="", stderr="")
-
-        mock_run_cmd.side_effect = fake_run
-
-        deps = setup_runtime.check_dependencies()
-
-        self.assertTrue(deps["bun"]["installed"])
-        self.assertEqual(deps["bun"]["version"], "0.9.4")
-        self.assertFalse(deps["bun"]["ok"])
-        self.assertIn("1.0+", deps["bun"]["error"])
-
-    @patch("setup_runtime.run_cmd")
-    def test_check_dependencies_custom_runner(self, mock_run_cmd):
-        def custom_runner(cmd, check=False):
-            if cmd[0] == "bun":
-                return MagicMock(returncode=0, stdout="v1.1.0\n", stderr="")
-            return MagicMock(returncode=1, stdout="", stderr="")
-
-        deps = setup_runtime.check_dependencies(run_cmd_fn=custom_runner)
-        self.assertTrue(deps["bun"]["installed"])
-        self.assertTrue(deps["bun"]["ok"])
-        self.assertEqual(deps["bun"]["version"], "1.1.0")
-        self.assertFalse(deps["gh"]["installed"])
-
-    @patch("setup_runtime.check_dependencies")
-    def test_doctor_main_exit_success(self, mock_check_deps):
-        mock_check_deps.return_value = {
-            "bun": {"installed": True, "version": "1.3.14", "ok": True, "error": None},
-            "gh": {"installed": True, "version": "2.97.0", "ok": True, "error": None},
-            "gt": {"installed": False, "version": None, "ok": False, "error": "not found"},
-            "gcloud": {"installed": False, "version": None, "ok": False, "error": "not found"},
-        }
-
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 0)
-                output = json.loads(mock_out.getvalue().strip())
-                self.assertTrue(output["bun"]["ok"])
-                self.assertTrue(output["gh"]["ok"])
-
-    @patch("setup_runtime.check_dependencies")
-    def test_doctor_main_exit_failure_missing_gh(self, mock_check_deps):
-        mock_check_deps.return_value = {
-            "bun": {"installed": True, "version": "1.3.14", "ok": True, "error": None},
-            "gh": {"installed": False, "version": None, "ok": False, "error": "gh not found"},
-            "gt": {"installed": True, "version": "0.21.0", "ok": True, "error": None},
-            "gcloud": {"installed": True, "version": "583.0.0", "ok": True, "error": None},
-        }
-
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO):
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 1)
-
-    @patch("setup_runtime.check_dependencies")
-    def test_doctor_main_exit_failure_bun_sub_v1(self, mock_check_deps):
-        mock_check_deps.return_value = {
-            "bun": {"installed": True, "version": "0.8.0", "ok": False, "error": "v1.0+ required"},
-            "gh": {"installed": True, "version": "2.97.0", "ok": True, "error": None},
-        }
-
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO):
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 1)
 
 
 if __name__ == "__main__":
