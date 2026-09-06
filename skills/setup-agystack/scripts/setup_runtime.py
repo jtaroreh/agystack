@@ -294,7 +294,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
         "--task-timeout=30m",
         "--memory=2Gi",
         "--cpu=2",
-        "--parallelism=15",
+        "--parallelism=16",
         "--max-retries=0",
     ]
     if service_account:
@@ -308,7 +308,7 @@ def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="ver
         "region": region,
         "job_name": job_name,
         "image": image_tag,
-        "parallelism": 15,
+        "parallelism": 16,
         "model": "inherit",
         "auth_mode": auth_mode,
         "vertex_location": vertex_location,

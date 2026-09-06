@@ -954,7 +954,7 @@ def main() -> None:
     job_name = args.job_name or runtime_cfg.get("job_name") or "agystack-swarm-worker"
     region = args.region or runtime_cfg.get("region") or "us-central1"
     project = args.project or runtime_cfg.get("project_id")
-    parallelism = args.parallelism if args.parallelism is not None else runtime_cfg.get("parallelism", 15)
+    parallelism = args.parallelism if args.parallelism is not None else runtime_cfg.get("parallelism", 16)
     use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
     model = resolve_swarm_model(cli_model=args.model, runtime_model=runtime_cfg.get("model"))
     vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith(("gemini-2.5", "gemini-3")) else region)
