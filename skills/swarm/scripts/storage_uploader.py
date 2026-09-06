@@ -7,7 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 
 def get_oauth_token() -> Optional[str]:
@@ -64,6 +64,14 @@ def upload_to_gcs(bucket_name: str, object_name: str, local_file_path: Path) -> 
     if not path.is_file():
         return False
 
+    local_dir = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
+    if local_dir:
+        dest = Path(local_dir) / bucket_name / object_name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copy2(path, dest)
+        return True
+
     try:
         from google.cloud import storage
 
@@ -108,6 +116,80 @@ def upload_to_gcs(bucket_name: str, object_name: str, local_file_path: Path) -> 
             file=sys.stderr,
         )
         return False
+
+
+def upload_artifact(
+    bucket_name: str,
+    object_name: str,
+    content: Union[str, bytes, Path],
+    content_type: str = "application/json",
+) -> bool:
+    """Uploads an artifact (string content, bytes, or file path) to GCS."""
+    if isinstance(content, Path) or (isinstance(content, str) and os.path.isfile(content)):
+        return upload_to_gcs(bucket_name, object_name, Path(content))
+
+    data_bytes = content.encode("utf-8") if isinstance(content, str) else content
+
+    local_dir = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
+    if local_dir:
+        dest = Path(local_dir) / bucket_name / object_name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data_bytes)
+        return True
+
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(object_name)
+        blob.upload_from_string(data_bytes, content_type=content_type)
+        return True
+    except Exception:
+        pass
+
+    token = get_oauth_token()
+    if token:
+        encoded_bucket = urllib.parse.quote(bucket_name, safe="")
+        encoded_name = urllib.parse.quote(object_name, safe="")
+        url = f"https://storage.googleapis.com/upload/storage/v1/b/{encoded_bucket}/o?uploadType=media&name={encoded_name}"
+        try:
+            req = urllib.request.Request(
+                url,
+                data=data_bytes,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": content_type,
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if 200 <= resp.status < 300:
+                    return True
+        except Exception:
+            pass
+
+    try:
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("wb", delete=False) as tf:
+            tf.write(data_bytes)
+            tf_path = Path(tf.name)
+        try:
+            res = subprocess.run(
+                ["gcloud", "storage", "cp", str(tf_path), f"gs://{bucket_name}/{object_name}"],
+                capture_output=True,
+                check=False,
+                timeout=15,
+            )
+            if res.returncode == 0:
+                return True
+        finally:
+            tf_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    return False
 
 
 def _generate_git_patch(repo_dir: Path) -> str:

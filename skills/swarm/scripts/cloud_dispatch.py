@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 try:
     from storage_messenger import StorageMessenger
@@ -115,6 +115,105 @@ def load_manifest(manifest_path_or_str: str) -> List[Any]:
     return [data]
 
 
+def stage_manifest(
+    manifest_data: Any,
+    bucket_name: str,
+    session_id: str,
+    dry_run: bool = False,
+) -> Optional[str]:
+    """
+    Uploads serialized manifest JSON to gs://<bucket_name>/swarms/<session_id>/manifest.json.
+    Returns the gs:// URI if successful, or None on failure (falling back to TASK_MANIFEST).
+    """
+    if not bucket_name:
+        return None
+
+    if isinstance(manifest_data, str):
+        manifest_json = manifest_data
+    else:
+        manifest_json = json.dumps(manifest_data)
+
+    if not manifest_json.strip():
+        return None
+
+    clean_bucket = bucket_name.strip()
+    object_name = f"swarms/{session_id}/manifest.json"
+    manifest_uri = f"gs://{clean_bucket}/{object_name}"
+
+    if dry_run:
+        return manifest_uri
+
+    # 1. Local testing mock directory
+    local_dir = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
+    if local_dir:
+        local_path = Path(local_dir) / clean_bucket / object_name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text(manifest_json, encoding="utf-8")
+        return manifest_uri
+
+    # 2. Try storage_uploader.upload_artifact or upload_to_gcs
+    try:
+        import storage_uploader
+
+        if hasattr(storage_uploader, "upload_artifact"):
+            if storage_uploader.upload_artifact(clean_bucket, object_name, manifest_json, "application/json"):
+                return manifest_uri
+    except Exception:
+        pass
+
+    # 3. Try google.cloud.storage
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(clean_bucket)
+        blob = bucket.blob(object_name)
+        blob.upload_from_string(manifest_json, content_type="application/json")
+        return manifest_uri
+    except Exception:
+        pass
+
+    # 4. Try storage_uploader.upload_to_gcs via tempfile
+    try:
+        import tempfile
+        import storage_uploader
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
+            tf.write(manifest_json)
+            temp_path = Path(tf.name)
+        try:
+            if storage_uploader.upload_to_gcs(clean_bucket, object_name, temp_path):
+                return manifest_uri
+        finally:
+            temp_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    # 5. Try gcloud storage cp
+    try:
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
+            tf.write(manifest_json)
+            temp_path = Path(tf.name)
+        try:
+            res = subprocess.run(
+                ["gcloud", "storage", "cp", str(temp_path), manifest_uri],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            )
+            if res.returncode == 0:
+                return manifest_uri
+        finally:
+            temp_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    return None
+
+
 def build_gcloud_command(
     job_name: str,
     tasks_count: int,
@@ -124,6 +223,10 @@ def build_gcloud_command(
     env_vars: Dict[str, str],
     wait: bool = True,
     max_retries: int = 0,
+    secrets_mapping: Optional[Dict[str, str]] = None,
+    set_secrets: Optional[Union[Dict[str, str], str]] = None,
+    auth_mode: Optional[str] = None,
+    use_vertex: bool = False,
 ) -> List[str]:
     cmd = ["gcloud", "run", "jobs", "execute", job_name]
     cmd.append(f"--tasks={tasks_count}")
@@ -139,11 +242,31 @@ def build_gcloud_command(
         cmd.append("--async")
     cmd.append("--format=json")
 
+    # In Vertex AI auth mode, workers use ambient credentials; do not pass GEMINI_API_KEY
+    is_vertex = (
+        (auth_mode and auth_mode.lower() == "vertex")
+        or use_vertex
+        or env_vars.get("USE_VERTEX_AI") in ("1", "true", "True")
+    )
+    clean_env_vars = dict(env_vars)
+    if is_vertex:
+        clean_env_vars.pop("GEMINI_API_KEY", None)
+
     env_pairs = []
-    for k, v in env_vars.items():
+    for k, v in clean_env_vars.items():
         env_pairs.append(f"{k}={v}")
     if env_pairs:
         cmd.append(f"--update-env-vars=^##^{ '##'.join(env_pairs) }")
+
+    active_secrets = secrets_mapping if secrets_mapping is not None else set_secrets
+    if active_secrets:
+        if isinstance(active_secrets, dict):
+            sec_pairs = [f"{k}={v}" for k, v in active_secrets.items()]
+            cmd.append(f"--set-secrets={','.join(sec_pairs)}")
+        elif isinstance(active_secrets, (list, tuple)):
+            cmd.append(f"--set-secrets={','.join(active_secrets)}")
+        elif isinstance(active_secrets, str):
+            cmd.append(f"--set-secrets={active_secrets}")
 
     return cmd
 
@@ -700,6 +823,7 @@ def main() -> None:
     parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion (default).")
     parser.add_argument("--session", "--session-id", dest="session_id", type=str, help="Swarm session ID (default: swarm-<timestamp>).")
     parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
+    parser.add_argument("--set-secrets", type=str, help="Comma-separated secrets mapping for Cloud Run Job (e.g. GEMINI_API_KEY=gemini-key:latest).")
     parser.set_defaults(wait=False)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
@@ -804,14 +928,30 @@ def main() -> None:
     task_count = args.tasks or (len(tasks_list) if tasks_list else 1)
     manifest_serialized = json.dumps(tasks_list) if tasks_list else ""
 
+    secrets_mapping: Optional[Dict[str, str]] = None
+    if getattr(args, "set_secrets", None):
+        secrets_mapping = {}
+        for part in args.set_secrets.split(","):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                secrets_mapping[k.strip()] = v.strip()
+            elif part:
+                secrets_mapping[part] = part
+    elif runtime_cfg.get("secrets_mapping"):
+        secrets_mapping = runtime_cfg.get("secrets_mapping")
+    elif runtime_cfg.get("secrets") and isinstance(runtime_cfg.get("secrets"), dict):
+        secrets_mapping = runtime_cfg.get("secrets")
+
     env_vars = {
         "REPO_URL": repo_url,
         "GH_TOKEN": gh_token,
     }
-    if gemini_api_key:
-        env_vars["GEMINI_API_KEY"] = gemini_api_key
-    elif args.dry_run and not use_vertex:
-        env_vars["GEMINI_API_KEY"] = "DRY_RUN_KEY"
+    if not use_vertex:
+        if gemini_api_key:
+            env_vars["GEMINI_API_KEY"] = gemini_api_key
+        elif args.dry_run:
+            env_vars["GEMINI_API_KEY"] = "DRY_RUN_KEY"
 
     if use_vertex:
         env_vars["USE_VERTEX_AI"] = "1"
@@ -825,16 +965,30 @@ def main() -> None:
     if args.orchestrator_timeout:
         env_vars["ORCHESTRATOR_TIMEOUT"] = str(args.orchestrator_timeout)
 
-    gcs_bucket = args.gcs_bucket or runtime_cfg.get("gcs_bucket", "")
-    gcs_prefix = args.gcs_prefix or runtime_cfg.get("gcs_prefix", "")
+    gcs_bucket = args.gcs_bucket if args.gcs_bucket is not None else runtime_cfg.get("gcs_bucket", "")
+    gcs_prefix = args.gcs_prefix if args.gcs_prefix is not None else runtime_cfg.get("gcs_prefix", "")
     if gcs_bucket:
         env_vars["GCS_BUCKET"] = gcs_bucket
         env_vars["GCS_RESULTS_BUCKET"] = gcs_bucket
         if gcs_prefix:
             env_vars["GCS_PREFIX"] = gcs_prefix
 
-    if manifest_serialized:
+    manifest_uri = None
+    if gcs_bucket and manifest_serialized:
+        manifest_uri = stage_manifest(
+            manifest_data=tasks_list or manifest_serialized,
+            bucket_name=gcs_bucket,
+            session_id=session_id,
+            dry_run=args.dry_run,
+        )
+        if manifest_uri:
+            env_vars["MANIFEST_URI"] = manifest_uri
+            if not args.dry_run:
+                print(f"Staged swarm manifest at {manifest_uri}", flush=True)
+
+    if not manifest_uri and manifest_serialized:
         env_vars["TASK_MANIFEST"] = manifest_serialized
+
     if model:
         env_vars["MODEL_OVERRIDE"] = model
 
@@ -847,6 +1001,8 @@ def main() -> None:
         env_vars=env_vars,
         wait=False,
         max_retries=args.max_retries,
+        secrets_mapping=secrets_mapping,
+        auth_mode="vertex" if use_vertex else "api_key",
     )
 
     if args.dry_run:
@@ -864,6 +1020,8 @@ def main() -> None:
             env_vars=display_env,
             wait=args.wait,
             max_retries=args.max_retries,
+            secrets_mapping=secrets_mapping,
+            auth_mode="vertex" if use_vertex else "api_key",
         )
         payload = {
             "job_name": job_name,
@@ -875,6 +1033,8 @@ def main() -> None:
             "env_vars": display_env,
             "gcloud_command": " ".join(display_cmd),
         }
+        if secrets_mapping:
+            payload["secrets_mapping"] = secrets_mapping
         print(json.dumps(payload, indent=2))
         return
 

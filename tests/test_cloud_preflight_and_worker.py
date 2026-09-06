@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,9 +10,13 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
 from cloud_worker import (
+    clean_repo_url,
+    clone_and_checkout_task,
+    download_manifest,
     emit_milestone,
     execute_task,
     is_candidate_file,
+    parse_task_manifest,
 )
 from cloud_dispatch import (
     build_gcloud_command,
@@ -20,6 +25,7 @@ from cloud_dispatch import (
     parse_worker_logs,
     resolve_swarm_model,
     run_preflight,
+    stage_manifest,
 )
 
 
@@ -385,6 +391,245 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
             self.assertEqual(resolved, "gemini-3.1-pro")
         finally:
             f_path.unlink(missing_ok=True)
+
+
+class TestSecureSwarmAndManifestStaging(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir_obj = tempfile.TemporaryDirectory()
+        self.temp_dir = Path(self.temp_dir_obj.name)
+
+    def tearDown(self):
+        self.temp_dir_obj.cleanup()
+
+    def test_manifest_staging_avoids_large_task_manifest_env(self):
+        # 1. Test stage_manifest uploads to gs://<bucket>/swarms/<session_id>/manifest.json
+        large_tasks = [{"task_id": i, "brief": f"Task number {i} with substantial description " * 20} for i in range(50)]
+        manifest_serialized = json.dumps(large_tasks)
+        self.assertGreater(len(manifest_serialized), 32 * 1024)
+
+        with patch.dict(os.environ, {"STORAGE_MESSENGER_LOCAL_DIR": str(self.temp_dir)}):
+            staged_uri = stage_manifest(
+                manifest_data=large_tasks,
+                bucket_name="my-manifest-bucket",
+                session_id="session-test-42",
+            )
+            self.assertEqual(staged_uri, "gs://my-manifest-bucket/swarms/session-test-42/manifest.json")
+            staged_file = self.temp_dir / "my-manifest-bucket" / "swarms" / "session-test-42" / "manifest.json"
+            self.assertTrue(staged_file.is_file())
+            loaded = json.loads(staged_file.read_text(encoding="utf-8"))
+            self.assertEqual(len(loaded), 50)
+            self.assertEqual(loaded[0]["task_id"], 0)
+
+        # 2. Test CLI dispatcher sets MANIFEST_URI and omits TASK_MANIFEST when bucket is provided
+        manifest_path = self.temp_dir / "manifest.json"
+        manifest_path.write_text(manifest_serialized, encoding="utf-8")
+
+        dispatch_script = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts" / "cloud_dispatch.py"
+        cmd = [
+            sys.executable,
+            str(dispatch_script),
+            "--dry-run",
+            "--manifest", str(manifest_path),
+            "--gcs-bucket", "my-manifest-bucket",
+            "--session-id", "session-test-42",
+            "--repo", "https://github.com/test/repo.git",
+            "--vertex",
+            "--project", "test-project",
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True, env=dict(os.environ, GH_TOKEN="test_tok"))
+        payload = json.loads(res.stdout)
+        env_vars = payload["env_vars"]
+
+        self.assertIn("MANIFEST_URI", env_vars)
+        self.assertEqual(env_vars["MANIFEST_URI"], "gs://my-manifest-bucket/swarms/session-test-42/manifest.json")
+        self.assertNotIn("TASK_MANIFEST", env_vars)
+
+        # 3. Test that when no GCS bucket is provided, it falls back to TASK_MANIFEST
+        cmd_no_bkt = [
+            sys.executable,
+            str(dispatch_script),
+            "--dry-run",
+            "--manifest", str(manifest_path),
+            "--gcs-bucket", "",
+            "--repo", "https://github.com/test/repo.git",
+            "--vertex",
+            "--project", "test-project",
+        ]
+        res_no_bkt = subprocess.run(cmd_no_bkt, capture_output=True, text=True, check=True, env=dict(os.environ, GH_TOKEN="test_tok"))
+        payload_no_bkt = json.loads(res_no_bkt.stdout)
+        env_vars_no_bkt = payload_no_bkt["env_vars"]
+
+        self.assertIn("TASK_MANIFEST", env_vars_no_bkt)
+        self.assertNotIn("MANIFEST_URI", env_vars_no_bkt)
+
+    def test_worker_loads_tasks_from_manifest_uri(self):
+        tasks = [
+            {"brief": "Implement secure storage staging", "candidate_files": ["dispatch.py"]},
+            {"command": "pytest -q tests/test_secure.py"},
+        ]
+        bkt = "test-worker-bucket"
+        sess = "swarm-worker-1"
+        target_file = self.temp_dir / bkt / "swarms" / sess / "manifest.json"
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(json.dumps(tasks), encoding="utf-8")
+
+        manifest_uri = f"gs://{bkt}/swarms/{sess}/manifest.json"
+
+        with patch.dict(os.environ, {
+            "STORAGE_MESSENGER_LOCAL_DIR": str(self.temp_dir),
+            "MANIFEST_URI": manifest_uri,
+        }, clear=False):
+            os.environ.pop("TASK_MANIFEST", None)
+            os.environ.pop("TASK_BRIEF", None)
+
+            # Worker loads task index 0
+            item0, brief0 = parse_task_manifest(task_index=0)
+            self.assertEqual(brief0, "Implement secure storage staging")
+            self.assertEqual(item0["candidate_files"], ["dispatch.py"])
+
+            # Worker loads task index 1
+            item1, brief1 = parse_task_manifest(task_index=1)
+            self.assertEqual(brief1, "pytest -q tests/test_secure.py")
+
+            # Out of bounds index
+            with self.assertRaises(IndexError):
+                parse_task_manifest(task_index=2)
+
+        # Test download_manifest directly
+        with patch.dict(os.environ, {"STORAGE_MESSENGER_LOCAL_DIR": str(self.temp_dir)}):
+            content = download_manifest(manifest_uri)
+            self.assertEqual(json.loads(content), tasks)
+
+    def test_git_clone_scrubs_tokens_from_remote_origin_url(self):
+        # 1. Test clean_repo_url helper directly
+        token_url = "https://x-access-token:ghp_999SECRETTOKEN999@github.com/my-org/my-repo.git"
+        cleaned = clean_repo_url(token_url)
+        self.assertEqual(cleaned, "https://github.com/my-org/my-repo.git")
+        self.assertNotIn("ghp_999SECRETTOKEN999", cleaned)
+        self.assertNotIn("x-access-token", cleaned)
+
+        # 2. Test clone_and_checkout_task on an actual git repo
+        source_repo_dir = self.temp_dir / "source-repo"
+        source_repo_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=source_repo_dir, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=source_repo_dir, check=True)
+        subprocess.run(["git", "config", "user.email", "user@test.org"], cwd=source_repo_dir, check=True)
+        (source_repo_dir / "README.md").write_text("# Test Repo", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=source_repo_dir, check=True)
+        subprocess.run(["git", "commit", "-m", "initial commit"], cwd=source_repo_dir, check=True)
+
+        worker_dest = self.temp_dir / "cloned-worker-repo"
+        fake_token = "ghp_VERYSECRETTOKEN123456789"
+        clone_and_checkout_task(
+            repo_url=str(source_repo_dir),
+            gh_token=fake_token,
+            branch_name="worker-7",
+            repo_dir=worker_dest,
+        )
+
+        # Inspect .git/config in cloned repo
+        git_config_path = worker_dest / ".git" / "config"
+        self.assertTrue(git_config_path.is_file())
+        config_text = git_config_path.read_text(encoding="utf-8")
+        self.assertNotIn(fake_token, config_text)
+        self.assertNotIn("x-access-token", config_text)
+
+        # Verify remote.origin.url matches clean URL
+        res = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=worker_dest,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(res.stdout.strip(), str(source_repo_dir))
+
+        # Verify checkout branch
+        branch_res = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=worker_dest,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(branch_res.stdout.strip(), "worker-7")
+
+    def test_build_gcloud_command_supports_set_secrets_and_vertex_mode(self):
+        # 1. Supports --set-secrets with dict mapping
+        cmd = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=5,
+            parallelism=5,
+            region="us-central1",
+            project="test-proj",
+            env_vars={"REPO_URL": "https://github.com/test/repo.git"},
+            secrets_mapping={
+                "GEMINI_API_KEY": "gemini-key:latest",
+                "SLACK_WEBHOOK": "slack-secret:1",
+            },
+        )
+        self.assertTrue(any(arg.startswith("--set-secrets=") for arg in cmd))
+        set_secrets_arg = next(arg for arg in cmd if arg.startswith("--set-secrets="))
+        self.assertIn("GEMINI_API_KEY=gemini-key:latest", set_secrets_arg)
+        self.assertIn("SLACK_WEBHOOK=slack-secret:1", set_secrets_arg)
+
+        # 2. Supports --set-secrets with string argument
+        cmd_str = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=1,
+            parallelism=1,
+            region="us-central1",
+            project="test-proj",
+            env_vars={},
+            set_secrets="GEMINI_API_KEY=my-secret:latest",
+        )
+        self.assertIn("--set-secrets=GEMINI_API_KEY=my-secret:latest", cmd_str)
+
+        # 3. Omits GEMINI_API_KEY in Vertex AI mode via auth_mode="vertex"
+        cmd_vertex = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=1,
+            parallelism=1,
+            region="us-central1",
+            project="test-proj",
+            env_vars={
+                "GEMINI_API_KEY": "AIzaSySuperSecretKey",
+                "REPO_URL": "https://github.com/test/repo.git",
+            },
+            auth_mode="vertex",
+        )
+        cmd_vertex_str = " ".join(cmd_vertex)
+        self.assertNotIn("AIzaSySuperSecretKey", cmd_vertex_str)
+        self.assertNotIn("GEMINI_API_KEY", cmd_vertex_str)
+
+        # 4. Omits GEMINI_API_KEY when USE_VERTEX_AI is in env_vars
+        cmd_vertex_env = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=1,
+            parallelism=1,
+            region="us-central1",
+            project="test-proj",
+            env_vars={
+                "GEMINI_API_KEY": "AIzaSySuperSecretKey",
+                "USE_VERTEX_AI": "1",
+            },
+        )
+        self.assertNotIn("AIzaSySuperSecretKey", " ".join(cmd_vertex_env))
+
+        # 5. Preserves GEMINI_API_KEY in non-Vertex mode
+        cmd_studio = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=1,
+            parallelism=1,
+            region="us-central1",
+            project="test-proj",
+            env_vars={
+                "GEMINI_API_KEY": "AIzaSySuperSecretKey",
+                "REPO_URL": "https://github.com/test/repo.git",
+            },
+            auth_mode="api_key",
+        )
+        self.assertIn("GEMINI_API_KEY=AIzaSySuperSecretKey", " ".join(cmd_studio))
 
 
 if __name__ == "__main__":

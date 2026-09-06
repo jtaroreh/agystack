@@ -13,7 +13,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -63,12 +65,118 @@ def get_env_var(name: str, default: Optional[str] = None, required: bool = False
     return val if val is not None else ""
 
 
-def parse_task_manifest(manifest_raw: str, task_index: int) -> Tuple[Any, str]:
+def download_manifest(manifest_uri: str) -> str:
+    """
+    Downloads manifest JSON content from a storage URI (e.g. gs://<bucket>/swarms/<session_id>/manifest.json)
+    or local path.
+    """
+    uri = manifest_uri.strip()
+    if uri.startswith("file://"):
+        return Path(uri[7:]).read_text(encoding="utf-8")
+    if os.path.isfile(uri):
+        return Path(uri).read_text(encoding="utf-8")
+
+    if not uri.startswith("gs://"):
+        raise ValueError(f"Unsupported manifest URI scheme: {manifest_uri}")
+
+    path_part = uri[5:]
+    if "/" not in path_part:
+        raise ValueError(f"Invalid GCS URI: {manifest_uri}")
+    bucket_name, object_name = path_part.split("/", 1)
+
+    # 1. Check local testing mock directory
+    local_dir = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
+    if local_dir:
+        local_file = Path(local_dir) / bucket_name / object_name
+        if local_file.is_file():
+            return local_file.read_text(encoding="utf-8")
+
+    # 2. Try google.cloud.storage
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(object_name)
+        return blob.download_as_text()
+    except Exception:
+        pass
+
+    # 3. Try StorageMessenger client if available
+    if StorageMessenger is not None:
+        try:
+            messenger = StorageMessenger(
+                bucket_name=bucket_name,
+                session_id="manifest-loader",
+                is_worker=False,
+            )
+            blob = messenger.bucket.blob(object_name)
+            if blob.exists():
+                return blob.download_as_text()
+        except Exception:
+            pass
+
+    # 4. Try REST with oauth token from storage_uploader
+    token = None
+    try:
+        import storage_uploader
+
+        token = storage_uploader.get_oauth_token()
+    except Exception:
+        pass
+
+    if token:
+        encoded_bucket = urllib.parse.quote(bucket_name, safe="")
+        encoded_name = urllib.parse.quote(object_name, safe="")
+        url = f"https://storage.googleapis.com/storage/v1/b/{encoded_bucket}/o/{encoded_name}?alt=media"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if 200 <= resp.status < 300:
+                    return resp.read().decode("utf-8")
+        except Exception:
+            pass
+
+    # 5. Try gcloud storage cp
+    try:
+        res = subprocess.run(
+            ["gcloud", "storage", "cp", uri, "-"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        if res.returncode == 0 and res.stdout:
+            return res.stdout
+    except Exception:
+        pass
+
+    raise RuntimeError(f"Failed to download manifest from {manifest_uri}")
+
+
+def parse_task_manifest(
+    manifest_raw: Optional[str] = None,
+    task_index: int = 0,
+    manifest_uri: Optional[str] = None,
+) -> Tuple[Any, str]:
+    if manifest_uri is None:
+        manifest_uri = os.environ.get("MANIFEST_URI", "").strip()
+
+    if manifest_uri and not (manifest_raw and manifest_raw.strip()):
+        manifest_raw = download_manifest(manifest_uri)
+
+    if manifest_raw is None:
+        manifest_raw = os.environ.get("TASK_MANIFEST", "")
+
     if not manifest_raw.strip():
         task_brief_env = os.environ.get("TASK_BRIEF", "").strip()
         if task_brief_env:
             return task_brief_env, task_brief_env
-        raise ValueError("Neither TASK_MANIFEST nor TASK_BRIEF environment variable was set.")
+        raise ValueError("Neither MANIFEST_URI, TASK_MANIFEST, nor TASK_BRIEF environment variable was set.")
 
     data = None
     if os.path.isfile(manifest_raw):
@@ -114,6 +222,22 @@ def parse_task_manifest(manifest_raw: str, task_index: int) -> Tuple[Any, str]:
     return item, str(item)
 
 
+def clean_repo_url(url: str) -> str:
+    """Removes any embedded username:password or token credentials from a repository URL."""
+    if not url:
+        return ""
+    url_clean = url.strip()
+    if url_clean.startswith("git@"):
+        return url_clean
+    if "://" in url_clean:
+        parsed = urllib.parse.urlsplit(url_clean)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            netloc = netloc.split("@")[-1]
+        return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+    return url_clean
+
+
 def build_authenticated_git_url(repo_url: str, gh_token: str) -> str:
     repo_clean = repo_url.strip()
     if repo_clean.startswith("git@github.com:"):
@@ -134,6 +258,27 @@ def build_authenticated_git_url(repo_url: str, gh_token: str) -> str:
     if "/" in repo_clean and not repo_clean.startswith("/"):
         return f"https://x-access-token:{gh_token}@github.com/{repo_clean.rstrip('.git')}.git"
     return repo_clean
+
+
+def clone_and_checkout_task(
+    repo_url: str,
+    gh_token: str,
+    branch_name: str,
+    repo_dir: Path,
+    depth: int = 50,
+) -> None:
+    """
+    Clones the repository using authenticated credentials, scrubs credentials from remote.origin.url
+    so tokens are not retained in plaintext in .git/config, configures git identity, and checks out the task branch.
+    """
+    repo_path = Path(repo_dir)
+    auth_url = build_authenticated_git_url(repo_url, gh_token)
+    run_command(["git", "clone", f"--depth={depth}", auth_url, str(repo_path)], check=True)
+    clean_url = clean_repo_url(repo_url)
+    run_command(["git", "remote", "set-url", "origin", clean_url], cwd=repo_path, check=True)
+    run_command(["git", "config", "user.name", "Antigravity Cloud Worker"], cwd=repo_path, check=False)
+    run_command(["git", "config", "user.email", "bot@antigravity.google"], cwd=repo_path, check=False)
+    run_command(["git", "checkout", "-B", branch_name], cwd=repo_path, check=True)
 
 
 def run_command(
@@ -421,6 +566,7 @@ def main() -> None:
 
     emit_milestone(task_index, "BOOTING")
 
+    manifest_uri = os.environ.get("MANIFEST_URI", "").strip()
     manifest_raw = os.environ.get("TASK_MANIFEST", "")
     repo_url = get_env_var("REPO_URL", required=True)
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
@@ -445,7 +591,11 @@ def main() -> None:
     branch_name = f"worker-{task_index}"
 
     try:
-        task_item, task_brief = parse_task_manifest(manifest_raw, task_index)
+        task_item, task_brief = parse_task_manifest(
+            manifest_raw=manifest_raw,
+            task_index=task_index,
+            manifest_uri=manifest_uri,
+        )
     except Exception as exc:
         emit_milestone(task_index, "COMPLETE", "BLOCKED")
         print(
@@ -460,10 +610,14 @@ def main() -> None:
         shutil.rmtree(repo_dir, ignore_errors=True)
     repo_dir.mkdir(parents=True, exist_ok=True)
 
-    auth_url = build_authenticated_git_url(repo_url, gh_token)
     emit_milestone(task_index, "CLONING_REPO")
     try:
-        run_command(["git", "clone", "--depth=50", auth_url, str(repo_dir)], check=True)
+        clone_and_checkout_task(
+            repo_url=repo_url,
+            gh_token=gh_token,
+            branch_name=branch_name,
+            repo_dir=repo_dir,
+        )
     except subprocess.CalledProcessError as exc:
         emit_milestone(task_index, "COMPLETE", "BLOCKED")
         err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
@@ -474,20 +628,6 @@ def main() -> None:
         sys.exit(1)
 
     os.chdir(repo_dir)
-
-    run_command(["git", "config", "user.name", "Antigravity Cloud Worker"], cwd=repo_dir, check=False)
-    run_command(["git", "config", "user.email", "bot@antigravity.google"], cwd=repo_dir, check=False)
-
-    try:
-        run_command(["git", "checkout", "-B", branch_name], cwd=repo_dir, check=True)
-    except subprocess.CalledProcessError as exc:
-        emit_milestone(task_index, "COMPLETE", "BLOCKED")
-        print(
-            f"[STATUS: BLOCKED]\nEvidence: git checkout -B {branch_name} failed: {exc.stderr.strip()}\nSummary: Failed to create worker branch.",
-            flush=True,
-        )
-        sys.exit(1)
-
     emit_milestone(task_index, "REPO_READY")
 
     # Repository bootstrap hook: check for .agystack/setup.sh or .agents/scripts/bootstrap-worker.sh
@@ -687,6 +827,8 @@ def main() -> None:
             push_target = "fork"
         else:
             push_target = "origin"
+            auth_origin_url = build_authenticated_git_url(repo_url, gh_token)
+            run_command(["git", "remote", "set-url", "origin", auth_origin_url], cwd=repo_dir, check=True)
 
         try:
             emit_milestone(task_index, "PUSHING_CANDIDATE")
@@ -695,6 +837,10 @@ def main() -> None:
         except subprocess.CalledProcessError as exc:
             push_error = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
             changes_pushed = False
+        finally:
+            run_command(["git", "remote", "set-url", "origin", clean_repo_url(repo_url)], cwd=repo_dir, check=False)
+            if fork_repo_url:
+                run_command(["git", "remote", "set-url", "fork", clean_repo_url(fork_repo_url)], cwd=repo_dir, check=False)
 
     has_gcs_results = bool(gcs_uris) or bool(gcs_bucket)
     has_score_json = (repo_dir / "score.json").is_file()
