@@ -80,7 +80,7 @@ Cloud Run swarms enable parallel execution across dozens or hundreds of containe
      --model gemini-3.8-flash \
      --vertex
    ```
-   Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`. Concurrency (default 100) and fail-fast zero retries (`--max-retries=0`) are configured directly on the Cloud Run job template during `/setup-agystack` (`setup_runtime.py`).
+   Pass `--vertex` to enable Vertex AI mode (IAM / ADC authentication) instead of Google AI Studio API key. When `agystack-runtime.json` specifies `"auth_mode": "vertex"`, workers authenticate via Google Cloud IAM/ADC without requiring `GEMINI_API_KEY`. Concurrency (default 15) and fail-fast zero retries (`--max-retries=0`) are configured directly on the Cloud Run job template during `/setup-agystack` (`setup_runtime.py`).
 
    **Asynchronous Coordination & Detached Monitoring:**
    When coordinating asynchronously, pass `--no-wait` to `cloud_dispatch.py` to prevent blocking the agent turn:

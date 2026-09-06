@@ -1127,7 +1127,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(job_cmd[0:4], ["gcloud", "run", "jobs", "create"])
         self.assertIn("--memory=2Gi", job_cmd)
         self.assertIn("--cpu=2", job_cmd)
-        self.assertIn("--parallelism=100", job_cmd)
+        self.assertIn("--parallelism=15", job_cmd)
         self.assertIn("--max-retries=0", job_cmd)
         self.assertIn("--image=us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest", job_cmd)
         self.assertIn("--region=us-central1", job_cmd)
@@ -1154,7 +1154,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(job_cmd[0:4], ["gcloud", "run", "jobs", "update"])
         self.assertIn("--memory=2Gi", job_cmd)
         self.assertIn("--cpu=2", job_cmd)
-        self.assertIn("--parallelism=100", job_cmd)
+        self.assertIn("--parallelism=15", job_cmd)
         self.assertIn("--max-retries=0", job_cmd)
         self.assertIn("--service-account=custom-sa@example.com", job_cmd)
 
@@ -1179,7 +1179,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         loaded = json.loads(target_file.read_text(encoding="utf-8"))
         self.assertEqual(loaded["gcs_bucket"], "test-proj-swarm-results")
         self.assertEqual(loaded["job_name"], "agystack-swarm-worker")
-        self.assertEqual(loaded["parallelism"], 100)
+        self.assertEqual(loaded["parallelism"], 15)
         self.assertEqual(loaded["service_account"], "test-sa@developer.gserviceaccount.com")
 
     @patch("setup_runtime.write_runtime_config")

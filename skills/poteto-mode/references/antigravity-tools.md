@@ -25,7 +25,7 @@ Always operate on the most direct, authoritative surface for the task:
 | `environment: "local"` | `Workspace: "inherit"` (default parent workspace) |
 | Worker iteration / message passing | `send_message` with `Recipient` and `Message` |
 | Parallel fan-out (Local N <= 8) | Single `invoke_subagent` call with multiple entries in `Subagents` array |
-| Parallel fan-out (Cloud N > 8) | `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-json> --parallelism 100` |
+| Parallel fan-out (Cloud N > 8) | `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-json> --parallelism 15` |
 | Cloud container worker | `python skills/swarm/scripts/cloud_worker.py` entrypoint in Cloud Run |
 | `AskQuestion` | `ask_question` tool for interactive questions |
 | Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
@@ -60,7 +60,7 @@ Saved at `~/.gemini/config/plugins/agystack/agystack-runtime.json` or `.agents/p
   "region": "us-central1",
   "job_name": "agystack-swarm-worker",
   "image": "us-central1-docker.pkg.dev/my-gcp-project/agystack/worker:latest",
-  "parallelism": 100,
+  "parallelism": 15,
   "model": "gemini-3.8-flash"
 }
 ```

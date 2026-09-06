@@ -4,7 +4,7 @@
   "region": "us-central1",
   "job_name": "agystack-swarm-worker",
   "image": "us-central1-docker.pkg.dev/your-gcp-project-id/agystack/worker:latest",
-  "parallelism": 100,
+  "parallelism": 15,
   "model": "inherit",
   "auth_mode": "vertex",
   "vertex_location": "global",

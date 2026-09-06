@@ -517,6 +517,9 @@ def monitor_execution(
     return desc_data
 
 
+wait_for_execution = monitor_execution
+
+
 def run_preflight(
     repo_url: str,
     gh_token: str,
@@ -529,10 +532,11 @@ def run_preflight(
     vertex_location: Optional[str] = None,
     base_branch: Optional[str] = None,
     gcs_bucket: Optional[str] = None,
+    runtime: str = "cloud-run",
 ) -> None:
     print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, repository access, and GCS bucket...", flush=True)
 
-    if not dry_run and not gcs_bucket:
+    if not dry_run and runtime == "cloud-run" and not gcs_bucket:
         raise RuntimeError(
             "Cloud Run swarms require a GCS bucket to store and deliver candidate patches under the zero-push architecture.\n"
             "Please specify --gcs-bucket <name> or configure 'gcs_bucket' in agystack-runtime.json."
@@ -950,7 +954,7 @@ def main() -> None:
     job_name = args.job_name or runtime_cfg.get("job_name") or "agystack-swarm-worker"
     region = args.region or runtime_cfg.get("region") or "us-central1"
     project = args.project or runtime_cfg.get("project_id")
-    parallelism = args.parallelism if args.parallelism is not None else runtime_cfg.get("parallelism", 100)
+    parallelism = args.parallelism if args.parallelism is not None else runtime_cfg.get("parallelism", 15)
     use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
     model = resolve_swarm_model(cli_model=args.model, runtime_model=runtime_cfg.get("model"))
     vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith(("gemini-2.5", "gemini-3")) else region)
@@ -986,7 +990,7 @@ def main() -> None:
         bkt = gcs_bucket or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
         task_count = args.tasks or 1
         print(f"Attaching to Cloud Run execution '{execution_name}' in region '{region}'...")
-        monitor_execution(
+        wait_for_execution(
             execution_name=execution_name,
             project=project,
             region=region,
@@ -1033,6 +1037,7 @@ def main() -> None:
                 vertex_location=vertex_location,
                 base_branch=args.base_branch,
                 gcs_bucket=gcs_bucket,
+                runtime=runtime_cfg.get("runtime", "cloud-run"),
             )
         except RuntimeError as exc:
             print(f"Error [Pre-Flight]: {exc}", file=sys.stderr)
