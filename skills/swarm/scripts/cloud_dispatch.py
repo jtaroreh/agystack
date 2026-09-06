@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 try:
     from storage_messenger import StorageMessenger
@@ -214,6 +214,40 @@ def stage_manifest(
     return None
 
 
+def extract_secret_keys(*secret_sources: Any) -> Set[str]:
+    keys: Set[str] = set()
+    for source in secret_sources:
+        if not source:
+            continue
+        if isinstance(source, dict):
+            for k in source.keys():
+                if k:
+                    keys.add(str(k).strip())
+        elif isinstance(source, (list, tuple, set)):
+            for item in source:
+                if not item:
+                    continue
+                item_str = str(item).strip()
+                if "=" in item_str:
+                    keys.add(item_str.split("=", 1)[0].strip())
+                elif ":" in item_str:
+                    keys.add(item_str.split(":", 1)[0].strip())
+                elif item_str:
+                    keys.add(item_str)
+        elif isinstance(source, str):
+            for part in source.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "=" in part:
+                    keys.add(part.split("=", 1)[0].strip())
+                elif ":" in part:
+                    keys.add(part.split(":", 1)[0].strip())
+                elif part:
+                    keys.add(part)
+    return keys
+
+
 def build_gcloud_command(
     job_name: str,
     tasks_count: int,
@@ -223,8 +257,8 @@ def build_gcloud_command(
     env_vars: Dict[str, str],
     wait: bool = True,
     max_retries: int = 0,
-    secrets_mapping: Optional[Dict[str, str]] = None,
-    set_secrets: Optional[Union[Dict[str, str], str]] = None,
+    secrets_mapping: Optional[Union[Dict[str, str], List[str], str]] = None,
+    set_secrets: Optional[Union[Dict[str, str], List[str], str]] = None,
     auth_mode: Optional[str] = None,
     use_vertex: bool = False,
 ) -> List[str]:
@@ -251,6 +285,14 @@ def build_gcloud_command(
     clean_env_vars = dict(env_vars)
     if is_vertex:
         clean_env_vars.pop("GEMINI_API_KEY", None)
+        clean_env_vars.pop("gemini_api_key", None)
+
+    # Strictly pop any secret key specified in secrets_mapping or set_secrets
+    secret_keys = extract_secret_keys(secrets_mapping, set_secrets)
+    for sec_key in secret_keys:
+        clean_env_vars.pop(sec_key, None)
+        clean_env_vars.pop(sec_key.upper(), None)
+        clean_env_vars.pop(sec_key.lower(), None)
 
     env_pairs = []
     for k, v in clean_env_vars.items():
@@ -258,15 +300,26 @@ def build_gcloud_command(
     if env_pairs:
         cmd.append(f"--update-env-vars=^##^{ '##'.join(env_pairs) }")
 
-    active_secrets = secrets_mapping if secrets_mapping is not None else set_secrets
-    if active_secrets:
-        if isinstance(active_secrets, dict):
-            sec_pairs = [f"{k}={v}" for k, v in active_secrets.items()]
-            cmd.append(f"--set-secrets={','.join(sec_pairs)}")
-        elif isinstance(active_secrets, (list, tuple)):
-            cmd.append(f"--set-secrets={','.join(active_secrets)}")
-        elif isinstance(active_secrets, str):
-            cmd.append(f"--set-secrets={active_secrets}")
+    sec_entries: List[str] = []
+    for source in (set_secrets, secrets_mapping):
+        if not source:
+            continue
+        if isinstance(source, dict):
+            sec_entries.extend(f"{k}={v}" for k, v in source.items())
+        elif isinstance(source, (list, tuple)):
+            sec_entries.extend(str(item).strip() for item in source if str(item).strip())
+        elif isinstance(source, str):
+            sec_entries.extend(part.strip() for part in source.split(",") if part.strip())
+
+    if sec_entries:
+        seen_keys = set()
+        deduped = []
+        for entry in sec_entries:
+            key = entry.split("=", 1)[0].split(":", 1)[0].strip()
+            if key not in seen_keys:
+                seen_keys.add(key)
+                deduped.append(entry)
+        cmd.append(f"--set-secrets={','.join(deduped)}")
 
     return cmd
 
@@ -900,15 +953,54 @@ def main() -> None:
             print("Pre-flight checks passed successfully.")
             return
 
+    secrets_mapping: Optional[Dict[str, str]] = None
+    if getattr(args, "set_secrets", None):
+        secrets_mapping = {}
+        for part in args.set_secrets.split(","):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                secrets_mapping[k.strip()] = v.strip()
+            elif part:
+                secrets_mapping[part] = part
+    elif runtime_cfg.get("secrets"):
+        cfg_sec = runtime_cfg.get("secrets")
+        if isinstance(cfg_sec, dict):
+            secrets_mapping = dict(cfg_sec)
+        elif isinstance(cfg_sec, str):
+            secrets_mapping = {}
+            for part in cfg_sec.split(","):
+                part = part.strip()
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    secrets_mapping[k.strip()] = v.strip()
+                elif part:
+                    secrets_mapping[part] = part
+        elif isinstance(cfg_sec, (list, tuple)):
+            secrets_mapping = {}
+            for part in cfg_sec:
+                part = str(part).strip()
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    secrets_mapping[k.strip()] = v.strip()
+                elif part:
+                    secrets_mapping[part] = part
+    elif runtime_cfg.get("secrets_mapping"):
+        cfg_sec = runtime_cfg.get("secrets_mapping")
+        if isinstance(cfg_sec, dict):
+            secrets_mapping = dict(cfg_sec)
+
+    active_secret_keys = extract_secret_keys(secrets_mapping, getattr(args, "set_secrets", None))
+
     if not repo_url:
         print("Error: Git repo URL not provided and could not be inferred from remote.origin.url", file=sys.stderr)
         sys.exit(1)
 
-    if not gh_token:
+    if not gh_token and "GH_TOKEN" not in active_secret_keys and "gh_token" not in active_secret_keys:
         print("Error: GH_TOKEN could not be resolved from environment or `gh auth token`", file=sys.stderr)
         sys.exit(1)
 
-    if not use_vertex and not gemini_api_key and not args.dry_run:
+    if not use_vertex and not gemini_api_key and not args.dry_run and "GEMINI_API_KEY" not in active_secret_keys and "gemini_api_key" not in active_secret_keys:
         print("Error: GEMINI_API_KEY environment variable is required when not in Vertex AI mode.", file=sys.stderr)
         sys.exit(1)
 
@@ -928,26 +1020,13 @@ def main() -> None:
     task_count = args.tasks or (len(tasks_list) if tasks_list else 1)
     manifest_serialized = json.dumps(tasks_list) if tasks_list else ""
 
-    secrets_mapping: Optional[Dict[str, str]] = None
-    if getattr(args, "set_secrets", None):
-        secrets_mapping = {}
-        for part in args.set_secrets.split(","):
-            part = part.strip()
-            if "=" in part:
-                k, v = part.split("=", 1)
-                secrets_mapping[k.strip()] = v.strip()
-            elif part:
-                secrets_mapping[part] = part
-    elif runtime_cfg.get("secrets_mapping"):
-        secrets_mapping = runtime_cfg.get("secrets_mapping")
-    elif runtime_cfg.get("secrets") and isinstance(runtime_cfg.get("secrets"), dict):
-        secrets_mapping = runtime_cfg.get("secrets")
-
     env_vars = {
         "REPO_URL": repo_url,
-        "GH_TOKEN": gh_token,
     }
-    if not use_vertex:
+    if "GH_TOKEN" not in active_secret_keys and "gh_token" not in active_secret_keys and gh_token:
+        env_vars["GH_TOKEN"] = gh_token
+
+    if not use_vertex and "GEMINI_API_KEY" not in active_secret_keys and "gemini_api_key" not in active_secret_keys:
         if gemini_api_key:
             env_vars["GEMINI_API_KEY"] = gemini_api_key
         elif args.dry_run:
@@ -1002,6 +1081,7 @@ def main() -> None:
         wait=False,
         max_retries=args.max_retries,
         secrets_mapping=secrets_mapping,
+        set_secrets=getattr(args, "set_secrets", None),
         auth_mode="vertex" if use_vertex else "api_key",
     )
 
@@ -1021,6 +1101,7 @@ def main() -> None:
             wait=args.wait,
             max_retries=args.max_retries,
             secrets_mapping=secrets_mapping,
+            set_secrets=getattr(args, "set_secrets", None),
             auth_mode="vertex" if use_vertex else "api_key",
         )
         payload = {

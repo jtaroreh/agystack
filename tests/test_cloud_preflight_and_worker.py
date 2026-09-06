@@ -633,6 +633,169 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         )
         self.assertIn("GEMINI_API_KEY=AIzaSySuperSecretKey", " ".join(cmd_studio))
 
+    def test_build_gcloud_command_secrets_mapping_strips_env_vars(self):
+        # Test that when secrets_mapping={"GH_TOKEN": "gh-token:latest", "GEMINI_API_KEY": "gemini-key:latest"} is passed,
+        # GH_TOKEN and GEMINI_API_KEY are in --set-secrets and completely absent from --update-env-vars.
+        cmd = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=2,
+            parallelism=2,
+            region="us-central1",
+            project="test-proj",
+            env_vars={
+                "REPO_URL": "https://github.com/test/repo.git",
+                "GH_TOKEN": "ghp_secret_token_123",
+                "GEMINI_API_KEY": "AIzaSySecretGeminiKey456",
+                "APP_ENV": "production",
+            },
+            secrets_mapping={
+                "GH_TOKEN": "gh-token:latest",
+                "GEMINI_API_KEY": "gemini-key:latest",
+            },
+        )
+        set_secrets_arg = next((arg for arg in cmd if arg.startswith("--set-secrets=")), None)
+        self.assertIsNotNone(set_secrets_arg)
+        self.assertIn("GH_TOKEN=gh-token:latest", set_secrets_arg)
+        self.assertIn("GEMINI_API_KEY=gemini-key:latest", set_secrets_arg)
+
+        update_env_arg = next((arg for arg in cmd if arg.startswith("--update-env-vars=")), "")
+        self.assertIn("APP_ENV=production", update_env_arg)
+        self.assertIn("REPO_URL=https://github.com/test/repo.git", update_env_arg)
+        self.assertNotIn("GH_TOKEN", update_env_arg)
+        self.assertNotIn("ghp_secret_token_123", update_env_arg)
+        self.assertNotIn("GEMINI_API_KEY", update_env_arg)
+        self.assertNotIn("AIzaSySecretGeminiKey456", update_env_arg)
+
+    def test_build_gcloud_command_set_secrets_string_strips_env_vars(self):
+        # Test that when set_secrets="GH_TOKEN=gh-token:latest" is passed,
+        # GH_TOKEN is in --set-secrets and absent from --update-env-vars.
+        cmd = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=1,
+            parallelism=1,
+            region="us-central1",
+            project="test-proj",
+            env_vars={
+                "REPO_URL": "https://github.com/test/repo.git",
+                "GH_TOKEN": "ghp_secret_token_123",
+                "OTHER_VAR": "val",
+            },
+            set_secrets="GH_TOKEN=gh-token:latest",
+        )
+        set_secrets_arg = next((arg for arg in cmd if arg.startswith("--set-secrets=")), None)
+        self.assertIsNotNone(set_secrets_arg)
+        self.assertIn("GH_TOKEN=gh-token:latest", set_secrets_arg)
+
+        update_env_arg = next((arg for arg in cmd if arg.startswith("--update-env-vars=")), "")
+        self.assertIn("OTHER_VAR=val", update_env_arg)
+        self.assertNotIn("GH_TOKEN", update_env_arg)
+        self.assertNotIn("ghp_secret_token_123", update_env_arg)
+
+    def test_build_gcloud_command_vertex_mode_completely_absent_from_update_env_vars(self):
+        # Test that in Vertex AI mode, GEMINI_API_KEY is completely absent from --update-env-vars.
+        cmd = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=1,
+            parallelism=1,
+            region="us-central1",
+            project="test-proj",
+            env_vars={
+                "REPO_URL": "https://github.com/test/repo.git",
+                "GEMINI_API_KEY": "AIzaSySuperSecretKey",
+                "EXTRA_VAR": "extra",
+            },
+            auth_mode="vertex",
+        )
+        update_env_arg = next((arg for arg in cmd if arg.startswith("--update-env-vars=")), "")
+        self.assertIn("EXTRA_VAR=extra", update_env_arg)
+        self.assertNotIn("GEMINI_API_KEY", update_env_arg)
+        self.assertNotIn("AIzaSySuperSecretKey", update_env_arg)
+
+        # Also verify when USE_VERTEX_AI=1 in env_vars
+        cmd_env = build_gcloud_command(
+            job_name="test-worker-job",
+            tasks_count=1,
+            parallelism=1,
+            region="us-central1",
+            project="test-proj",
+            env_vars={
+                "GEMINI_API_KEY": "AIzaSySuperSecretKey",
+                "USE_VERTEX_AI": "1",
+            },
+        )
+        update_env_env = next((arg for arg in cmd_env if arg.startswith("--update-env-vars=")), "")
+        self.assertNotIn("GEMINI_API_KEY", update_env_env)
+        self.assertNotIn("AIzaSySuperSecretKey", update_env_env)
+
+    def test_cli_dispatch_omits_secrets_from_env_vars_when_using_set_secrets_or_runtime_config(self):
+        dispatch_script = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts" / "cloud_dispatch.py"
+        manifest_path = self.temp_dir / "manifest_empty.json"
+        manifest_path.write_text("[]", encoding="utf-8")
+
+        # 1. CLI flag --set-secrets removes GH_TOKEN and GEMINI_API_KEY from env_vars and update-env-vars
+        cmd = [
+            sys.executable,
+            str(dispatch_script),
+            "--dry-run",
+            "--manifest", str(manifest_path),
+            "--repo", "https://github.com/test/repo.git",
+            "--set-secrets", "GH_TOKEN=gh-token:latest,GEMINI_API_KEY=gemini-key:latest",
+            "--project", "test-project",
+        ]
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=dict(os.environ, GH_TOKEN="secret_gh_tok", GEMINI_API_KEY="secret_gem_key"),
+        )
+        payload = json.loads(res.stdout)
+        env_vars = payload["env_vars"]
+        self.assertNotIn("GH_TOKEN", env_vars)
+        self.assertNotIn("GEMINI_API_KEY", env_vars)
+        gcloud_cmd = payload["gcloud_command"]
+        self.assertIn("--set-secrets=", gcloud_cmd)
+        self.assertIn("GH_TOKEN=gh-token:latest", gcloud_cmd)
+        self.assertIn("GEMINI_API_KEY=gemini-key:latest", gcloud_cmd)
+        self.assertNotIn("secret_gh_tok", gcloud_cmd)
+        self.assertNotIn("secret_gem_key", gcloud_cmd)
+        for part in gcloud_cmd.split():
+            if part.startswith("--update-env-vars="):
+                self.assertNotIn("GH_TOKEN", part)
+                self.assertNotIn("GEMINI_API_KEY", part)
+
+        # 2. runtime_cfg default secrets in agystack-runtime.json
+        cfg_file = self.temp_dir / "agystack-runtime.json"
+        cfg_file.write_text(json.dumps({
+            "secrets": {
+                "GH_TOKEN": "gh-token:latest",
+                "GEMINI_API_KEY": "gemini-key:latest",
+            }
+        }), encoding="utf-8")
+        cmd_cfg = [
+            sys.executable,
+            str(dispatch_script),
+            "--dry-run",
+            "--manifest", str(manifest_path),
+            "--repo", "https://github.com/test/repo.git",
+            "--project", "test-project",
+        ]
+        res_cfg = subprocess.run(
+            cmd_cfg,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=str(self.temp_dir),
+            env=dict(os.environ, GH_TOKEN="secret_gh_tok", GEMINI_API_KEY="secret_gem_key"),
+        )
+        payload_cfg = json.loads(res_cfg.stdout)
+        self.assertNotIn("GH_TOKEN", payload_cfg["env_vars"])
+        self.assertNotIn("GEMINI_API_KEY", payload_cfg["env_vars"])
+        gcloud_cmd_cfg = payload_cfg["gcloud_command"]
+        self.assertIn("--set-secrets=", gcloud_cmd_cfg)
+        self.assertIn("GH_TOKEN=gh-token:latest", gcloud_cmd_cfg)
+        self.assertIn("GEMINI_API_KEY=gemini-key:latest", gcloud_cmd_cfg)
+
 
 class TestSetupRuntimeProvisioner(unittest.TestCase):
     def setUp(self):
