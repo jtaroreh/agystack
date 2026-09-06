@@ -127,6 +127,8 @@ def build_gcloud_command(
 ) -> List[str]:
     cmd = ["gcloud", "run", "jobs", "execute", job_name]
     cmd.append(f"--tasks={tasks_count}")
+    if parallelism > 0:
+        cmd.append(f"--parallelism={parallelism}")
     cmd.append(f"--max-retries={max_retries}")
     cmd.append(f"--region={region}")
     if project:
@@ -277,6 +279,9 @@ def monitor_execution(
                                     "[MILESTONE]",
                                     "[STATUS:",
                                     "PASS",
+                                    "SMOKE_PASS",
+                                    "DEV_IMPROVED",
+                                    "REGRESSED",
                                     "ISSUES",
                                     "BLOCKED",
                                 ]
@@ -341,6 +346,9 @@ def monitor_execution(
                                         "[MILESTONE]",
                                         "[STATUS:",
                                         "PASS",
+                                        "SMOKE_PASS",
+                                        "DEV_IMPROVED",
+                                        "REGRESSED",
                                         "ISSUES",
                                         "BLOCKED",
                                     ]
@@ -373,7 +381,7 @@ def run_preflight(
     print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, and repository access...", flush=True)
 
     if not vertex_location:
-        vertex_location = "global" if model.startswith("gemini-3") else region
+        vertex_location = "global" if model.startswith(("gemini-2.5", "gemini-3")) else region
 
     # 1. Git Authentication & Repository Accessibility Check
     if not repo_url:
@@ -688,10 +696,11 @@ def main() -> None:
     parser.add_argument("--preflight", action="store_true", help="Run pre-flight quota, auth, and git connectivity checks.")
     parser.add_argument("--no-preflight", action="store_true", help="Skip pre-flight checks.")
     parser.add_argument("--dry-run", action="store_true", help="Print payload and command without executing.")
-    parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion.")
+    parser.add_argument("--wait", dest="wait", action="store_true", help="Wait synchronously for job completion.")
+    parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion (default).")
     parser.add_argument("--session", "--session-id", dest="session_id", type=str, help="Swarm session ID (default: swarm-<timestamp>).")
     parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
-    parser.set_defaults(wait=True)
+    parser.set_defaults(wait=False)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
     mailbox_parser = subparsers.add_parser("mailbox", help="Interact with worker mailboxes")
@@ -740,7 +749,7 @@ def main() -> None:
     parallelism = args.parallelism if args.parallelism != 100 else runtime_cfg.get("parallelism", 100)
     use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
     model = resolve_swarm_model(cli_model=args.model, runtime_model=runtime_cfg.get("model"))
-    vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith("gemini-3") else region)
+    vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith(("gemini-2.5", "gemini-3")) else region)
 
     repo_url = args.repo or get_git_remote_url()
     gh_token = get_gh_token()
@@ -938,8 +947,7 @@ def main() -> None:
                     )
                     if log_res.stdout:
                         logs_content = log_res.stdout
-                        if "- Slice JSON:" in log_res.stdout:
-                            break
+                        break
                     time.sleep(5)
                 except Exception as exc:
                     print(f"Warning: Failed to fetch container logs: {exc}", file=sys.stderr)
@@ -977,21 +985,6 @@ def main() -> None:
             print("=" * 80)
             print(f"Total: {len(parsed_results)} | PASS: {pass_count} | ISSUES: {issues_count} | BLOCKED: {blocked_count}")
             print("=" * 80)
-
-        harvested_slices = []
-        for item in parsed_results:
-            for ev_line in item.get("evidence", "").splitlines():
-                if ev_line.strip().startswith("- Slice JSON:"):
-                    raw_json = ev_line.strip().split("- Slice JSON:", 1)[1].strip()
-                    try:
-                        harvested_slices.append(json.loads(raw_json))
-                    except Exception:
-                        pass
-        if harvested_slices:
-            out_slices_file = Path(".slices/harvested_scores.json")
-            out_slices_file.parent.mkdir(parents=True, exist_ok=True)
-            out_slices_file.write_text(json.dumps(harvested_slices, indent=2), encoding="utf-8")
-            print(f"Harvested {len(harvested_slices)} slice scores to {out_slices_file}")
 
         harvest_target = args.harvest_gcs or (gcs_prefix if gcs_bucket else None)
         if harvest_target is not None and gcs_bucket:

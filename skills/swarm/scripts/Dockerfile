@@ -27,9 +27,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
     && chmod -R a+w /usr/local/cargo \
     && chmod -R a+w /usr/local/rustup
 
-COPY cargo-deny /usr/local/cargo/bin/cargo-deny
-RUN chmod +x /usr/local/cargo/bin/cargo-deny
-
 RUN useradd -m -u 1000 -s /bin/bash worker
 
 RUN git lfs install --system

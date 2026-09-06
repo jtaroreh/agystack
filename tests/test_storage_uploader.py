@@ -155,7 +155,7 @@ class TestGCSUploadFallback(unittest.TestCase):
             self.assertFalse(res)
 
 
-class TestStructuredOutputParsing(unittest.TestCase):
+class TestScoreParsing(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.repo_dir = Path(self.temp_dir.name)
@@ -165,32 +165,40 @@ class TestStructuredOutputParsing(unittest.TestCase):
 
     def test_parse_score_metrics_flat(self):
         score_file = self.repo_dir / "score.json"
-        score_file.write_text(json.dumps({"score": 0.8123, "geomean_fill_ratio": 0.9412}), encoding="utf-8")
+        score_file.write_text(
+            json.dumps({"score": 0.8123, "accuracy": 0.9412, "latency_ms": 12.5}),
+            encoding="utf-8",
+        )
 
-        score, fill_ratio = cloud_worker.parse_score_metrics(self.repo_dir)
+        score, accuracy, latency_ms = cloud_worker.parse_score_metrics(self.repo_dir)
         self.assertAlmostEqual(score, 0.8123)
-        self.assertAlmostEqual(fill_ratio, 0.9412)
+        self.assertAlmostEqual(accuracy, 0.9412)
+        self.assertAlmostEqual(latency_ms, 12.5)
 
     def test_parse_score_metrics_nested(self):
         score_file = self.repo_dir / "score.json"
         data = {
             "score": 0.844936,
             "metrics": {
-                "geomean_flop_ratio": 0.844936,
-                "geomean_fill_ratio": 0.944537,
-                "matrices": 300,
+                "accuracy": 0.944537,
+                "latency_ms": 15.2,
             },
         }
         score_file.write_text(json.dumps(data), encoding="utf-8")
 
-        score, fill_ratio = cloud_worker.parse_score_metrics(self.repo_dir)
+        score, accuracy, latency_ms = cloud_worker.parse_score_metrics(self.repo_dir)
         self.assertAlmostEqual(score, 0.844936)
-        self.assertAlmostEqual(fill_ratio, 0.944537)
+        self.assertAlmostEqual(accuracy, 0.944537)
+        self.assertAlmostEqual(latency_ms, 15.2)
 
     def test_parse_score_metrics_missing(self):
-        score, fill_ratio = cloud_worker.parse_score_metrics(self.repo_dir)
+        score, accuracy, latency_ms = cloud_worker.parse_score_metrics(self.repo_dir)
         self.assertIsNone(score)
-        self.assertIsNone(fill_ratio)
+        self.assertIsNone(accuracy)
+        self.assertIsNone(latency_ms)
+
+
+TestStructuredOutputParsing = TestScoreParsing
 
 
 if __name__ == "__main__":

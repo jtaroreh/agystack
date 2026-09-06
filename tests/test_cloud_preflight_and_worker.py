@@ -55,7 +55,7 @@ class TestCloudWorkerGuardrails(unittest.TestCase):
             self.assertFalse(is_candidate_file(f), f"Expected {f} to be excluded by default dir rules.")
 
         # Default exact excluded files
-        exact_files = ["rust-toolchain", "rust-toolchain.toml", "Cargo.lock"]
+        exact_files = [".git", ".agystack", ".agents"]
         for f in exact_files:
             self.assertFalse(is_candidate_file(f), f"Expected exact file {f} to be excluded.")
 
@@ -144,6 +144,7 @@ Optimized Subtree Round 5 gating successfully.
         self.assertIn("--async", cmd_async)
         self.assertNotIn("--wait", cmd_async)
         self.assertIn("--tasks=4", cmd_async)
+        self.assertIn("--parallelism=10", cmd_async)
         self.assertIn("--max-retries=0", cmd_async)
 
         cmd_sync = build_gcloud_command(
@@ -158,6 +159,7 @@ Optimized Subtree Round 5 gating successfully.
         )
         self.assertIn("--wait", cmd_sync)
         self.assertNotIn("--async", cmd_sync)
+        self.assertIn("--parallelism=10", cmd_sync)
         self.assertIn("--max-retries=2", cmd_sync)
 
     @patch("subprocess.run")

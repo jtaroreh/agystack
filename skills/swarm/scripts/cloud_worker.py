@@ -152,29 +152,64 @@ def run_command(
     )
 
 
-def parse_score_metrics(repo_dir: Path) -> Tuple[Optional[float], Optional[float]]:
+class ScoreMetricsResult(tuple):
+    def __new__(cls, score: Optional[float], accuracy: Optional[float], latency_ms: Optional[float]):
+        return super().__new__(cls, (score, accuracy, latency_ms))
+
+    @property
+    def score(self) -> Optional[float]:
+        return self[0]
+
+    @property
+    def accuracy(self) -> Optional[float]:
+        return self[1]
+
+    @property
+    def latency_ms(self) -> Optional[float]:
+        return self[2]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key == "score":
+            return self[0] if self[0] is not None else default
+        elif key == "accuracy":
+            return self[1] if self[1] is not None else default
+        elif key == "latency_ms":
+            return self[2] if self[2] is not None else default
+        return default
+
+
+def parse_score_metrics(
+    repo_dir: Path,
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     score_file = repo_dir / "score.json"
     if not score_file.is_file():
-        return None, None
+        return ScoreMetricsResult(None, None, None)
     try:
         with open(score_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         score = data.get("score")
         metrics = data.get("metrics", {}) if isinstance(data.get("metrics"), dict) else {}
-        fill_ratio = (
-            data.get("geomean_fill_ratio")
-            or metrics.get("geomean_fill_ratio")
-            or data.get("fill_ratio")
+        if score is None and "score" in metrics:
+            score = metrics.get("score")
+        accuracy = (
+            data.get("accuracy")
+            if data.get("accuracy") is not None
+            else metrics.get("accuracy")
         )
-        return score, fill_ratio
+        latency_ms = (
+            data.get("latency_ms")
+            if data.get("latency_ms") is not None
+            else metrics.get("latency_ms")
+        )
+        return ScoreMetricsResult(score, accuracy, latency_ms)
     except Exception:
-        return None, None
+        return ScoreMetricsResult(None, None, None)
 
 
 DEFAULT_EXCLUDED_EXACT = {
-    "rust-toolchain",
-    "rust-toolchain.toml",
-    "Cargo.lock",
+    ".git",
+    ".agystack",
+    ".agents",
 }
 
 DEFAULT_EXCLUDED_DIRS = (
@@ -532,7 +567,7 @@ def main() -> None:
         print("=" * 80, flush=True)
         sys.exit(1)
 
-    score, fill_ratio = parse_score_metrics(repo_dir)
+    score, accuracy, latency_ms = parse_score_metrics(repo_dir)
     gcs_bucket = os.environ.get("GCS_RESULTS_BUCKET", "").strip()
     gcs_prefix = os.environ.get("GCS_PREFIX", "").strip()
     gcs_uris: Dict[str, str] = {}
@@ -689,8 +724,10 @@ def main() -> None:
     print(f"- Changes Pushed: {changes_pushed}")
     if score is not None:
         print(f"- Score: {score}")
-    if fill_ratio is not None:
-        print(f"- Fill Ratio: {fill_ratio}")
+    if accuracy is not None:
+        print(f"- Accuracy: {accuracy}")
+    if latency_ms is not None:
+        print(f"- Latency: {latency_ms}ms")
     score_file = repo_dir / "score.json"
     if score_file.is_file():
         try:
