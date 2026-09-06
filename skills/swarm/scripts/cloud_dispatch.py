@@ -421,65 +421,49 @@ def monitor_execution(
             desc_data = json.loads(res.stdout)
             status = desc_data.get("status", {}) if isinstance(desc_data, dict) else {}
 
-            if task_count <= 4:
-                log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}"'
-                log_cmd = [
-                    "gcloud",
-                    "logging",
-                    "read",
-                    log_filter,
-                    "--limit=500",
-                    "--format=value(textPayload)",
-                    "--order=asc",
-                ]
-                if project:
-                    log_cmd.extend(["--project", project])
+            log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[MILESTONE]" OR textPayload:"[STATUS:")'
+            log_cmd = [
+                "gcloud",
+                "logging",
+                "read",
+                log_filter,
+                "--limit=1000",
+                "--format=value(textPayload)",
+                "--order=asc",
+            ]
+            if project:
+                log_cmd.extend(["--project", project])
 
-                try:
-                    log_res = subprocess.run(
-                        log_cmd,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                    )
-                    if log_res.returncode == 0 and log_res.stdout:
-                        for line in log_res.stdout.splitlines():
-                            line_str = line.strip()
-                            if not line_str:
-                                continue
-                            if line_str in seen_log_entries:
-                                continue
-                            if any(
-                                k in line_str
-                                for k in [
-                                    "[MILESTONE]",
-                                    "[STATUS:",
-                                    "PASS",
-                                    "SMOKE_PASS",
-                                    "DEV_IMPROVED",
-                                    "REGRESSED",
-                                    "ISSUES",
-                                    "BLOCKED",
-                                ]
-                            ):
-                                seen_log_entries.add(line_str)
-                                if "WAITING_FOR_ORCHESTRATOR" in line_str:
-                                    print(f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<", flush=True)
-                                else:
-                                    print(line_str, flush=True)
-                except Exception:
-                    pass
-            else:
-                succeeded = status.get("succeededCount", 0)
-                running = status.get("runningCount", 0)
-                failed = status.get("failedCount", 0)
-                current_counts = (succeeded, running, failed)
-                if current_counts != last_counts:
-                    last_counts = current_counts
-                    print(
-                        f"[Cloud Swarm] Progress: {succeeded}/{task_count} succeeded, {running} running, {failed} failed.",
-                        flush=True,
-                    )
+            try:
+                log_res = subprocess.run(
+                    log_cmd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if log_res.returncode == 0 and log_res.stdout:
+                    for line in log_res.stdout.splitlines():
+                        line_str = line.strip()
+                        if not line_str or line_str in seen_log_entries:
+                            continue
+                        seen_log_entries.add(line_str)
+                        if "WAITING_FOR_ORCHESTRATOR" in line_str:
+                            print(f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<", flush=True)
+                        else:
+                            print(line_str, flush=True)
+            except Exception:
+                pass
+
+            succeeded = status.get("succeededCount", 0)
+            running = status.get("runningCount", 0)
+            failed = status.get("failedCount", 0)
+            current_counts = (succeeded, running, failed)
+            if current_counts != last_counts:
+                last_counts = current_counts
+                print(
+                    f"[Cloud Swarm] Progress: {succeeded}/{task_count} succeeded, {running} running, {failed} failed.",
+                    flush=True,
+                )
 
             conditions = status.get("conditions", []) if isinstance(status, dict) else []
             is_completed = False
@@ -491,48 +475,34 @@ def monitor_execution(
                         break
 
             if is_completed:
-                if task_count <= 4:
-                    log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}"'
-                    log_cmd = [
-                        "gcloud",
-                        "logging",
-                        "read",
-                        log_filter,
-                        "--limit=500",
-                        "--format=value(textPayload)",
-                        "--order=asc",
-                    ]
-                    if project:
-                        log_cmd.extend(["--project", project])
-                    try:
-                        log_res = subprocess.run(
-                            log_cmd,
-                            capture_output=True,
-                            text=True,
-                            check=False,
-                        )
-                        if log_res.returncode == 0 and log_res.stdout:
-                            for line in log_res.stdout.splitlines():
-                                line_str = line.strip()
-                                if not line_str or line_str in seen_log_entries:
-                                    continue
-                                if any(
-                                    k in line_str
-                                    for k in [
-                                        "[MILESTONE]",
-                                        "[STATUS:",
-                                        "PASS",
-                                        "SMOKE_PASS",
-                                        "DEV_IMPROVED",
-                                        "REGRESSED",
-                                        "ISSUES",
-                                        "BLOCKED",
-                                    ]
-                                ):
-                                    seen_log_entries.add(line_str)
-                                    print(line_str, flush=True)
-                    except Exception:
-                        pass
+                log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[STATUS:" OR textPayload:"[MILESTONE]" OR textPayload:"Score:" OR textPayload:"PASS")'
+                log_cmd = [
+                    "gcloud",
+                    "logging",
+                    "read",
+                    log_filter,
+                    "--limit=2000",
+                    "--format=value(textPayload)",
+                    "--order=asc",
+                ]
+                if project:
+                    log_cmd.extend(["--project", project])
+                try:
+                    log_res = subprocess.run(
+                        log_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if log_res.returncode == 0 and log_res.stdout:
+                        for line in log_res.stdout.splitlines():
+                            line_str = line.strip()
+                            if not line_str or line_str in seen_log_entries:
+                                continue
+                            seen_log_entries.add(line_str)
+                            print(line_str, flush=True)
+                except Exception:
+                    pass
                 break
 
         except Exception:
@@ -872,12 +842,12 @@ def main() -> None:
     parser.add_argument("--preflight", action="store_true", help="Run pre-flight quota, auth, and git connectivity checks.")
     parser.add_argument("--no-preflight", action="store_true", help="Skip pre-flight checks.")
     parser.add_argument("--dry-run", action="store_true", help="Print payload and command without executing.")
-    parser.add_argument("--wait", dest="wait", action="store_true", help="Wait synchronously for job completion.")
-    parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion (default).")
+    parser.add_argument("--wait", dest="wait", action="store_true", help="Wait for job completion, stream milestones, and harvest reports (default).")
+    parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion; dispatch asynchronously.")
     parser.add_argument("--session", "--session-id", dest="session_id", type=str, help="Swarm session ID (default: swarm-<timestamp>).")
     parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
     parser.add_argument("--set-secrets", type=str, help="Comma-separated secrets mapping for Cloud Run Job (e.g. GEMINI_API_KEY=gemini-key:latest).")
-    parser.set_defaults(wait=False)
+    parser.set_defaults(wait=True)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
     mailbox_parser = subparsers.add_parser("mailbox", help="Interact with worker mailboxes")
