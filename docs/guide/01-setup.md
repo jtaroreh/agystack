@@ -8,12 +8,6 @@ In this page you install the plugin, pick which models agystack uses, and run yo
 - `gh` (GitHub CLI) is required for PR automation and preflight checks.
 - `gt` (Graphite CLI) is recommended for stacked PRs.
 
-Verify installed dependencies by running `--doctor` via `setup_runtime.py`.
-
-```bash
-python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
-```
-
 ## Install the plugin
 
 Install agystack globally or for a specific workspace:
@@ -26,6 +20,16 @@ git clone https://github.com/jtaroreh/agystack ~/.gemini/config/plugins/agystack
 git clone https://github.com/jtaroreh/agystack .agents/plugins/agystack
 ```
 
+After installation, verify installed dependencies by running `--doctor` via `setup_runtime.py`:
+
+```bash
+# For global install
+python3 ~/.gemini/config/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+
+# For workspace-only install
+python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+```
+
 Restart Antigravity or start a new chat so it discovers the plugin.
 
 ## Pick your models
@@ -36,7 +40,7 @@ Run:
 /setup-agystack
 ```
 
-[`/setup-agystack`](../../skills/setup-agystack/SKILL.md) (or `/setup-pstack`) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/agystack/rules/agystack-models.md`, a small rule every agystack skill reads.
+[`/setup-agystack`](../../skills/setup-agystack/SKILL.md) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/agystack/rules/agystack-models.md`, a small rule every agystack skill reads.
 
 You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default later, delete that role's line, or just run `/setup-agystack` again.
 

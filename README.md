@@ -22,12 +22,6 @@ This repository is **agystack**, the Antigravity port of Lauren Tan's pstack.
 - `gh` (GitHub CLI) is required for PR automation and preflight checks.
 - `gt` (Graphite CLI) is recommended for stacked PRs.
 
-Verify installed dependencies by running `--doctor` via `setup_runtime.py`.
-
-```bash
-python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
-```
-
 Install agystack globally (for all workspaces) or locally in your project:
 
 ```bash
@@ -38,6 +32,19 @@ git clone https://github.com/jtaroreh/agystack.git ~/.gemini/config/plugins/agys
 git clone https://github.com/jtaroreh/agystack.git .agents/plugins/agystack
 ```
 
+After cloning, verify installed dependencies by running `--doctor` via `setup_runtime.py`:
+
+```bash
+# For global install
+python3 ~/.gemini/config/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+
+# For workspace-local install
+python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+
+# Or from within the repository root
+python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
+```
+
 Native Antigravity tools (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and visual Artifacts) are documented in [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
 
 Restart Antigravity or open a new chat after install.
@@ -46,7 +53,7 @@ Restart Antigravity or open a new chat after install.
 
 two steps:
 
-1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) (or `/setup-pstack`) and choose which models you want.
+1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) and choose which models you want.
 2. use [`/poteto-mode`](./skills/poteto-mode/SKILL.md) whenever you're doing anything that requires rigor.
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
@@ -261,6 +268,18 @@ Antigravity already has built-in planning mode and goal tracking which work grea
 Type [`/automate-me`](./skills/automate-me/SKILL.md). It mines your recent Antigravity transcripts, drafts a `<your-name>-mode` skill from how you've actually worked, and routes through agystack underneath. You keep agystack as the base and end up with your own routing skill alongside `poteto-mode`.
 
 Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SKILL.md). It detects the models you have access to and writes an always-applied rule mapping each role (code, judgment, the review panels) to a model tier (`pro`, `flash`, `flash_lite`, or `inherit`). Every skill reads it and falls back to sensible defaults when the rule is absent.
+
+## development & testing
+
+Run the Python test suite:
+```bash
+pytest -q
+```
+
+Run the Bun/TypeScript test suite for poteto-mode scripts:
+```bash
+cd skills/poteto-mode/scripts && bun test
+```
 
 ## license
 
