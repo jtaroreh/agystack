@@ -29,10 +29,17 @@ python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py 
 
 Choose the execution runtime for parallel swarms:
 - **Local Runtime (Default):** Runs via native `invoke_subagent` in Antigravity for up to 8 concurrent workers. Zero cloud setup required.
-- **Cloud Run Runtime:** Runs via Google Cloud Run Jobs for 10 to 100+ parallel workers in isolated container instances.
+- **Cloud Run Runtime:** Runs via Google Cloud Run Jobs for 10 to 100+ parallel workers in isolated container instances. Cloud Run is strictly an on-demand batch runner. It only spins up containers when you explicitly trigger `/swarm` (or ask to swarm a task across many parallel workers). It does not run continuously and is never an always-on server. It costs $0 when idle. Daily tasks (pair programming, routine edits, bug fixes, refactoring, code reviews via `/interrogate`, and local subagents) always run locally on your machine.
+
+**CRITICAL INSTRUCTION FOR AI AGENT WHEN PRESENTING RUNTIME CHOICE:**
+When presenting the runtime choice to the user, explicitly explain the cost and execution model before asking them to choose:
+1. Explain that Cloud Run is strictly an on-demand batch runner. It only spins up containers when the user explicitly triggers `/swarm` (or asks to swarm a task across many parallel workers).
+2. Clarify that Cloud Run does NOT run continuously and is never an always-on server.
+3. State that Cloud Run costs $0 when idle.
+4. Reassure the user that daily tasks (pair programming, routine edits, bug fixes, refactoring, code reviews via `/interrogate`, and local subagents) ALWAYS run locally on their machine.
 
 If Cloud Run is selected:
-**CRITICAL INSTRUCTION FOR AI AGENT:** NEVER print manual bash commands with placeholders (like `<your-gcp-project-id>`) for the user to run. You MUST directly execute the setup commands yourself using `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)"` right here in the chat environment.
+**CRITICAL INSTRUCTION FOR AI AGENT FOR PROVISIONING:** NEVER print manual bash commands with placeholders (like `<your-gcp-project-id>`) for the user to run. You MUST directly execute the setup commands yourself using `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)"` right here in the chat environment.
 
 1. **Verify Quotas and Permissions:**
    - **Google AI Studio API Key:** If using `GEMINI_API_KEY`, verify that paid billing (Pay-as-you-go / Tier 1+) is enabled on the AI Studio project. Free-tier API keys (capped at 5 requests per minute) are strictly prohibited for swarms because parallel workers will hit immediate rate limits.

@@ -39,7 +39,14 @@ Always operate on the most direct, authoritative surface for the task:
 
 ## Parallel Cloud Agent Execution (Cloud Run Runtime)
 
-When running massive swarms (N > 8) or when Cloud Run runtime is configured, agystack uses Google Cloud Run Jobs for serverless parallel execution:
+When running massive swarms (N > 8) or when Cloud Run runtime is configured, agystack uses Google Cloud Run Jobs for serverless parallel execution.
+
+### Runtime Profile and Cost Model
+
+- **On-Demand Batch Runner Only:** Cloud Run does not run continuously and is never an always-on server. Containers spin up strictly on demand.
+- **Zero Idle Cost:** Costs $0 when idle. Charges apply only to active container execution seconds during a swarm job.
+- **Local Daily Work:** Daily tasks (pair programming, routine edits, bug fixes, refactoring, code reviews via `/interrogate`, and local subagents) always run locally on your machine.
+- **Explicit Swarm Trigger:** Cloud Run only spins up containers when you explicitly trigger `/swarm` (or ask to swarm a task across many parallel workers).
 
 ### Architecture
 

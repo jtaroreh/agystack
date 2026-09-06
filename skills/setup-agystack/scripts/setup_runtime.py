@@ -350,6 +350,11 @@ def run_provisioning(
     if not bucket_name:
         bucket_name = f"{project_id}-swarm-results"
 
+    if not scripts_dir or not (Path(scripts_dir) / "Dockerfile").is_file():
+        candidate = Path(__file__).resolve().parents[2] / "swarm" / "scripts"
+        if (candidate / "Dockerfile").is_file():
+            scripts_dir = str(candidate)
+
     print(f"Starting auto-provisioning for project: {project_id}")
     enable_apis(project_id)
     ensure_gcs_bucket(bucket_name, project_id, region)

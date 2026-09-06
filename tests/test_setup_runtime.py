@@ -193,5 +193,47 @@ class TestSetupRuntimeDoctor(unittest.TestCase):
                 self.assertEqual(cm.exception.code, 1)
 
 
+class TestSetupRuntimeProvisioning(unittest.TestCase):
+    @patch("setup_runtime.write_runtime_config")
+    @patch("setup_runtime.run_cmd")
+    def test_run_provisioning_autoresolves_scripts_dir(self, mock_run_cmd, mock_write_cfg):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        expected_scripts_dir = str(Path(setup_runtime.__file__).resolve().parents[2] / "swarm" / "scripts")
+        self.assertTrue(
+            (Path(expected_scripts_dir) / "Dockerfile").is_file(),
+            f"Expected Dockerfile to exist at {expected_scripts_dir}",
+        )
+
+        for invalid_dir in ["", "/nonexistent/invalid/dir", None]:
+            mock_run_cmd.reset_mock()
+            setup_runtime.run_provisioning(
+                project_id="test-proj-autoresolve",
+                scripts_dir=invalid_dir,
+            )
+
+            all_cmds = [call[0][0] for call in mock_run_cmd.call_args_list]
+            build_cmd = next(cmd for cmd in all_cmds if len(cmd) > 2 and cmd[0:3] == ["gcloud", "builds", "submit"])
+            self.assertEqual(
+                build_cmd[4],
+                expected_scripts_dir,
+                f"scripts_dir did not resolve to expected directory for input '{invalid_dir}'",
+            )
+
+    @patch("setup_runtime.write_runtime_config")
+    @patch("setup_runtime.run_cmd")
+    def test_run_provisioning_preserves_valid_scripts_dir(self, mock_run_cmd, mock_write_cfg):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        valid_dir = str(Path(setup_runtime.__file__).resolve().parents[2] / "swarm" / "scripts")
+        setup_runtime.run_provisioning(
+            project_id="test-proj-valid",
+            scripts_dir=valid_dir,
+        )
+        all_cmds = [call[0][0] for call in mock_run_cmd.call_args_list]
+        build_cmd = next(cmd for cmd in all_cmds if len(cmd) > 2 and cmd[0:3] == ["gcloud", "builds", "submit"])
+        self.assertEqual(build_cmd[4], valid_dir)
+
+
 if __name__ == "__main__":
     unittest.main()
