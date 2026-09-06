@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+/**
+ * Executes via bun runtime.
+ * Multi-agent orchestration: manages standing projects, fleets of subagents, and stacked PRs.
+ */
 import { ensureDependenciesInstalled } from "../bootstrap.ts";
 
 ensureDependenciesInstalled();

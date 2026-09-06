@@ -2,16 +2,20 @@
 
 In this page you install the plugin, pick which models agystack uses, and run your first task. Setup is one command plus a short conversation.
 
+## Prerequisites
+
+`bun` (version 1.0+) or `node` is required for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`).
+
 ## Install the plugin
 
 Install agystack globally or for a specific workspace:
 
 ```bash
 # Option A: Global installation (recommended - applies across all projects)
-git clone https://github.com/<owner>/agystack ~/.gemini/config/plugins/agystack
+git clone https://github.com/jtaroreh/agystack ~/.gemini/config/plugins/agystack
 
 # Option B: Workspace-only installation (applies to current project)
-git clone https://github.com/<owner>/agystack .agents/plugins/agystack
+git clone https://github.com/jtaroreh/agystack .agents/plugins/agystack
 ```
 
 Restart Antigravity or start a new chat so it discovers the plugin.

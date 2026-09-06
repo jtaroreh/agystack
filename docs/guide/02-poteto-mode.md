@@ -1,6 +1,6 @@
 # Route work through `/poteto-mode`
 
-`/poteto-mode` is the front door. You give it a goal, it matches one of twenty-two playbooks, copies that playbook's steps into the todo list, and calls the other skills as the steps need them. In this page you learn what a good prompt looks like, and how little of one you actually need.
+`/poteto-mode` is the front door. You give it a goal, it matches one of twenty-three playbooks, copies that playbook's steps into the todo list, and calls the other skills as the steps need them. In this page you learn what a good prompt looks like, and how little of one you actually need.
 
 ![A dispatcher pulls a switch lever to route robots on rail handcars toward lit gates, under a /poteto-mode departure board listing BUG FIX, FEATURE, and INVESTIGATION.](./images/router.jpg)
 
@@ -25,7 +25,38 @@ flowchart TD
     J --> K
 ```
 
-The diagram shows the common routes. There are also playbooks for hillclimbing a metric, diagnosing runtime symptoms and captured traces, prototypes, visual parity, authoring and evaluating skills, autonomous runs, babysitting a PR or stack to merge-ready, shipping a verified stack, running a PR queue on autopilot, orchestrating project-scale programs, session pickup, pausing safely, multi-phase plans, and worktree cleanup. The [playbook directory](../../skills/poteto-mode/playbooks/) has the full set.
+The diagram shows the common routes. There are also playbooks for hillclimbing a metric, diagnosing runtime symptoms and captured traces, prototypes, visual parity, authoring and evaluating skills, autonomous runs, opening a PR, babysitting a PR or stack to merge-ready, shipping a verified stack, running a PR queue on autopilot (stack and full), orchestrating project-scale programs, session pickup, pausing safely, multi-phase plans, and worktree cleanup. The [playbook directory](../../skills/poteto-mode/playbooks/) has the full set.
+
+<details>
+<summary>the twenty-three playbooks</summary>
+
+| playbook | for |
+|---|---|
+| [investigation](../../skills/poteto-mode/playbooks/investigation.md) | a read-only question. how does x work, why was y built this way, are we sure. |
+| [bug fix](../../skills/poteto-mode/playbooks/bug-fix.md) | reproduce a defect, root-cause it, and fix with runtime evidence. |
+| [perf](../../skills/poteto-mode/playbooks/perf-issue.md) | trace a measured slowness and improve it against a baseline. |
+| [hillclimb](../../skills/poteto-mode/playbooks/hillclimb.md) | sustained, scientific improvement of one metric against a target, looping hypotheses with before/after measurement and one commit per accepted win. |
+| [runtime forensics](../../skills/poteto-mode/playbooks/runtime-forensics.md) | diagnose a live symptom (leak, idle-cpu spin, glitch) from instrumentation. |
+| [trace forensics](../../skills/poteto-mode/playbooks/trace-forensics.md) | diagnose a captured profiling artifact (cpuprofile, trace, spindump, heap snapshot). |
+| [feature](../../skills/poteto-mode/playbooks/feature.md) | new or changed behavior, built from a named data shape. |
+| [refactoring](../../skills/poteto-mode/playbooks/refactoring.md) | a behavior-preserving change to structure or shape. |
+| [prototype](../../skills/poteto-mode/playbooks/prototype.md) | a throwaway sketch to make a design or behavioral decision cheaply, or to settle an empirical fork by observing it. |
+| [visual parity](../../skills/poteto-mode/playbooks/visual-parity.md) | pixel-exact ui equivalence between two implementations. |
+| [authoring a skill](../../skills/poteto-mode/playbooks/authoring-a-skill.md) | writing or editing a SKILL.md. |
+| [eval](../../skills/poteto-mode/playbooks/eval.md) | test how a skill or prompt change affects agent behavior, blinded. |
+| [babysit](../../skills/poteto-mode/playbooks/babysit.md) | drive a pr or a stack to merge-ready: conflicts, review threads, ci. |
+| [shipping](../../skills/poteto-mode/playbooks/shipping.md) | independently verify a green stack, then land the contiguous verified run with graphite merge-when-ready. |
+| [autonomous run](../../skills/poteto-mode/playbooks/autonomous-run.md) | drive a long task to completion without stopping. |
+| [orchestrate](../../skills/poteto-mode/playbooks/orchestrate.md) | a standing project handed to one coordinator chat: multi-day, many stacked prs, fleets of subagents. |
+| [autopilot-full](../../skills/poteto-mode/playbooks/autopilot-full.md) | run independent prs to merged with one owner per pr and root verification of each merge-ready head. |
+| [autopilot-stack](../../skills/poteto-mode/playbooks/autopilot-stack.md) | build and verify one linear graphite stack for the operator to review and land. |
+| [session pickup](../../skills/poteto-mode/playbooks/session-pickup.md) | resume or take over a prior agent's in-flight work. |
+| [pause safely](../../skills/poteto-mode/playbooks/pause-safely.md) | suspend in-flight work cleanly so it can be resumed later. |
+| [multi-phase plan](../../skills/poteto-mode/playbooks/multi-phase-plan.md) | work that spans phases or stacked PRs. |
+| [worktree cleanup](../../skills/poteto-mode/playbooks/worktree-cleanup.md) | reclaim disk by pruning merged or abandoned worktrees and stale ios simulators, safety-gated. |
+| [opening a pr](../../skills/poteto-mode/playbooks/opening-a-pr.md) | commits, deslopping, unslop descriptions, and PR creation. |
+
+</details>
 
 ## Say the goal, not the ceremony
 

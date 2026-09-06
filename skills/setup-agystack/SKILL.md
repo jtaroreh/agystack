@@ -7,6 +7,10 @@ description: Configure models and execution runtime for agystack. Configures Ant
 
 Configure model tiers in `~/.gemini/config/plugins/agystack/rules/agystack-models.md` and execution runtime in `~/.gemini/config/plugins/agystack/agystack-runtime.json` (or workspace `.agents/plugins/agystack/`).
 
+## Prerequisites
+
+`bun` (version 1.0+) or `node` is required for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`).
+
 ## Steps
 
 ### 1. Select execution runtime
@@ -52,7 +56,7 @@ Show every role with its model tier and confirm:
 
 ### 5. Write the model rule
 
-Write `~/.gemini/config/plugins/agystack/rules/agystack-models.md`:
+Write to `.agents/plugins/agystack/rules/agystack-models.md` if installed workspace-locally, otherwise `~/.gemini/config/plugins/agystack/rules/agystack-models.md`:
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.

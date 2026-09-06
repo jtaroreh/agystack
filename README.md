@@ -16,14 +16,18 @@ fork it. improve it. make it yours. PRs are welcome!
 
 This repository is **agystack**, the Antigravity port of Lauren Tan's pstack.
 
+### prerequisites
+
+`bun` (version 1.0+) or `node` is required for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`).
+
 Install agystack globally (for all workspaces) or locally in your project:
 
 ```bash
 # Option A: Global install (recommended)
-git clone https://github.com/<owner>/agystack.git ~/.gemini/config/plugins/agystack
+git clone https://github.com/jtaroreh/agystack.git ~/.gemini/config/plugins/agystack
 
 # Option B: Workspace-local install
-git clone https://github.com/<owner>/agystack.git .agents/plugins/agystack
+git clone https://github.com/jtaroreh/agystack.git .agents/plugins/agystack
 ```
 
 Native Antigravity tools (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and visual Artifacts) are documented in [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
@@ -86,6 +90,7 @@ morning.
 | [pause safely](./skills/poteto-mode/playbooks/pause-safely.md) | suspend in-flight work cleanly so it can be resumed later. |
 | [multi-phase plan](./skills/poteto-mode/playbooks/multi-phase-plan.md) | work that spans phases or stacked PRs. |
 | [worktree cleanup](./skills/poteto-mode/playbooks/worktree-cleanup.md) | reclaim disk by pruning merged or abandoned worktrees and stale ios simulators, safety-gated. |
+| [opening a pr](./skills/poteto-mode/playbooks/opening-a-pr.md) | commits, deslopping, unslop descriptions, and PR creation. |
 
 </details>
 

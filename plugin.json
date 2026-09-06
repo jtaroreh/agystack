@@ -1,12 +1,13 @@
 {
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agystack",
-  "version": "0.14.5-antigravity",
+  "version": "0.15.0",
   "description": "agystack for Antigravity IDE. Rigorous agent workflows: poteto-mode, how, why, architect, arena, swarm, interrogate, deslop. Port of Lauren Tan's pstack for Antigravity.",
   "author": {
     "name": "Lauren Tan (original pstack), Antigravity port"
   },
-  "homepage": "https://github.com/google/antigravity",
-  "repository": "https://github.com/google/antigravity",
+  "homepage": "https://github.com/jtaroreh/agystack",
+  "repository": "https://github.com/jtaroreh/agystack",
   "license": "MIT",
   "keywords": [
     "agystack",
