@@ -25,6 +25,7 @@ def extract_pareto_frontier(
     trials: List[Dict[str, Any]],
     metric_key: str = "score",
     secondary_key: str = "fill_ratio",
+    maximize: bool = True,
 ) -> List[Dict[str, Any]]:
     candidates: List[Dict[str, Any]] = []
     points: List[tuple] = []
@@ -46,9 +47,14 @@ def extract_pareto_frontier(
             if i == j:
                 continue
             mb, sb = points[j]
-            if mb <= ma and sb <= sa and (mb < ma or sb < sa):
-                dominated = True
-                break
+            if maximize:
+                if mb >= ma and sb >= sa and (mb > ma or sb > sa):
+                    dominated = True
+                    break
+            else:
+                if mb <= ma and sb <= sa and (mb < ma or sb < sa):
+                    dominated = True
+                    break
         if not dominated:
             frontier.append(trial_a)
 
@@ -56,7 +62,8 @@ def extract_pareto_frontier(
         key=lambda t: (
             _extract_metric_value(t, metric_key),
             _extract_metric_value(t, secondary_key),
-        )
+        ),
+        reverse=maximize,
     )
     return frontier
 

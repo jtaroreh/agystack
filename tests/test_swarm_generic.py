@@ -62,8 +62,20 @@ class TestSwarmGenericManifest(unittest.TestCase):
         self.assertIn("threshold=0.1", tasks[0]["brief"])
 
 
-class TestSwarmGenericHarvester(unittest.TestCase):
-    def test_extract_pareto_frontier(self):
+class TestParetoFrontier(unittest.TestCase):
+    def test_default_maximization(self):
+        trials = [
+            {"id": "A", "score": 10.0, "fill_ratio": 5.0},
+            {"id": "B", "score": 8.0, "fill_ratio": 9.0},
+            {"id": "C", "score": 12.0, "fill_ratio": 4.0},
+            {"id": "D", "score": 7.0, "fill_ratio": 3.0},
+            {"id": "E", "score": 12.0, "fill_ratio": 8.0},
+        ]
+        frontier = extract_pareto_frontier(trials, metric_key="score", secondary_key="fill_ratio")
+        frontier_ids = [t["id"] for t in frontier]
+        self.assertEqual(frontier_ids, ["E", "B"])
+
+    def test_minimization_mode(self):
         trials = [
             {"id": "A", "score": 10.0, "fill_ratio": 5.0},
             {"id": "B", "score": 8.0, "fill_ratio": 6.0},
@@ -71,9 +83,49 @@ class TestSwarmGenericHarvester(unittest.TestCase):
             {"id": "D", "score": 8.0, "fill_ratio": 4.0},
             {"id": "E", "score": 7.0, "fill_ratio": 4.5},
         ]
-        frontier = extract_pareto_frontier(trials, metric_key="score", secondary_key="fill_ratio")
+        frontier = extract_pareto_frontier(
+            trials,
+            metric_key="score",
+            secondary_key="fill_ratio",
+            maximize=False,
+        )
         frontier_ids = [t["id"] for t in frontier]
         self.assertEqual(frontier_ids, ["E", "D"])
+
+    def test_co_optimal_candidate_retention(self):
+        trials = [
+            {"id": "A1", "score": 10.0, "fill_ratio": 5.0},
+            {"id": "A2", "score": 10.0, "fill_ratio": 5.0},
+            {"id": "B", "score": 8.0, "fill_ratio": 4.0},
+        ]
+        frontier = extract_pareto_frontier(trials)
+        frontier_ids = [t["id"] for t in frontier]
+        self.assertEqual(frontier_ids, ["A1", "A2"])
+
+        frontier_min = extract_pareto_frontier(trials, maximize=False)
+        frontier_min_ids = [t["id"] for t in frontier_min]
+        self.assertEqual(frontier_min_ids, ["B"])
+
+        co_min_trials = [
+            {"id": "M1", "score": 2.0, "fill_ratio": 1.0},
+            {"id": "M2", "score": 2.0, "fill_ratio": 1.0},
+            {"id": "M3", "score": 5.0, "fill_ratio": 3.0},
+        ]
+        frontier_co_min = extract_pareto_frontier(co_min_trials, maximize=False)
+        frontier_co_min_ids = [t["id"] for t in frontier_co_min]
+        self.assertEqual(frontier_co_min_ids, ["M1", "M2"])
+
+    def test_empty_and_single_item_inputs(self):
+        self.assertEqual(extract_pareto_frontier([]), [])
+
+        single = [{"id": "only", "score": 42.0, "fill_ratio": 0.9}]
+        self.assertEqual(extract_pareto_frontier(single), single)
+
+        single_min = [{"id": "only", "score": 42.0, "fill_ratio": 0.9}]
+        self.assertEqual(extract_pareto_frontier(single_min, maximize=False), single_min)
+
+
+TestSwarmGenericHarvester = TestParetoFrontier
 
 
 if __name__ == "__main__":
