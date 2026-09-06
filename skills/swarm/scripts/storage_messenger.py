@@ -256,6 +256,8 @@ class StorageMessenger:
                 if token:
                     self.client = _GcsRestClient(token)
                 else:
+                    if bool(os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN_TASK_INDEX")):
+                        raise RuntimeError("GCS credentials unavailable in Cloud Run environment; cannot use local fallback")
                     import tempfile
                     self.client = _LocalClient(Path(tempfile.gettempdir()) / "agystack_storage")
 

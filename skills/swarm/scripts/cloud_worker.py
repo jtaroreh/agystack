@@ -9,6 +9,7 @@ and outputs a structured report.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -520,15 +521,13 @@ def parse_porcelain_status(stdout: str) -> List[str]:
 
 
 def evaluate_agent_status(agent_text: str) -> Tuple[str, str]:
-    upper_text = agent_text.upper()
-    if (
-        "[STATUS: FAIL]" in upper_text
-        or "COMPLETION SUMMARY: FAIL" in upper_text
-        or "STATUS: FAIL" in upper_text
-        or "PASS" not in upper_text
-    ):
-        return "ISSUES", agent_text
-    return "PASS", agent_text
+    match = re.search(r"\[STATUS:\s*(PASS|ISSUES|BLOCKED|DEV_IMPROVED)\s*\]", agent_text, re.IGNORECASE)
+    if match:
+        st = match.group(1).upper()
+        if st == "DEV_IMPROVED":
+            return "PASS", agent_text
+        return st, agent_text
+    return "ISSUES", agent_text
 
 
 def execute_task(
@@ -629,7 +628,12 @@ def execute_task(
 
         try:
             config = LocalAgentConfig(**config_kwargs)
-        except TypeError:
+        except TypeError as exc:
+            print(
+                f"Warning: LocalAgentConfig initialization failed with TypeError ({exc}). "
+                "Dropping custom_tools and system_prompt for fallback compatibility.",
+                file=sys.stderr,
+            )
             config_kwargs.pop("custom_tools", None)
             config_kwargs.pop("system_prompt", None)
             config = LocalAgentConfig(**config_kwargs)
@@ -661,9 +665,7 @@ def main() -> None:
     repo_url = get_env_var("REPO_URL", required=True)
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     if not gh_token:
-        emit_milestone(task_index, "COMPLETE", "BLOCKED")
-        print("[STATUS: BLOCKED]\nEvidence: Missing GH_TOKEN\nSummary: Cannot authenticate git clone without GH_TOKEN.", flush=True)
-        sys.exit(1)
+        print("Warning: Missing GH_TOKEN. Proceeding with unauthenticated git operations.", file=sys.stderr)
 
     use_vertex = os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -723,6 +725,11 @@ def main() -> None:
 
     os.chdir(repo_dir)
     emit_milestone(task_index, "REPO_READY")
+
+    # Scrub credentials from environment before running bootstrap hooks or agent commands
+    for tok_var in ("GH_TOKEN", "GITHUB_TOKEN"):
+        if tok_var in os.environ:
+            del os.environ[tok_var]
 
     # Repository bootstrap hook: check for .agystack/setup.sh or .agents/scripts/bootstrap-worker.sh
     bootstrap_hooks = [
@@ -895,54 +902,39 @@ def main() -> None:
         diff_stat = "Commit skipped: No candidate files modified outside bootstrap scaffolding."
         print("Notice: No candidate modifications outside bootstrap files; skipping git commit and push.", file=sys.stderr)
 
-    if gcs_bucket:
+    final_status = agent_status
+    status_payload = {
+        "task_index": task_index,
+        "status": final_status,
+        "summary": agent_summary.strip(),
+        "score": score,
+        "candidate_files": candidate_files,
+        "session_id": session_id,
+    }
+    status_file = repo_dir / "status.json"
+    status_file.write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
+
+    effective_bucket = gcs_bucket or os.environ.get("GCS_BUCKET", "").strip()
+    if effective_bucket:
         try:
             sys.path.insert(0, str(Path(__file__).parent))
             import storage_uploader
 
             gcs_uris = storage_uploader.upload_run_artifacts(
-                bucket_name=gcs_bucket,
+                bucket_name=effective_bucket,
                 prefix=gcs_prefix,
                 repo_dir=repo_dir,
                 task_index=task_index,
             )
+            if gcs_uris:
+                emit_milestone(task_index, "ARTIFACTS_UPLOADED")
+                print("[MILESTONE] ARTIFACTS_UPLOADED", flush=True)
         except Exception as exc:
             print(f"Warning: GCS upload failed: {exc}", file=sys.stderr)
 
-    if changes_detected:
-        fork_repo_url = os.environ.get("FORK_REPO_URL", "").strip()
-        try:
-            emit_milestone(task_index, "PUSHING_CANDIDATE")
-            push_candidate_branch(
-                repo_dir=repo_dir,
-                repo_url=repo_url,
-                branch_name=branch_name,
-                gh_token=gh_token,
-                fork_repo_url=fork_repo_url,
-            )
-            changes_pushed = True
-        except subprocess.CalledProcessError as exc:
-            push_error = exc.stderr.replace(gh_token, "REDACTED") if gh_token in exc.stderr else exc.stderr
-            changes_pushed = False
+    # Zero-push container architecture: cloud workers never push candidate branches to git remote.
+    changes_pushed = False
 
-    has_gcs_results = bool(gcs_uris) or bool(gcs_bucket)
-    has_score_json = (repo_dir / "score.json").is_file()
-
-    if push_error:
-        if has_gcs_results or has_score_json:
-            print(
-                f"Notice: Git push failed ({push_error.strip()}), but result evidence was preserved via GCS/score.json.",
-                file=sys.stderr,
-            )
-        else:
-            emit_milestone(task_index, "COMPLETE", "ISSUES")
-            print(
-                f"[STATUS: ISSUES]\nEvidence: Git commit or push failed: {push_error.strip()}\nSummary: Agent completed execution but branch push failed.",
-                flush=True,
-            )
-            sys.exit(0)
-
-    final_status = agent_status
     emit_milestone(task_index, "COMPLETE", final_status)
     print("=" * 80)
     print(f"[STATUS: {final_status}]")
@@ -966,6 +958,12 @@ def main() -> None:
             pass
     if gcs_uris:
         print(f"- GCS Artifacts: {json.dumps(gcs_uris)}")
+    if "status.json" in gcs_uris:
+        print(f"- GCS Status: {gcs_uris['status.json']}")
+    if "patch.diff" in gcs_uris:
+        print(f"- GCS Patch: {gcs_uris['patch.diff']}")
+    if "score.json" in gcs_uris:
+        print(f"- GCS Score: {gcs_uris['score.json']}")
     if push_error:
         print(f"- Push Status: Rejected (non-fatal, results captured)\n- Push Error: {push_error.strip()}")
     print(f"- Diff Stat:\n{diff_stat}")

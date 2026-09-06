@@ -195,6 +195,17 @@ def upload_artifact(
 def _generate_git_patch(repo_dir: Path) -> str:
     if not (repo_dir / ".git").exists():
         return ""
+    try:
+        subprocess.run(
+            ["git", "add", "-N", "."],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        pass
     commands = [
         ["git", "diff", "HEAD~1", "HEAD"],
         ["git", "diff", "origin/main", "HEAD"],
@@ -230,6 +241,12 @@ def upload_run_artifacts(
     target_prefix = f"{clean_prefix}/{task_dir}" if clean_prefix else task_dir
 
     uploaded: Dict[str, str] = {}
+
+    status_path = repo / "status.json"
+    if status_path.is_file():
+        dest = f"{target_prefix}/status.json"
+        if upload_to_gcs(bucket_name, dest, status_path):
+            uploaded["status.json"] = f"gs://{bucket_name}/{dest}"
 
     score_path = repo / "score.json"
     if score_path.is_file():
