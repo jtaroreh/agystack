@@ -13,10 +13,14 @@ Configure model tiers in `~/.gemini/config/plugins/agystack/rules/agystack-model
 - `gh` (GitHub CLI) is required for PR automation and preflight checks.
 - `gt` (Graphite CLI) is recommended for stacked PRs.
 
-Verify installed dependencies by running `--doctor` via `setup_runtime.py`.
+Post-install, verify dependencies by running `--doctor` via the installed script path:
 
 ```bash
-python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
+# For global install
+python3 ~/.gemini/config/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+
+# For workspace install
+python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
 ```
 
 ## Steps

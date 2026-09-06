@@ -11,6 +11,7 @@ __pycache__/
 .pytest_cache/
 vendor_cache/
 vendor/
-agystack-runtime.json
+**/*agystack-runtime.json
 .slices/
+scratch/
 

@@ -37,146 +37,138 @@ def _parse_version(stdout):
     if match:
         patch = int(match.group(3)) if match.group(3) is not None else 0
         return match.group(0), int(match.group(1)), int(match.group(2)), patch
-    stripped = str(stdout).strip().splitlines()
-    if stripped:
-        return stripped[0], None, None, None
     return None
+
+
+DEPENDENCY_SPECS = (
+    {
+        "name": "bun",
+        "cmd": ["bun", "--version"],
+        "required": True,
+        "notes": "Mandatory runtime for orchestration and babysitting",
+        "missing_error": "bun is not installed or not found on PATH",
+        "min_major": 1,
+        "min_error": "Bun version 1.0+ required, found {version_str}",
+    },
+    {
+        "name": "gh",
+        "cmd": ["gh", "--version"],
+        "required": True,
+        "notes": "Required for PR automation and preflight checks",
+        "missing_error": "gh (GitHub CLI) is not installed or not found on PATH",
+    },
+    {
+        "name": "gt",
+        "cmd": ["gt", "--version"],
+        "required": False,
+        "notes": "Recommended for stacked PRs",
+        "missing_error": "gt (Graphite CLI) is not installed",
+    },
+    {
+        "name": "gcloud",
+        "cmd": ["gcloud", "--version"],
+        "required": False,
+        "notes": "Required for Cloud Run parallel worker runtime",
+        "missing_error": "gcloud is not installed",
+    },
+)
+
 
 def check_dependencies(run_cmd_fn=None):
     if run_cmd_fn is None:
         run_cmd_fn = run_cmd
 
     deps = {}
+    for spec in DEPENDENCY_SPECS:
+        name = spec["name"]
+        cmd = spec["cmd"]
+        required = spec.get("required", False)
+        notes = spec.get("notes", "")
+        missing_error = spec.get("missing_error", f"{name} is not installed")
 
-    # 1. bun (v1.0+ required)
-    try:
-        res_bun = run_cmd_fn(["bun", "--version"], check=False)
-    except Exception:
-        res_bun = None
+        try:
+            res = run_cmd_fn(cmd, check=False)
+        except FileNotFoundError:
+            deps[name] = {
+                "installed": False,
+                "version": None,
+                "ok": False,
+                "error": missing_error,
+                "notes": notes,
+                "required": required,
+            }
+            continue
+        except Exception as e:
+            deps[name] = {
+                "installed": False,
+                "version": None,
+                "ok": False,
+                "error": f"Failed to execute {name}: {e}",
+                "notes": notes,
+                "required": required,
+            }
+            continue
 
-    bun_code = getattr(res_bun, "returncode", 1)
-    bun_stdout = getattr(res_bun, "stdout", "") or ""
-    bun_parsed = _parse_version(bun_stdout) if bun_code == 0 else None
+        returncode = getattr(res, "returncode", 1)
+        stdout = getattr(res, "stdout", "") or ""
+        stderr = getattr(res, "stderr", "") or ""
+        if isinstance(stderr, str):
+            stderr = stderr.strip()
 
-    if bun_code == 0 and bun_parsed:
-        version_str, major, _, _ = bun_parsed
-        if major is not None and major >= 1:
-            deps["bun"] = {
-                "installed": True,
-                "version": version_str,
-                "ok": True,
-                "error": None,
-                "notes": "Mandatory runtime for orchestration and babysitting",
-                "required": True,
+        if returncode == 0:
+            parsed = _parse_version(stdout)
+            if parsed:
+                version_str, major, _, _ = parsed
+                min_major = spec.get("min_major")
+                if min_major is not None and major is not None and major < min_major:
+                    min_error_template = spec.get(
+                        "min_error",
+                        f"{name.capitalize()} version {min_major}.0+ required, found {{version_str}}"
+                    )
+                    deps[name] = {
+                        "installed": True,
+                        "version": version_str,
+                        "ok": False,
+                        "error": min_error_template.format(version_str=version_str),
+                        "notes": notes,
+                        "required": required,
+                    }
+                else:
+                    deps[name] = {
+                        "installed": True,
+                        "version": version_str,
+                        "ok": True,
+                        "error": None,
+                        "notes": notes,
+                        "required": required,
+                    }
+            else:
+                deps[name] = {
+                    "installed": True,
+                    "version": None,
+                    "ok": False,
+                    "error": f"Failed to parse {name} version from output",
+                    "notes": notes,
+                    "required": required,
+                }
+        elif returncode == 127:
+            deps[name] = {
+                "installed": False,
+                "version": None,
+                "ok": False,
+                "error": missing_error,
+                "notes": notes,
+                "required": required,
             }
         else:
-            deps["bun"] = {
-                "installed": True,
-                "version": version_str,
+            deps[name] = {
+                "installed": False,
+                "version": None,
                 "ok": False,
-                "error": f"Bun version 1.0+ required, found {version_str}",
-                "notes": "Mandatory runtime for orchestration and babysitting (v1.0+ required)",
-                "required": True,
+                "error": stderr if stderr else missing_error,
+                "notes": notes,
+                "required": required,
             }
-    else:
-        deps["bun"] = {
-            "installed": False,
-            "version": None,
-            "ok": False,
-            "error": "bun is not installed or not found on PATH",
-            "notes": "Mandatory runtime for orchestration and babysitting (v1.0+ required)",
-            "required": True,
-        }
-
-    # 2. gh (GitHub CLI required)
-    try:
-        res_gh = run_cmd_fn(["gh", "--version"], check=False)
-    except Exception:
-        res_gh = None
-
-    gh_code = getattr(res_gh, "returncode", 1)
-    gh_stdout = getattr(res_gh, "stdout", "") or ""
-    gh_parsed = _parse_version(gh_stdout) if gh_code == 0 else None
-
-    if gh_code == 0 and gh_parsed:
-        version_str = gh_parsed[0]
-        deps["gh"] = {
-            "installed": True,
-            "version": version_str,
-            "ok": True,
-            "error": None,
-            "notes": "Required for PR automation and preflight checks",
-            "required": True,
-        }
-    else:
-        deps["gh"] = {
-            "installed": False,
-            "version": None,
-            "ok": False,
-            "error": "gh (GitHub CLI) is not installed or not found on PATH",
-            "notes": "Required for PR automation and preflight checks",
-            "required": True,
-        }
-
-    # 3. gt (Graphite CLI recommended)
-    try:
-        res_gt = run_cmd_fn(["gt", "--version"], check=False)
-    except Exception:
-        res_gt = None
-
-    gt_code = getattr(res_gt, "returncode", 1)
-    gt_stdout = getattr(res_gt, "stdout", "") or ""
-    gt_parsed = _parse_version(gt_stdout) if gt_code == 0 else None
-
-    if gt_code == 0 and gt_parsed:
-        version_str = gt_parsed[0]
-        deps["gt"] = {
-            "installed": True,
-            "version": version_str,
-            "ok": True,
-            "error": None,
-            "notes": "Recommended for stacked PRs",
-            "required": False,
-        }
-    else:
-        deps["gt"] = {
-            "installed": False,
-            "version": None,
-            "ok": False,
-            "error": "gt (Graphite CLI) is not installed",
-            "notes": "Recommended for stacked PRs",
-            "required": False,
-        }
-
-    # 4. gcloud (Google Cloud SDK optional)
-    try:
-        res_gcloud = run_cmd_fn(["gcloud", "--version"], check=False)
-    except Exception:
-        res_gcloud = None
-
-    gcloud_code = getattr(res_gcloud, "returncode", 1)
-    gcloud_stdout = getattr(res_gcloud, "stdout", "") or ""
-    gcloud_parsed = _parse_version(gcloud_stdout) if gcloud_code == 0 else None
-
-    if gcloud_code == 0 and gcloud_parsed:
-        version_str = gcloud_parsed[0]
-        deps["gcloud"] = {
-            "installed": True,
-            "version": version_str,
-            "ok": True,
-            "error": None,
-            "notes": "Required for Cloud Run parallel worker runtime",
-            "required": False,
-        }
-    else:
-        deps["gcloud"] = {
-            "installed": False,
-            "version": None,
-            "ok": False,
-            "error": "gcloud is not installed",
-            "notes": "Required for Cloud Run parallel worker runtime",
-            "required": False,
-        }
 
     return deps
 
@@ -301,7 +293,9 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
         "--tasks=1",
         "--task-timeout=30m",
         "--memory=2Gi",
-        "--cpu=2"
+        "--cpu=2",
+        "--parallelism=100",
+        "--max-retries=0",
     ]
     if service_account:
         cmd.append(f"--service-account={service_account}")
@@ -324,9 +318,7 @@ def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="ver
         config["service_account"] = service_account
     
     paths = target_paths or [
-        Path("agystack-runtime.json"),
-        Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "agystack-runtime.json",
-        Path.cwd() / ".agents" / "plugins" / "agystack" / "agystack-runtime.json"
+        Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "agystack-runtime.json"
     ]
     
     for p in paths:
@@ -400,9 +392,8 @@ def main():
     if args.doctor:
         deps = check_dependencies()
         print(json.dumps(deps, indent=2))
-        bun_ok = deps.get("bun", {}).get("ok", False)
-        gh_ok = deps.get("gh", {}).get("ok", False)
-        sys.exit(0 if (bun_ok and gh_ok) else 1)
+        all_required_ok = all(dep.get("ok", False) for dep in deps.values() if dep.get("required"))
+        sys.exit(0 if all_required_ok else 1)
 
     if args.check:
         status = check_gcloud()
