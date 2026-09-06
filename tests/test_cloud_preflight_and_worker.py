@@ -9,6 +9,8 @@ import sys
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "setup-agystack" / "scripts"))
+import setup_runtime
 from cloud_worker import (
     clean_repo_url,
     clone_and_checkout_task,
@@ -630,6 +632,229 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
             auth_mode="api_key",
         )
         self.assertIn("GEMINI_API_KEY=AIzaSySuperSecretKey", " ".join(cmd_studio))
+
+
+class TestSetupRuntimeProvisioner(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir_obj = tempfile.TemporaryDirectory()
+        self.temp_dir = Path(self.temp_dir_obj.name)
+
+    def tearDown(self):
+        self.temp_dir_obj.cleanup()
+
+    @patch("setup_runtime.run_cmd")
+    def test_enable_apis_includes_storage(self, mock_run_cmd):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        setup_runtime.enable_apis("my-project-123")
+        mock_run_cmd.assert_called_once()
+        cmd = mock_run_cmd.call_args[0][0]
+        self.assertEqual(cmd[0:3], ["gcloud", "services", "enable"])
+        self.assertIn("storage.googleapis.com", cmd)
+        self.assertIn("run.googleapis.com", cmd)
+        self.assertIn("artifactregistry.googleapis.com", cmd)
+        self.assertIn("cloudbuild.googleapis.com", cmd)
+        self.assertIn("aiplatform.googleapis.com", cmd)
+        self.assertIn("--project=my-project-123", cmd)
+
+    @patch("setup_runtime.run_cmd")
+    def test_ensure_gcs_bucket_creates_if_not_exists(self, mock_run_cmd):
+        describe_res = MagicMock(returncode=1, stdout="", stderr="Bucket not found")
+        create_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [describe_res, create_res]
+
+        bucket_name = setup_runtime.ensure_gcs_bucket("my-new-bucket", "my-project-123", "us-central1")
+        self.assertEqual(bucket_name, "my-new-bucket")
+        self.assertEqual(mock_run_cmd.call_count, 2)
+        describe_cmd = mock_run_cmd.call_args_list[0][0][0]
+        self.assertEqual(describe_cmd, ["gcloud", "storage", "buckets", "describe", "gs://my-new-bucket"])
+        create_cmd = mock_run_cmd.call_args_list[1][0][0]
+        self.assertEqual(
+            create_cmd,
+            ["gcloud", "storage", "buckets", "create", "gs://my-new-bucket", "--project=my-project-123", "--location=us-central1"]
+        )
+
+    @patch("setup_runtime.run_cmd")
+    def test_ensure_gcs_bucket_skips_if_exists(self, mock_run_cmd):
+        describe_res = MagicMock(returncode=0, stdout="{}", stderr="")
+        mock_run_cmd.return_value = describe_res
+
+        bucket_name = setup_runtime.ensure_gcs_bucket("gs://my-existing-bucket", "my-project-123", "us-central1")
+        self.assertEqual(bucket_name, "my-existing-bucket")
+        self.assertEqual(mock_run_cmd.call_count, 1)
+        describe_cmd = mock_run_cmd.call_args[0][0]
+        self.assertEqual(describe_cmd, ["gcloud", "storage", "buckets", "describe", "gs://my-existing-bucket"])
+
+    @patch("setup_runtime.run_cmd")
+    def test_configure_iam_permissions_default_compute_sa(self, mock_run_cmd):
+        project_desc_res = MagicMock(returncode=0, stdout="9876543210\n", stderr="")
+        bind_aiplatform_res = MagicMock(returncode=0, stdout="", stderr="")
+        bind_storage_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [project_desc_res, bind_aiplatform_res, bind_storage_res]
+
+        sa = setup_runtime.configure_iam_permissions("my-project-123")
+        self.assertEqual(sa, "9876543210-compute@developer.gserviceaccount.com")
+        self.assertEqual(mock_run_cmd.call_count, 3)
+
+        desc_cmd = mock_run_cmd.call_args_list[0][0][0]
+        self.assertEqual(desc_cmd, ["gcloud", "projects", "describe", "my-project-123", "--format=value(projectNumber)"])
+
+        bind1 = mock_run_cmd.call_args_list[1][0][0]
+        self.assertEqual(
+            bind1,
+            [
+                "gcloud", "projects", "add-iam-policy-binding", "my-project-123",
+                "--member=serviceAccount:9876543210-compute@developer.gserviceaccount.com",
+                "--role=roles/aiplatform.user"
+            ]
+        )
+
+        bind2 = mock_run_cmd.call_args_list[2][0][0]
+        self.assertEqual(
+            bind2,
+            [
+                "gcloud", "projects", "add-iam-policy-binding", "my-project-123",
+                "--member=serviceAccount:9876543210-compute@developer.gserviceaccount.com",
+                "--role=roles/storage.objectAdmin"
+            ]
+        )
+
+    @patch("setup_runtime.run_cmd")
+    def test_configure_iam_permissions_custom_sa(self, mock_run_cmd):
+        bind_aiplatform_res = MagicMock(returncode=0, stdout="", stderr="")
+        bind_storage_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [bind_aiplatform_res, bind_storage_res]
+
+        sa = setup_runtime.configure_iam_permissions("my-project-123", "custom-runner@my-project-123.iam.gserviceaccount.com")
+        self.assertEqual(sa, "custom-runner@my-project-123.iam.gserviceaccount.com")
+        self.assertEqual(mock_run_cmd.call_count, 2)
+
+        bind1 = mock_run_cmd.call_args_list[0][0][0]
+        self.assertEqual(
+            bind1,
+            [
+                "gcloud", "projects", "add-iam-policy-binding", "my-project-123",
+                "--member=serviceAccount:custom-runner@my-project-123.iam.gserviceaccount.com",
+                "--role=roles/aiplatform.user"
+            ]
+        )
+
+        bind2 = mock_run_cmd.call_args_list[1][0][0]
+        self.assertEqual(
+            bind2,
+            [
+                "gcloud", "projects", "add-iam-policy-binding", "my-project-123",
+                "--member=serviceAccount:custom-runner@my-project-123.iam.gserviceaccount.com",
+                "--role=roles/storage.objectAdmin"
+            ]
+        )
+
+    @patch("setup_runtime.run_cmd")
+    def test_build_and_deploy_worker_creates_job_with_memory_and_cpu(self, mock_run_cmd):
+        repo_desc_res = MagicMock(returncode=0, stdout="", stderr="")
+        build_res = MagicMock(returncode=0, stdout="", stderr="")
+        job_desc_res = MagicMock(returncode=1, stdout="", stderr="Job not found")
+        job_create_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [repo_desc_res, build_res, job_desc_res, job_create_res]
+
+        setup_runtime.build_and_deploy_worker(
+            project_id="my-project-123",
+            region="us-central1",
+            image_tag="us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest",
+            scripts_dir="skills/swarm/scripts",
+        )
+
+        job_cmd = mock_run_cmd.call_args_list[-1][0][0]
+        self.assertEqual(job_cmd[0:4], ["gcloud", "run", "jobs", "create"])
+        self.assertIn("--memory=2Gi", job_cmd)
+        self.assertIn("--cpu=2", job_cmd)
+        self.assertIn("--image=us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest", job_cmd)
+        self.assertIn("--region=us-central1", job_cmd)
+        self.assertIn("--project=my-project-123", job_cmd)
+
+    @patch("setup_runtime.run_cmd")
+    def test_build_and_deploy_worker_updates_job_with_memory_and_cpu(self, mock_run_cmd):
+        repo_desc_res = MagicMock(returncode=0, stdout="", stderr="")
+        build_res = MagicMock(returncode=0, stdout="", stderr="")
+        job_desc_res = MagicMock(returncode=0, stdout="{}", stderr="")
+        job_update_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [repo_desc_res, build_res, job_desc_res, job_update_res]
+
+        setup_runtime.build_and_deploy_worker(
+            project_id="my-project-123",
+            region="us-central1",
+            image_tag="us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest",
+            scripts_dir="skills/swarm/scripts",
+        )
+
+        job_cmd = mock_run_cmd.call_args_list[-1][0][0]
+        self.assertEqual(job_cmd[0:4], ["gcloud", "run", "jobs", "update"])
+        self.assertIn("--memory=2Gi", job_cmd)
+        self.assertIn("--cpu=2", job_cmd)
+
+    def test_write_runtime_config_persists_gcs_bucket(self):
+        target_file = self.temp_dir / "agystack-runtime.json"
+        config = setup_runtime.write_runtime_config(
+            project_id="test-proj",
+            region="us-central1",
+            job_name="agystack-swarm-worker",
+            image_tag="us-central1-docker.pkg.dev/test-proj/agystack/worker:latest",
+            auth_mode="vertex",
+            gcs_bucket="test-proj-swarm-results",
+            target_paths=[target_file],
+        )
+
+        self.assertEqual(config["gcs_bucket"], "test-proj-swarm-results")
+        self.assertEqual(config["auth_mode"], "vertex")
+        self.assertEqual(config["runtime"], "cloud-run")
+
+        loaded = json.loads(target_file.read_text(encoding="utf-8"))
+        self.assertEqual(loaded["gcs_bucket"], "test-proj-swarm-results")
+        self.assertEqual(loaded["job_name"], "agystack-swarm-worker")
+        self.assertEqual(loaded["parallelism"], 100)
+
+    @patch("setup_runtime.write_runtime_config")
+    @patch("setup_runtime.run_cmd")
+    def test_run_provisioning_full_flow(self, mock_run_cmd, mock_write_cfg):
+        mock_run_cmd.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),  # enable_apis
+            MagicMock(returncode=1, stdout="", stderr=""),  # bucket describe
+            MagicMock(returncode=0, stdout="", stderr=""),  # bucket create
+            MagicMock(returncode=0, stdout="", stderr=""),  # role binding aiplatform
+            MagicMock(returncode=0, stdout="", stderr=""),  # role binding storage
+            MagicMock(returncode=0, stdout="", stderr=""),  # repo describe
+            MagicMock(returncode=0, stdout="", stderr=""),  # builds submit
+            MagicMock(returncode=1, stdout="", stderr=""),  # job describe (1 => create)
+            MagicMock(returncode=0, stdout="", stderr=""),  # job create
+        ]
+
+        setup_runtime.run_provisioning(
+            project_id="test-proj-full",
+            region="us-central1",
+            scripts_dir="skills/swarm/scripts",
+            bucket_name="custom-bucket",
+            service_account="custom-sa@developer.gserviceaccount.com",
+        )
+
+        all_cmds = [call[0][0] for call in mock_run_cmd.call_args_list]
+
+        api_cmd = next(cmd for cmd in all_cmds if cmd[0:3] == ["gcloud", "services", "enable"])
+        self.assertIn("storage.googleapis.com", api_cmd)
+
+        bucket_create_cmd = next(cmd for cmd in all_cmds if len(cmd) > 3 and cmd[0:4] == ["gcloud", "storage", "buckets", "create"])
+        self.assertIn("gs://custom-bucket", bucket_create_cmd)
+        self.assertIn("--project=test-proj-full", bucket_create_cmd)
+
+        iam_cmds = [cmd for cmd in all_cmds if len(cmd) > 3 and cmd[0:3] == ["gcloud", "projects", "add-iam-policy-binding"]]
+        self.assertEqual(len(iam_cmds), 2)
+        roles_bound = {next(arg.split("=")[1] for arg in cmd if arg.startswith("--role=")) for cmd in iam_cmds}
+        self.assertEqual(roles_bound, {"roles/aiplatform.user", "roles/storage.objectAdmin"})
+
+        job_create_cmd = next(cmd for cmd in all_cmds if len(cmd) > 3 and cmd[0:4] == ["gcloud", "run", "jobs", "create"])
+        self.assertIn("--memory=2Gi", job_create_cmd)
+        self.assertIn("--cpu=2", job_create_cmd)
+
+        mock_write_cfg.assert_called_once()
+        self.assertEqual(mock_write_cfg.call_args[1].get("gcs_bucket"), "custom-bucket")
 
 
 if __name__ == "__main__":

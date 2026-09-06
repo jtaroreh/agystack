@@ -59,7 +59,7 @@ Saved at `~/.gemini/config/plugins/agystack/agystack-runtime.json` or `.agents/p
   "project_id": "my-gcp-project",
   "region": "us-central1",
   "job_name": "agystack-swarm-worker",
-  "image_uri": "us-central1-docker.pkg.dev/my-gcp-project/agystack/cloud-worker:latest",
+  "image": "us-central1-docker.pkg.dev/my-gcp-project/agystack/cloud-worker:latest",
   "parallelism": 100,
   "model": "gemini-2.5-flash"
 }

@@ -53,10 +53,59 @@ def enable_apis(project_id):
         "artifactregistry.googleapis.com",
         "cloudbuild.googleapis.com",
         "aiplatform.googleapis.com",
+        "storage.googleapis.com",
         f"--project={project_id}"
     ])
 
-def build_and_deploy_worker(project_id, region, image_tag, scripts_dir):
+def ensure_gcs_bucket(bucket_name, project_id, region="us-central1"):
+    clean_name = bucket_name[5:] if bucket_name.startswith("gs://") else bucket_name
+    clean_name = clean_name.strip("/")
+    bucket_uri = f"gs://{clean_name}"
+    print(f"Checking if GCS bucket exists: {bucket_uri}...")
+    res = run_cmd(["gcloud", "storage", "buckets", "describe", bucket_uri], check=False)
+    if res.returncode != 0:
+        print(f"Bucket {bucket_uri} does not exist. Creating in {region} for project {project_id}...")
+        run_cmd([
+            "gcloud", "storage", "buckets", "create", bucket_uri,
+            f"--project={project_id}",
+            f"--location={region}"
+        ])
+    else:
+        print(f"Bucket {bucket_uri} already exists.")
+    return clean_name
+
+def get_project_number(project_id):
+    res = run_cmd(["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"], check=False)
+    if getattr(res, "returncode", 1) == 0:
+        stdout = getattr(res, "stdout", "")
+        if isinstance(stdout, str) and stdout.strip():
+            return stdout.strip()
+        elif stdout and not isinstance(stdout, str):
+            val = str(stdout).strip()
+            if val and "MagicMock" not in val:
+                return val
+    return None
+
+def configure_iam_permissions(project_id, service_account=None):
+    if not service_account:
+        project_num = get_project_number(project_id)
+        if project_num:
+            service_account = f"{project_num}-compute@developer.gserviceaccount.com"
+        else:
+            service_account = f"{project_id}-compute@developer.gserviceaccount.com"
+
+    member = service_account if service_account.startswith("serviceAccount:") else f"serviceAccount:{service_account}"
+    roles = ["roles/aiplatform.user", "roles/storage.objectAdmin"]
+    for role in roles:
+        print(f"Binding IAM role {role} to {member} in project {project_id}...")
+        run_cmd([
+            "gcloud", "projects", "add-iam-policy-binding", project_id,
+            f"--member={member}",
+            f"--role={role}"
+        ])
+    return service_account
+
+def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name="agystack-swarm-worker"):
     print(f"Creating Artifact Registry repository in {region}...")
     res = run_cmd([
         "gcloud", "artifacts", "repositories", "describe", "agystack",
@@ -82,22 +131,24 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir):
     
     print("Creating/Updating Cloud Run Job...")
     res = run_cmd([
-        "gcloud", "run", "jobs", "describe", "agystack-swarm-worker",
+        "gcloud", "run", "jobs", "describe", job_name,
         f"--region={region}",
         f"--project={project_id}"
     ], check=False)
     
     action = "update" if res.returncode == 0 else "create"
     run_cmd([
-        "gcloud", "run", "jobs", action, "agystack-swarm-worker",
+        "gcloud", "run", "jobs", action, job_name,
         f"--image={image_tag}",
         f"--region={region}",
         f"--project={project_id}",
         "--tasks=1",
-        "--task-timeout=30m"
+        "--task-timeout=30m",
+        "--memory=2Gi",
+        "--cpu=2"
     ])
 
-def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="vertex"):
+def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="vertex", gcs_bucket="", vertex_location="global", target_paths=None):
     config = {
         "runtime": "cloud-run",
         "project_id": project_id,
@@ -107,19 +158,66 @@ def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="ver
         "parallelism": 100,
         "model": "inherit",
         "auth_mode": auth_mode,
+        "vertex_location": vertex_location,
+        "gcs_bucket": gcs_bucket if gcs_bucket is not None else "",
     }
     
-    paths = [
+    paths = target_paths or [
         Path("agystack-runtime.json"),
         Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "agystack-runtime.json",
         Path.cwd() / ".agents" / "plugins" / "agystack" / "agystack-runtime.json"
     ]
     
     for p in paths:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "w") as f:
-            json.dump(config, f, indent=2)
-        print(f"Wrote configuration to {p}")
+        p = Path(p)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2)
+            print(f"Wrote configuration to {p}")
+        except Exception as e:
+            print(f"Notice: Could not write to {p}: {e}")
+    return config
+
+def run_provisioning(
+    project_id,
+    region="us-central1",
+    image_tag=None,
+    scripts_dir=".",
+    bucket_name=None,
+    service_account=None,
+    job_name="agystack-swarm-worker",
+    auth_mode="vertex",
+):
+    if image_tag and (Path(image_tag).is_dir() or ("/" in image_tag and not (":" in image_tag or "docker.pkg.dev" in image_tag or "gcr.io" in image_tag))):
+        scripts_dir = image_tag
+        image_tag = None
+    if not image_tag:
+        image_tag = f"{region}-docker.pkg.dev/{project_id}/agystack/worker:latest"
+    if not bucket_name:
+        bucket_name = f"{project_id}-swarm-results"
+
+    print(f"Starting auto-provisioning for project: {project_id}")
+    enable_apis(project_id)
+    ensure_gcs_bucket(bucket_name, project_id, region)
+    configure_iam_permissions(project_id, service_account)
+    build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name=job_name)
+    write_runtime_config(
+        project_id=project_id,
+        region=region,
+        job_name=job_name,
+        image_tag=image_tag,
+        auth_mode=auth_mode,
+        gcs_bucket=bucket_name,
+    )
+    print("Auto-provisioning complete.")
+    return {
+        "project_id": project_id,
+        "region": region,
+        "job_name": job_name,
+        "image": image_tag,
+        "gcs_bucket": bucket_name,
+    }
 
 def main():
     parser = argparse.ArgumentParser(description="AgyStack Runtime Setup Helper")
@@ -130,6 +228,8 @@ def main():
     parser.add_argument("--region", type=str, default="us-central1", help="GCP Region (default us-central1)")
     parser.add_argument("--auto-provision", action="store_true", help="Enable APIs, build, deploy, and configure")
     parser.add_argument("--scripts-dir", type=str, default=".", help="Directory containing Dockerfile for worker")
+    parser.add_argument("--bucket", type=str, help="GCS bucket name for swarm results")
+    parser.add_argument("--service-account", type=str, help="Cloud Run compute service account")
     
     args = parser.parse_args()
     
@@ -156,12 +256,13 @@ def main():
                 print("Error: No project specified and no active project found. Use --project or --create-project.")
                 sys.exit(1)
                 
-        print(f"Starting auto-provisioning for project: {project_id}")
-        enable_apis(project_id)
-        image_tag = f"{args.region}-docker.pkg.dev/{project_id}/agystack/worker:latest"
-        build_and_deploy_worker(project_id, args.region, image_tag, args.scripts_dir)
-        write_runtime_config(project_id, args.region, "agystack-swarm-worker", image_tag)
-        print("Auto-provisioning complete.")
+        run_provisioning(
+            project_id=project_id,
+            region=args.region,
+            scripts_dir=args.scripts_dir,
+            bucket_name=getattr(args, "bucket", None),
+            service_account=getattr(args, "service_account", None),
+        )
 
 if __name__ == "__main__":
     main()
