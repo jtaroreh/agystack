@@ -21,6 +21,7 @@ from cloud_worker import (
     is_candidate_file,
     parse_task_manifest,
     resolve_worker_branch,
+    resolve_worker_model,
 )
 from cloud_dispatch import (
     build_gcloud_command,
@@ -368,7 +369,7 @@ class TestTaskExecutionAndValidation(unittest.TestCase):
             "google": MagicMock(),
             "google.antigravity": mock_ag,
         }
-        with patch.dict(sys.modules, modules_patch):
+        with patch.dict(sys.modules, modules_patch), patch("cloud_worker.emit_milestone") as mock_milestone:
             status, output = execute_task(
                 task_item={"type": "agent"},
                 task_brief="Implement PR-5 with fallback",
@@ -381,6 +382,8 @@ class TestTaskExecutionAndValidation(unittest.TestCase):
             fallback_kwargs = mock_ag.LocalAgentConfig.call_args[1]
             self.assertNotIn("system_prompt", fallback_kwargs)
             self.assertNotIn("custom_tools", fallback_kwargs)
+            milestone_phases = [call.args[1] for call in mock_milestone.call_args_list]
+            self.assertIn("AGENT_FALLBACK", milestone_phases)
 
 
 class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
@@ -494,7 +497,28 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
         self.assertEqual(resolve_swarm_model(cli_model="pro"), "gemini-3.1-pro")
         self.assertEqual(resolve_swarm_model(cli_model="flash"), "gemini-3.8-flash")
         self.assertEqual(resolve_swarm_model(cli_model="flash_lite"), "gemini-3.1-flash-lite")
+        self.assertEqual(resolve_swarm_model(cli_model="flash-lite"), "gemini-3.1-flash-lite")
         self.assertEqual(resolve_swarm_model(cli_model="inherit"), "gemini-3.8-flash")
+        self.assertEqual(resolve_swarm_model(cli_model="auto"), "gemini-3.8-flash")
+        self.assertEqual(resolve_swarm_model(cli_model="inherit-parent"), "gemini-3.8-flash")
+        self.assertEqual(resolve_swarm_model(cli_model="inherit_parent"), "gemini-3.8-flash")
+
+    def test_resolve_swarm_model_parent_model_inheritance(self):
+        # Explicit parent_model argument
+        self.assertEqual(
+            resolve_swarm_model(cli_model="inherit", parent_model="gemini-3.7-flash"),
+            "gemini-3.7-flash",
+        )
+        self.assertEqual(
+            resolve_swarm_model(cli_model="auto", parent_model="gemini-3.1-pro"),
+            "gemini-3.1-pro",
+        )
+        # Inherited from ANTIGRAVITY_MODEL env var
+        with patch.dict(os.environ, {"ANTIGRAVITY_MODEL": "claude-3-7-sonnet"}):
+            self.assertEqual(resolve_swarm_model(cli_model="inherit"), "claude-3-7-sonnet")
+        # Inherited from GEMINI_MODEL env var
+        with patch.dict(os.environ, {"GEMINI_MODEL": "gemini-2.5-flash"}):
+            self.assertEqual(resolve_swarm_model(cli_model="inherit"), "gemini-2.5-flash")
 
     def test_resolve_swarm_model_runtime_config_and_agystack_models(self):
         # Explicit model in runtime config
@@ -509,6 +533,35 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
             self.assertEqual(resolved, "gemini-3.1-pro")
         finally:
             f_path.unlink(missing_ok=True)
+
+    def test_worker_resolve_model_per_task_and_alias(self):
+        # 1. Per-task override in task_item takes highest precedence
+        task_with_model = {"type": "agent", "model": "gemini-3.1-pro"}
+        self.assertEqual(
+            resolve_worker_model(raw_model="gemini-2.5-flash", task_item=task_with_model),
+            "gemini-3.1-pro",
+        )
+
+        # 2. Per-task alias resolution
+        task_with_alias = {"type": "agent", "model": "flash_lite"}
+        self.assertEqual(
+            resolve_worker_model(raw_model="", task_item=task_with_alias),
+            "gemini-3.1-flash-lite",
+        )
+
+        # 3. Raw model alias resolution
+        self.assertEqual(resolve_worker_model(raw_model="pro"), "gemini-3.1-pro")
+        self.assertEqual(resolve_worker_model(raw_model="flash"), "gemini-3.8-flash")
+        self.assertEqual(resolve_worker_model(raw_model="auto"), "gemini-3.8-flash")
+        self.assertEqual(resolve_worker_model(raw_model="inherit-parent"), "gemini-3.8-flash")
+
+        # 4. Custom model slug passthrough
+        self.assertEqual(resolve_worker_model(raw_model="gemini-2.5-flash"), "gemini-2.5-flash")
+
+        # 5. Default model from env var
+        with patch.dict(os.environ, {"DEFAULT_SWARM_MODEL": "gemini-2.5-flash"}):
+            self.assertEqual(resolve_worker_model(raw_model="auto"), "gemini-2.5-flash")
+            self.assertEqual(resolve_worker_model(raw_model=""), "gemini-2.5-flash")
 
 
 class TestSecureSwarmAndManifestStaging(unittest.TestCase):

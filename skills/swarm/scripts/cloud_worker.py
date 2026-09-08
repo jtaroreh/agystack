@@ -491,6 +491,52 @@ def evaluate_agent_status(agent_text: str) -> Tuple[str, str]:
     return "ISSUES", agent_text
 
 
+def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None) -> str:
+    """
+    Resolves the worker model for a task, respecting per-task overrides in task_item,
+    explicit raw_model / MODEL_OVERRIDE, and resolving tier aliases ('auto', 'inherit',
+    'inherit-parent', 'flash', 'flash_lite', 'flash-lite', 'pro').
+    """
+    candidate = ""
+    if (
+        isinstance(task_item, dict)
+        and task_item.get("model")
+        and isinstance(task_item["model"], str)
+        and task_item["model"].strip()
+    ):
+        candidate = task_item["model"].strip()
+    elif raw_model and raw_model.strip():
+        candidate = raw_model.strip()
+    else:
+        candidate = os.environ.get("MODEL_OVERRIDE", "").strip()
+
+    default_model = (
+        os.environ.get("DEFAULT_SWARM_MODEL", "").strip()
+        or os.environ.get("DEFAULT_MODEL", "").strip()
+        or "gemini-3.8-flash"
+    )
+
+    alias_map = {
+        "flash": "gemini-3.8-flash",
+        "pro": "gemini-3.1-pro",
+        "flash_lite": "gemini-3.1-flash-lite",
+        "flash-lite": "gemini-3.1-flash-lite",
+        "auto": default_model,
+        "inherit": default_model,
+        "inherit-parent": default_model,
+        "inherit_parent": default_model,
+        "": default_model,
+    }
+
+    norm = candidate.lower()
+    if norm in alias_map:
+        return alias_map[norm]
+    norm_hyphen = norm.replace("_", "-")
+    if norm_hyphen in alias_map:
+        return alias_map[norm_hyphen]
+    return candidate
+
+
 def execute_task(
     task_item: Any,
     task_brief: str,
@@ -532,7 +578,8 @@ def execute_task(
             return "ISSUES", err_msg
 
     # General Agent Execution using Google Antigravity SDK
-    emit_milestone(task_index, "RUNNING_AGENT", "Antigravity SDK agent")
+    resolved_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
+    emit_milestone(task_index, "RUNNING_AGENT", f"Antigravity SDK agent ({resolved_model})")
     try:
         import asyncio
         import google.antigravity as antigravity
@@ -543,7 +590,6 @@ def execute_task(
             allow_shell_commands=True,
             allow_subagents=False,
         )
-        resolved_model = model_override.strip() if model_override.strip() else "gemini-3.8-flash"
         policies = [policy.allow_all()]
 
         custom_tools = []
@@ -590,6 +636,7 @@ def execute_task(
         try:
             config = LocalAgentConfig(**config_kwargs)
         except TypeError as exc:
+            emit_milestone(task_index, "AGENT_FALLBACK", f"Dropped optional capabilities: {exc}")
             print(
                 f"Warning: LocalAgentConfig initialization failed with TypeError ({exc}). "
                 "Dropping custom_tools and system_prompt for fallback compatibility.",

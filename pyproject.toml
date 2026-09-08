@@ -26,3 +26,7 @@ test = [
     "pytest-timeout>=2.2.0",
     "ruff>=0.4.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["skills"]
+

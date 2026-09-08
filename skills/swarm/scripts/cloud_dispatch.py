@@ -835,10 +835,24 @@ def resolve_swarm_model(
     cli_model: Optional[str] = None,
     runtime_model: Optional[str] = None,
     agystack_models_path: Optional[Path] = None,
+    parent_model: Optional[str] = None,
 ) -> str:
+    parent = (
+        (parent_model and parent_model.strip())
+        or os.environ.get("ANTIGRAVITY_MODEL", "").strip()
+        or os.environ.get("ACTIVE_PARENT_MODEL", "").strip()
+        or os.environ.get("GEMINI_MODEL", "").strip()
+        or None
+    )
+
     if cli_model and cli_model.strip():
         chosen = cli_model.strip()
-    elif runtime_model and runtime_model.strip() and runtime_model.strip().lower() != "inherit":
+    elif runtime_model and runtime_model.strip() and runtime_model.strip().lower() not in (
+        "inherit",
+        "auto",
+        "inherit-parent",
+        "inherit_parent",
+    ):
         chosen = runtime_model.strip()
     else:
         role_model = None
@@ -865,15 +879,25 @@ def resolve_swarm_model(
                         break
                 except Exception:
                     pass
-        chosen = role_model or "inherit"
+        chosen = role_model or (runtime_model.strip() if runtime_model and runtime_model.strip() else "inherit")
 
+    default_model = parent or "gemini-3.8-flash"
     tier_map = {
-        "inherit": "gemini-3.8-flash",
         "flash": "gemini-3.8-flash",
         "pro": "gemini-3.1-pro",
         "flash_lite": "gemini-3.1-flash-lite",
+        "flash-lite": "gemini-3.1-flash-lite",
+        "inherit": default_model,
+        "auto": default_model,
+        "inherit-parent": default_model,
+        "inherit_parent": default_model,
     }
-    return tier_map.get(chosen.lower(), chosen)
+    norm_chosen = chosen.lower().replace("_", "-")
+    if chosen.lower() in tier_map:
+        return tier_map[chosen.lower()]
+    if norm_chosen in tier_map:
+        return tier_map[norm_chosen]
+    return chosen
 
 
 def handle_mailbox_list(
@@ -1039,6 +1063,7 @@ def main() -> None:
     parser.add_argument("--region", type=str, help="GCP region (e.g. us-central1).")
     parser.add_argument("--project", type=str, help="GCP project ID.")
     parser.add_argument("--model", type=str, help="Model override for workers (default: inherit).")
+    parser.add_argument("--parent-model", type=str, default=None, help="Parent session model to inherit in swarm workers.")
     parser.add_argument("--vertex", action="store_true", help="Enable Vertex AI mode.")
     parser.add_argument("--vertex-location", type=str, default=None, help="Vertex AI location (e.g. global or us-central1).")
     parser.add_argument("--preflight", action="store_true", help="Run pre-flight quota, auth, and git connectivity checks.")
@@ -1099,7 +1124,11 @@ def main() -> None:
     project = args.project or runtime_cfg.get("project_id")
     parallelism = args.parallelism if args.parallelism is not None else runtime_cfg.get("parallelism", 16)
     use_vertex = args.vertex or runtime_cfg.get("auth_mode") == "vertex" or runtime_cfg.get("vertex") is True
-    model = resolve_swarm_model(cli_model=args.model, runtime_model=runtime_cfg.get("model"))
+    model = resolve_swarm_model(
+        cli_model=args.model,
+        runtime_model=runtime_cfg.get("model"),
+        parent_model=getattr(args, "parent_model", None),
+    )
     vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith(("gemini-2.5", "gemini-3")) else region)
     gcs_bucket = args.gcs_bucket if args.gcs_bucket is not None else runtime_cfg.get("gcs_bucket", "")
 
