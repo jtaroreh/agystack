@@ -1,6 +1,6 @@
 # agystack
 
-this was adapted by [jtaroreh](https://x.com/joeltaroreh) from [poteto](https://x.com/poteto). i saw that Antigravity had potential with its native worktree isolation, first-class artifacts, and asynchronous process management, so i brought Cursor's pstack to it
+this was adapted by [jtaroreh](https://x.com/joeltaroreh) from [poteto](https://x.com/poteto). i saw that Antigravity had potential with its native worktree isolation, first-class artifacts, asynchronous process management, and Gemini's token speeds so i brought Cursor's pstack to it
 
 poteto "i'm not a president or ceo, but i've worked with millions of lines of code at Meta, Netflix, and Cursor. i'm also on the react core team where i help build and maintain react compiler.
 
@@ -10,13 +10,13 @@ there's a growing sense that ai writes too much slop code. i agree. i don't want
 
 **agystack gives you fearless parallelism.** when you can go deep on one agent and trust it to write good, verifiable code, you can truly parallelize with confidence. start multiple agents up with `poteto-mode` and trust that they'll apply rigorous engineering principles to their work.
 
-**Antigravity gives you the best of all worlds.** every frontier model has its strengths and weaknesses. use any model with agystack. in fact, many of these skills use multi-model workflows to take advantage of each model's unique strengths.
+**Antigravity and Google Cloud Run.** the features with this harness enhance agystack's ability to orchestrate subagents and run verifiable closed-loops. Cloud Run allows you to run headless containers and summon fleets of parallel cloud agents within Antigravity.  
 
 fork it. improve it. make it yours. PRs are welcome! 
 
 ## install (Antigravity)
 
-This repository is **agystack**, the Antigravity port of Lauren Tan's pstack, adapted by Joel Taroreh.
+this repository is **agystack**, the Antigravity port of Lauren Tan's pstack, adapted by Joel Taroreh.
 
 ### prerequisites
 
@@ -47,6 +47,11 @@ python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py 
 python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
 ```
 
+or honestly. you can probably just tell your chat 
+```text
+install this antigravity plugin for me: https://github.com/jtaroreh/agystack
+```
+
 Native Antigravity tools (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and visual Artifacts) are documented in [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
 
 Restart Antigravity or open a new chat after install.
@@ -55,7 +60,7 @@ Restart Antigravity or open a new chat after install.
 
 two steps:
 
-1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) and choose which models you want.
+1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) and choose which models you want, choose if you want to setup cloud swarm with Google Cloud auth. 
 2. use [`/poteto-mode`](./skills/poteto-mode/SKILL.md) whenever you're doing anything that requires rigor.
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
@@ -127,9 +132,19 @@ the full rules and playbooks live in [`skills/poteto-mode/SKILL.md`](./skills/po
 
 [`/poteto-mode`](./skills/poteto-mode/SKILL.md) works seamlessly with Antigravity's `/goal` (for multi-hour overnight autonomy) and `/loop` (for inner-loop metric optimization and TDD hillclimbs). you can make agents work for many hours without sacrificing rigor.
 
+## cloud swarms (Cloud Run)
+
+local subagents work great for up to 8 workers. but when you want massive parallel exploration, parameter sweeps, or candidate bakeoffs, agystack fans out across Google Cloud Run instead.
+
+workers run in isolated containers, never push to git directly, and upload `patch.diff` artifacts and streaming milestones to GCS. the coordinator ranks the winning diffs so you can review and apply them locally.
+
+set it up with [`/setup-agystack`](./skills/setup-agystack/SKILL.md) with your Google Cloud auth and run [`/swarm`](./skills/swarm/SKILL.md) to dispatch.
+
 ## skills
 
 [`/poteto-mode`](./skills/poteto-mode/SKILL.md) runs most of these for you when a step needs them (`how`, `why`, `architect`, `arena`, `swarm`, `interrogate`, `unslop`, `no-comments`, `technical-writing`, `tdd`, and the principles). the table below is for when you want one directly:
+
+
 
 ```
 /how do we cancel runs? do we have an n+1 when we look up every run to cancel?
@@ -290,3 +305,7 @@ cd skills/poteto-mode/scripts && bun test
 ## license
 
 [MIT License](./LICENSE) - Original pstack work Copyright (c) 2025-2026 Lauren Tan; Antigravity port Copyright (c) 2026 Joel Taroreh.
+
+## disclaimer
+
+This project is an independent tool and is not affiliated with, endorsed by, or sponsored by Google LLC. "Google" and "Google Antigravity" are trademarks of Google LLC.
