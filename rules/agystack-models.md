@@ -13,7 +13,6 @@ judgment and prose: inherit
 hardest tasks: inherit
 how explorer: flash
 how explainer: inherit
-how critics: inherit, flash, pro
 why investigators: flash
 why synthesizer: inherit
 reflect tooling: inherit

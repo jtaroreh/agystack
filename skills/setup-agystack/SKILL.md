@@ -71,7 +71,7 @@ If `~/.gemini/config/plugins/agystack/rules/agystack-models.md` exists, read its
 
 Show every role with its model tier and confirm:
 - Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `swarm workers`
-- Panel roles: `how critics`, `arena runners`, `architect runners`, `interrogate reviewers`
+- Panel roles: `arena runners`, `architect runners`, `interrogate reviewers`
 
 ### 5. Write the model rule
 
@@ -93,7 +93,6 @@ judgment and prose: pro
 hardest tasks: pro
 how explorer: flash
 how explainer: pro
-how critics: pro, flash, inherit
 why investigators: flash
 why synthesizer: pro
 reflect tooling: pro
