@@ -1,8 +1,10 @@
 # agystack
 
-i'm [poteto](https://x.com/poteto). i'm not a president or ceo, but i've worked with millions of lines of code at Meta, Netflix, and Cursor. i'm also on the react core team where i help build and maintain react compiler.
+this was adapted by [jtaroreh](https://x.com/joeltaroreh) from [poteto](https://x.com/poteto). i saw that Antigravity had potential with its native worktree isolation, first-class artifacts, and asynchronous process management, so i brought Cursor's pstack to it
 
-there's a growing sense that ai writes too much slop code. i agree. i don't want to ship like a team of twenty slop artists. throughput without quality is not a goal i aspire to. if you want to go fast, go deep first. 
+poteto "i'm not a president or ceo, but i've worked with millions of lines of code at Meta, Netflix, and Cursor. i'm also on the react core team where i help build and maintain react compiler.
+
+there's a growing sense that ai writes too much slop code. i agree. i don't want to ship like a team of twenty slop artists. throughput without quality is not a goal i aspire to. if you want to go fast, go deep first."
 
 **agystack is the answer for Antigravity.** these are the same rigorous skills used everyday to ship high quality code. this turns Antigravity into a real engineering team. the goal is not to maximize loc, in fact it's the opposite. agystack helps you write less, but higher quality code.
 
@@ -14,7 +16,7 @@ fork it. improve it. make it yours. PRs are welcome!
 
 ## install (Antigravity)
 
-This repository is **agystack**, the Antigravity port of Lauren Tan's pstack.
+This repository is **agystack**, the Antigravity port of Lauren Tan's pstack, adapted by Joel Taroreh.
 
 ### prerequisites
 
@@ -287,4 +289,4 @@ cd skills/poteto-mode/scripts && bun test
 
 ## license
 
-[MIT License](./LICENSE) - Original pstack work Copyright (c) 2025-2026 Lauren Tan; Antigravity port Copyright (c) 2026 agystack contributors.
+[MIT License](./LICENSE) - Original pstack work Copyright (c) 2025-2026 Lauren Tan; Antigravity port Copyright (c) 2026 Joel Taroreh.
