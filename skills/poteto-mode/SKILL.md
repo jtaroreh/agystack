@@ -44,6 +44,7 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 
 **Core**
 
+- **Attack the Premise** (**principle-attack-the-premise**). Handed a problem, constraint, or design you're tempted to accept as given. Ask if the premise is false or a simpler framing eliminates the work.
 - **Laziness Protocol** (**principle-laziness-protocol**). Refactoring, sizing a diff, or tempted to add abstractions, layers, or signal threading. Bias to deletion and the smallest change that solves the problem.
 - **Foundational Thinking** (**principle-foundational-thinking**). Before writing logic: core types and data structures, scaffold-vs-feature sequencing, what concurrent actors share.
 - **Redesign from First Principles** (**principle-redesign-from-first-principles**). Integrating a new requirement into an existing design. Redesign as if it had been foundational from day one.
@@ -68,6 +69,7 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 - **Prove It Works** (**principle-prove-it-works**). After a task, before declaring done. Verify against the real artifact, not a proxy or "it compiles".
 - **Fix Root Causes** (**principle-fix-root-causes**). Debugging. Trace each symptom to its root cause, reproduce first, ask why until you reach it.
 - **Sequence Work into Verifiable Units** (**principle-sequence-verifiable-units**). Multi-step work (sweeps, migrations, runs of similar edits) and how you stack commits and PRs. Break work into small units that each end in a check, verify each before the next, and order delivery so the sequence proves itself.
+- **Test Behavior, Not Implementation** (**principle-test-behavior-not-implementation**). Writing or reviewing tests. Assert on observable outcomes and contracts, not internal methods or mock wiring.
 
 **Delegation**
 

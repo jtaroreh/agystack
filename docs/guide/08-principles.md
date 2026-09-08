@@ -1,6 +1,6 @@
 # Steer with principle names
 
-agystack ships 21 principles as individual skills. `/poteto-mode` reads their index at the start of every multi-step task, applies the ones the task triggers, and names each applied principle in its reply along with the decision it changed.
+agystack ships 23 principles as individual skills. `/poteto-mode` reads their index at the start of every multi-step task, applies the ones the task triggers, and names each applied principle in its reply along with the decision it changed.
 
 You don't invoke principles. You use their names to steer. Each name points at a complete rule the agent has already read, so one phrase redirects the work more precisely than a paragraph of instructions.
 
@@ -26,10 +26,11 @@ separate before serializing shared state. give each attempt its own worktree, no
 
 Each phrase lands because the rule behind it is specific. The agent still has to say, in its reply, which decision the rule changed. A principle citation with no decision behind it is the tell that it name-dropped instead of applying.
 
-## The 21, briefly
+## The 23, briefly
 
 The core principles decide how much to build and when to rethink the design:
 
+- [Attack the Premise](../../skills/principle-attack-the-premise/SKILL.md) asks if the premise is false, the constraint is self-imposed, or a simpler framing eliminates the work.
 - [Laziness Protocol](../../skills/principle-laziness-protocol/SKILL.md) prefers deletion and the smallest change that solves the problem.
 - [Foundational Thinking](../../skills/principle-foundational-thinking/SKILL.md) chooses the core data structures before writing logic.
 - [Redesign from First Principles](../../skills/principle-redesign-from-first-principles/SKILL.md) integrates a new requirement as if it had been there from day one.
@@ -54,6 +55,7 @@ The verification principles define what counts as proof:
 - [Prove It Works](../../skills/principle-prove-it-works/SKILL.md) verifies the real artifact, not a proxy.
 - [Fix Root Causes](../../skills/principle-fix-root-causes/SKILL.md) reproduces and traces to the cause before changing code.
 - [Sequence Work into Verifiable Units](../../skills/principle-sequence-verifiable-units/SKILL.md) ends each small unit in a check before starting the next.
+- [Test Behavior, Not Implementation](../../skills/principle-test-behavior-not-implementation/SKILL.md) tests what the system does from the outside, not internal structures or mock wiring.
 
 The delegation principles keep parallel work sane:
 
