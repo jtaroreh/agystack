@@ -102,7 +102,8 @@ class TestContainerSpec(unittest.TestCase):
         self.assertIn("git lfs install --system", self.dockerfile_content)
 
     def test_antigravity_and_entrypoint(self):
-        self.assertIn("pip install --no-cache-dir google-antigravity", self.dockerfile_content)
+        self.assertIn("COPY requirements.txt /app/requirements.txt", self.dockerfile_content)
+        self.assertIn("pip install --no-cache-dir -r /app/requirements.txt", self.dockerfile_content)
         self.assertIn('ENTRYPOINT ["python", "/app/cloud_worker.py"]', self.dockerfile_content)
 
     def test_cargo_deny_does_not_exist_on_disk(self):

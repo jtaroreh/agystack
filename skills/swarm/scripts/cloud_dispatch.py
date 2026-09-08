@@ -959,10 +959,21 @@ def handle_mailbox_steer(
 def print_candidate_patches_table(
     harvested_patches: List[Dict[str, Any]],
     baseline_score: Optional[float] = None,
+    exec_succeeded: bool = True,
+    failed_count: int = 0,
+    allow_partial: bool = False,
 ) -> None:
     if not harvested_patches:
         print("No candidate patches found.")
         return
+
+    is_partial_failure = (not exec_succeeded) or (failed_count > 0)
+    if is_partial_failure:
+        print("\n" + "*" * 80)
+        print(f"[WARNING: SWARM EXECUTION EXPERIENCED PARTIAL FAILURES: {failed_count} TASKS FAILED]")
+        print("Some worker tasks failed during execution. Candidate patches below are from a")
+        print("partial swarm run and should be carefully verified before promoting.")
+        print("*" * 80)
 
     has_passing = any(
         p.get("status") == "PASS" and p.get("patch_file") and str(p.get("patch_file")) != "None"
@@ -972,7 +983,7 @@ def print_candidate_patches_table(
     print("\n" + "=" * 80)
     print("CANDIDATE PATCHES (RANKED):")
     print("=" * 80)
-    print(f"{'Rank':<6} | {'Task':<8} | {'Score':<8} | {'Delta':<10} | {'Status':<10} | {'Patch File'}")
+    print(f"{'Rank':<6} | {'Task':<8} | {'Score':<8} | {'Delta':<10} | {'Status':<16} | {'Patch File'}")
     print("-" * 80)
     for idx, p in enumerate(harvested_patches):
         is_winner = (
@@ -981,15 +992,17 @@ def print_candidate_patches_table(
             and bool(p.get("patch_file"))
             and str(p.get("patch_file")) != "None"
         )
-        rank_str = f"{idx + 1}*" if is_winner else str(idx + 1)
+        rank_str = f"{idx + 1}*" if (is_winner and not is_partial_failure) else str(idx + 1)
         task_id = p.get("task_index", "?")
         sc = p.get("score")
         sc_str = f"{sc:.2f}" if isinstance(sc, (int, float)) else "N/A"
         delta = p.get("score_delta")
         delta_str = f"{delta:+.4f}" if delta is not None else "N/A"
         st = p.get("status", "UNKNOWN")
+        if is_partial_failure and not allow_partial:
+            st = f"{st} [PARTIAL]"
         pf = p.get("patch_file") or "None"
-        print(f"{rank_str:<6} | {task_id:<8} | {sc_str:<8} | {delta_str:<10} | {st:<10} | {pf}")
+        print(f"{rank_str:<6} | {task_id:<8} | {sc_str:<8} | {delta_str:<10} | {st:<16} | {pf}")
     print("=" * 80)
     if (
         harvested_patches
@@ -997,8 +1010,13 @@ def print_candidate_patches_table(
         and harvested_patches[0].get("patch_file")
         and str(harvested_patches[0].get("patch_file")) != "None"
     ):
-        print(f"* Winning Candidate #1: {harvested_patches[0]['patch_file']} (apply and verify locally)")
-        print("=" * 80)
+        if (not is_partial_failure) or allow_partial:
+            print(f"* Winning Candidate #1: {harvested_patches[0]['patch_file']} (apply and verify locally)")
+            print("=" * 80)
+        else:
+            print("Notice: Winning candidate auto-promotion suppressed due to partial swarm failure.")
+            print(f"Quarantined Candidate #1: {harvested_patches[0]['patch_file']} (review with caution)")
+            print("=" * 80)
     elif not has_passing:
         print("Notice: No passing candidate patches produced.")
 
@@ -1032,6 +1050,7 @@ def main() -> None:
     parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
     parser.add_argument("--set-secrets", type=str, help="Comma-separated secrets mapping for Cloud Run Job (e.g. GEMINI_API_KEY=gemini-key:latest).")
     parser.add_argument("--base-branch", type=str, default=None, help="Base branch for workers to checkout (default: remote default branch).")
+    parser.add_argument("--ignore-partial-failures", action="store_true", help="Allow promotion of candidate patches from partially-failed swarm executions.")
     parser.set_defaults(wait=True)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
@@ -1153,7 +1172,14 @@ def main() -> None:
                 print(f"Warning: Failed to harvest GCS results: {exc}", file=sys.stderr)
 
         if harvested_patches:
-            print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
+            failed_cnt = 0 if exec_succeeded else 1
+            print_candidate_patches_table(
+                harvested_patches,
+                baseline_score=args.baseline_score,
+                exec_succeeded=exec_succeeded,
+                failed_count=failed_cnt,
+                allow_partial=getattr(args, "ignore_partial_failures", False),
+            )
 
         if not exec_succeeded:
             sys.exit(1)
@@ -1512,8 +1538,23 @@ def main() -> None:
             print(f"Total: {len(report_items)} | PASS: {pass_count} | ISSUES: {issues_count} | BLOCKED: {blocked_count}")
             print("=" * 80)
 
+        failed_tasks_count = issues_count + blocked_count
+        if not exec_succeeded and failed_tasks_count == 0:
+            failed_tasks_count = 1
+
         if harvested_patches:
-            print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
+            print_candidate_patches_table(
+                harvested_patches,
+                baseline_score=args.baseline_score,
+                exec_succeeded=exec_succeeded,
+                failed_count=failed_tasks_count,
+                allow_partial=getattr(args, "ignore_partial_failures", False),
+            )
+
+        if not exec_succeeded or failed_tasks_count > 0:
+            print(f"\n[STATUS: EXECUTION_FAILED] ({failed_tasks_count}/{len(report_items) or task_count} tasks failed; patches harvested with quarantine)")
+        else:
+            print(f"\n[STATUS: EXECUTION_SUCCESS] (All {len(report_items) or task_count} tasks succeeded)")
 
         if not exec_succeeded:
             sys.exit(1)

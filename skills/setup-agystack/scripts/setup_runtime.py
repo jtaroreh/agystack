@@ -202,6 +202,7 @@ def enable_apis(project_id):
         "cloudbuild.googleapis.com",
         "aiplatform.googleapis.com",
         "storage.googleapis.com",
+        "secretmanager.googleapis.com",
         f"--project={project_id}"
     ])
 
@@ -243,7 +244,7 @@ def configure_iam_permissions(project_id, service_account=None):
             service_account = f"{project_id}-compute@developer.gserviceaccount.com"
 
     member = service_account if service_account.startswith("serviceAccount:") else f"serviceAccount:{service_account}"
-    roles = ["roles/aiplatform.user", "roles/storage.objectAdmin"]
+    roles = ["roles/aiplatform.user", "roles/storage.objectAdmin", "roles/secretmanager.secretAccessor"]
     for role in roles:
         print(f"Binding IAM role {role} to {member} in project {project_id}...")
         run_cmd([
@@ -252,6 +253,34 @@ def configure_iam_permissions(project_id, service_account=None):
             f"--role={role}"
         ])
     return service_account
+
+def ensure_secret_manager(project_id, secret_name="agystack-gh-token", secret_val=None, service_account=None):
+    print(f"Ensuring Secret Manager secret: {secret_name}...")
+    res = run_cmd(["gcloud", "secrets", "describe", secret_name, f"--project={project_id}"], check=False)
+    if getattr(res, "returncode", 1) != 0:
+        print(f"Creating secret {secret_name} in project {project_id}...")
+        run_cmd([
+            "gcloud", "secrets", "create", secret_name,
+            "--replication-policy=automatic",
+            f"--project={project_id}"
+        ])
+    if secret_val:
+        print(f"Adding new version to secret {secret_name}...")
+        run_cmd([
+            "gcloud", "secrets", "versions", "add", secret_name,
+            "--data-file=-",
+            f"--project={project_id}"
+        ], check=False)
+    if service_account:
+        member = service_account if service_account.startswith("serviceAccount:") else f"serviceAccount:{service_account}"
+        print(f"Binding roles/secretmanager.secretAccessor to {member} for {secret_name}...")
+        run_cmd([
+            "gcloud", "secrets", "add-iam-policy-binding", secret_name,
+            f"--member={member}",
+            "--role=roles/secretmanager.secretAccessor",
+            f"--project={project_id}"
+        ], check=False)
+    return secret_name
 
 def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name="agystack-swarm-worker", service_account=None):
     print(f"Creating Artifact Registry repository in {region}...")
@@ -301,7 +330,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
         cmd.append(f"--service-account={service_account}")
     run_cmd(cmd)
 
-def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="vertex", gcs_bucket="", vertex_location="global", target_paths=None, service_account=None):
+def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="vertex", gcs_bucket="", vertex_location="global", target_paths=None, service_account=None, secrets=None):
     config = {
         "runtime": "cloud-run",
         "project_id": project_id,
@@ -316,6 +345,8 @@ def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="ver
     }
     if service_account:
         config["service_account"] = service_account
+    if secrets:
+        config["secrets"] = secrets
     
     paths = target_paths or [
         Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "agystack-runtime.json"
@@ -341,6 +372,9 @@ def run_provisioning(
     service_account=None,
     job_name="agystack-swarm-worker",
     auth_mode="vertex",
+    gh_token=None,
+    secret_name=None,
+    secrets=None,
 ):
     if image_tag and (Path(image_tag).is_dir() or ("/" in image_tag and not (":" in image_tag or "docker.pkg.dev" in image_tag or "gcr.io" in image_tag))):
         scripts_dir = image_tag
@@ -359,6 +393,13 @@ def run_provisioning(
     enable_apis(project_id)
     ensure_gcs_bucket(bucket_name, project_id, region)
     sa_email = configure_iam_permissions(project_id, service_account)
+    
+    configured_secrets = dict(secrets) if isinstance(secrets, dict) else {}
+    if gh_token or secret_name:
+        sec_name = secret_name or "agystack-gh-token"
+        ensure_secret_manager(project_id, secret_name=sec_name, secret_val=gh_token, service_account=sa_email)
+        configured_secrets["GH_TOKEN"] = f"{sec_name}:latest"
+
     build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name=job_name, service_account=sa_email)
     write_runtime_config(
         project_id=project_id,
@@ -368,6 +409,7 @@ def run_provisioning(
         auth_mode=auth_mode,
         gcs_bucket=bucket_name,
         service_account=sa_email,
+        secrets=configured_secrets if configured_secrets else None,
     )
     print("Auto-provisioning complete.")
     return {
@@ -377,6 +419,7 @@ def run_provisioning(
         "image": image_tag,
         "gcs_bucket": bucket_name,
         "service_account": sa_email,
+        "secrets": configured_secrets if configured_secrets else None,
     }
 
 def main():

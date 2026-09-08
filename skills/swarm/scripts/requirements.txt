@@ -1,0 +1,5 @@
+google-cloud-storage==2.18.2
+google-cloud-run==0.10.5
+google-cloud-logging==3.11.3
+google-genai==0.3.0
+google-antigravity>=0.1.0,<0.2.0

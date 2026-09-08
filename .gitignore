@@ -14,4 +14,18 @@ vendor/
 **/*agystack-runtime.json
 .slices/
 scratch/
+.env*
+*.env
+*.pem
+*.key
+*.pfx
+*.p12
+*credentials*.json
+*service-account*.json
+google-services.json
+GoogleService-Info.plist
+*.log
+.venv/
+venv/
+env/
 

@@ -235,5 +235,38 @@ class TestSetupRuntimeProvisioning(unittest.TestCase):
         self.assertEqual(build_cmd[4], valid_dir)
 
 
+class TestSetupRuntimeSecretManager(unittest.TestCase):
+    @patch("setup_runtime.run_cmd")
+    def test_enable_apis_includes_secretmanager(self, mock_run_cmd):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        setup_runtime.enable_apis("test-proj")
+        all_cmds = [call[0][0] for call in mock_run_cmd.call_args_list]
+        enable_cmd = next(cmd for cmd in all_cmds if cmd[0:3] == ["gcloud", "services", "enable"])
+        self.assertIn("secretmanager.googleapis.com", enable_cmd)
+
+    @patch("setup_runtime.run_cmd")
+    def test_ensure_secret_manager_creates_and_binds(self, mock_run_cmd):
+        describe_res = MagicMock(returncode=1, stdout="", stderr="Secret not found")
+        create_res = MagicMock(returncode=0, stdout="", stderr="")
+        bind_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [describe_res, create_res, bind_res]
+
+        secret_name = setup_runtime.ensure_secret_manager(
+            project_id="test-proj",
+            secret_name="agystack-gh-token",
+            service_account="test-sa@developer.gserviceaccount.com",
+        )
+        self.assertEqual(secret_name, "agystack-gh-token")
+        self.assertEqual(mock_run_cmd.call_count, 3)
+
+    @patch("setup_runtime.run_cmd")
+    def test_configure_iam_permissions_includes_secret_accessor(self, mock_run_cmd):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        setup_runtime.configure_iam_permissions("test-proj", "sa@developer.gserviceaccount.com")
+        all_cmds = [call[0][0] for call in mock_run_cmd.call_args_list]
+        roles = [next(arg.split("=")[1] for arg in cmd if arg.startswith("--role=")) for cmd in all_cmds if len(cmd) > 3 and cmd[0:3] == ["gcloud", "projects", "add-iam-policy-binding"]]
+        self.assertIn("roles/secretmanager.secretAccessor", roles)
+
+
 if __name__ == "__main__":
     unittest.main()

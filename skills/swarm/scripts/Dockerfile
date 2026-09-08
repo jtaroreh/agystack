@@ -35,7 +35,8 @@ RUN git lfs install --system
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir google-antigravity google-cloud-storage google-cloud-run google-cloud-logging google-genai
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY cloud_worker.py /app/cloud_worker.py
 COPY storage_uploader.py /app/storage_uploader.py

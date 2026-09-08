@@ -1048,11 +1048,12 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         project_desc_res = MagicMock(returncode=0, stdout="9876543210\n", stderr="")
         bind_aiplatform_res = MagicMock(returncode=0, stdout="", stderr="")
         bind_storage_res = MagicMock(returncode=0, stdout="", stderr="")
-        mock_run_cmd.side_effect = [project_desc_res, bind_aiplatform_res, bind_storage_res]
+        bind_secret_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [project_desc_res, bind_aiplatform_res, bind_storage_res, bind_secret_res]
 
         sa = setup_runtime.configure_iam_permissions("my-project-123")
         self.assertEqual(sa, "9876543210-compute@developer.gserviceaccount.com")
-        self.assertEqual(mock_run_cmd.call_count, 3)
+        self.assertEqual(mock_run_cmd.call_count, 4)
 
         desc_cmd = mock_run_cmd.call_args_list[0][0][0]
         self.assertEqual(desc_cmd, ["gcloud", "projects", "describe", "my-project-123", "--format=value(projectNumber)"])
@@ -1077,15 +1078,26 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             ]
         )
 
+        bind3 = mock_run_cmd.call_args_list[3][0][0]
+        self.assertEqual(
+            bind3,
+            [
+                "gcloud", "projects", "add-iam-policy-binding", "my-project-123",
+                "--member=serviceAccount:9876543210-compute@developer.gserviceaccount.com",
+                "--role=roles/secretmanager.secretAccessor"
+            ]
+        )
+
     @patch("setup_runtime.run_cmd")
     def test_configure_iam_permissions_custom_sa(self, mock_run_cmd):
         bind_aiplatform_res = MagicMock(returncode=0, stdout="", stderr="")
         bind_storage_res = MagicMock(returncode=0, stdout="", stderr="")
-        mock_run_cmd.side_effect = [bind_aiplatform_res, bind_storage_res]
+        bind_secret_res = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run_cmd.side_effect = [bind_aiplatform_res, bind_storage_res, bind_secret_res]
 
         sa = setup_runtime.configure_iam_permissions("my-project-123", "custom-runner@my-project-123.iam.gserviceaccount.com")
         self.assertEqual(sa, "custom-runner@my-project-123.iam.gserviceaccount.com")
-        self.assertEqual(mock_run_cmd.call_count, 2)
+        self.assertEqual(mock_run_cmd.call_count, 3)
 
         bind1 = mock_run_cmd.call_args_list[0][0][0]
         self.assertEqual(
@@ -1104,6 +1116,16 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
                 "gcloud", "projects", "add-iam-policy-binding", "my-project-123",
                 "--member=serviceAccount:custom-runner@my-project-123.iam.gserviceaccount.com",
                 "--role=roles/storage.objectAdmin"
+            ]
+        )
+
+        bind3 = mock_run_cmd.call_args_list[2][0][0]
+        self.assertEqual(
+            bind3,
+            [
+                "gcloud", "projects", "add-iam-policy-binding", "my-project-123",
+                "--member=serviceAccount:custom-runner@my-project-123.iam.gserviceaccount.com",
+                "--role=roles/secretmanager.secretAccessor"
             ]
         )
 
@@ -1191,6 +1213,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             MagicMock(returncode=0, stdout="", stderr=""),  # bucket create
             MagicMock(returncode=0, stdout="", stderr=""),  # role binding aiplatform
             MagicMock(returncode=0, stdout="", stderr=""),  # role binding storage
+            MagicMock(returncode=0, stdout="", stderr=""),  # role binding secretmanager
             MagicMock(returncode=0, stdout="", stderr=""),  # repo describe
             MagicMock(returncode=0, stdout="", stderr=""),  # builds submit
             MagicMock(returncode=1, stdout="", stderr=""),  # job describe (1 => create)
@@ -1215,9 +1238,9 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertIn("--project=test-proj-full", bucket_create_cmd)
 
         iam_cmds = [cmd for cmd in all_cmds if len(cmd) > 3 and cmd[0:3] == ["gcloud", "projects", "add-iam-policy-binding"]]
-        self.assertEqual(len(iam_cmds), 2)
+        self.assertEqual(len(iam_cmds), 3)
         roles_bound = {next(arg.split("=")[1] for arg in cmd if arg.startswith("--role=")) for cmd in iam_cmds}
-        self.assertEqual(roles_bound, {"roles/aiplatform.user", "roles/storage.objectAdmin"})
+        self.assertEqual(roles_bound, {"roles/aiplatform.user", "roles/storage.objectAdmin", "roles/secretmanager.secretAccessor"})
 
         job_create_cmd = next(cmd for cmd in all_cmds if len(cmd) > 3 and cmd[0:4] == ["gcloud", "run", "jobs", "create"])
         self.assertIn("--memory=2Gi", job_create_cmd)
@@ -1228,6 +1251,31 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(mock_write_cfg.call_args[1].get("gcs_bucket"), "custom-bucket")
         self.assertEqual(mock_write_cfg.call_args[1].get("service_account"), "custom-sa@developer.gserviceaccount.com")
         self.assertEqual(summary.get("service_account"), "custom-sa@developer.gserviceaccount.com")
+
+
+class TestDispatcherPartialFailureGating(unittest.TestCase):
+    def test_partial_failure_output_gating_warning_and_suppression(self):
+        from cloud_dispatch import print_candidate_patches_table
+        harvested = [
+            {"task_index": 0, "status": "PASS", "score": 95.0, "score_delta": 5.0, "patch_file": ".slices/s1/w0.diff"},
+            {"task_index": 1, "status": "ISSUES", "score": 40.0, "score_delta": -5.0, "patch_file": None},
+        ]
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            print_candidate_patches_table(harvested, exec_succeeded=False, failed_count=1, allow_partial=False)
+            out = mock_out.getvalue()
+            self.assertIn("[WARNING: SWARM EXECUTION EXPERIENCED PARTIAL FAILURES: 1 TASKS FAILED]", out)
+            self.assertIn("Quarantined Candidate #1", out)
+            self.assertNotIn("* Winning Candidate #1", out)
+
+    def test_partial_failure_output_gating_bypassed_with_flag(self):
+        from cloud_dispatch import print_candidate_patches_table
+        harvested = [
+            {"task_index": 0, "status": "PASS", "score": 95.0, "score_delta": 5.0, "patch_file": ".slices/s1/w0.diff"},
+        ]
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            print_candidate_patches_table(harvested, exec_succeeded=False, failed_count=1, allow_partial=True)
+            out = mock_out.getvalue()
+            self.assertIn("* Winning Candidate #1", out)
 
 
 if __name__ == "__main__":
