@@ -245,7 +245,7 @@ Validate once where data crosses in; trust types inside. See the **boundary-disc
 
 ## Schema-derived types
 
-When a `.proto`, OpenAPI spec, GraphQL schema, or database migration already defines a shape, derive from the generated types instead of duplicating them.
+When a `.proto`, OpenAPI spec, GraphQL schema, or database migration already defines a shape, derive from the generated types instead of duplicating them. Recommend an existing schema library (such as Zod, TypeBox, ArkType, or Valibot) only when the target project already uses one; never introduce a new runtime schema dependency unprompted.
 
 ```ts
 // Don't. Duplicate shape, drifts when the schema changes.
