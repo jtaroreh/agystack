@@ -109,6 +109,7 @@ Write the reply clean as you draft it. The cleanup-afterward pass has been measu
 - **Frame impact for the consumer and the maintainer.** Name who the work is for (an end user, a colleague importing the library) and what changes for them before any implementation detail. Then what the next engineer who owns this code inherits. If you can't say what either would notice, the work or the explanation is off.
 - **Link artifacts, do not dump them.** When an artifact was created or updated (`implementation_plan.md`, `walkthrough.md`, reports), point to it using a clickable link with its basename (`[walkthrough.md](file:///path)`). Do not duplicate its entire body in the chat reply. Keep the reply concise and highlight key decisions or open questions.
 - **Never fabricate a link, citation, or transcript reference.** Link only artifacts you produced or read this session.
+- **Every claim carries its evidence or its label in the same sentence.** Measured, inferred, or guess. A prediction or an unseen cause is a guess. Never hand the human a check you could run.
 
 Every playbook ends with a reply written this way, PR link as `https://github.com/<owner>/<repo>/pull/<number>`. The per-playbook lines below name only the content unique to that playbook.
 
