@@ -27,4 +27,7 @@ GoogleService-Info.plist
 .venv/
 venv/
 env/
+skills/swarm/scripts/skills/
+skills/swarm/scripts/rules/
+skills/swarm/scripts/agents/
 
