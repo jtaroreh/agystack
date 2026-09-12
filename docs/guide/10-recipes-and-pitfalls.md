@@ -90,7 +90,7 @@ cp hooks.json.example .agents/hooks.json
 cp hooks.json.example ~/.gemini/config/hooks.json
 ```
 
-Whenever an agent uses `write_to_file` or `replace_file_content`, the hook triggers `skills/poteto-mode/scripts/hooks/post_tool_lint.py`, running `ruff format` and `ruff check --fix` on Python files, and `prettier --write` or `biome format --write` on JavaScript, TypeScript, and JSON files if installed.
+Whenever an agent uses `write_to_file`, the hook triggers `skills/poteto-mode/scripts/hooks/post_tool_lint.py`, running `ruff format` on Python files, and `prettier --write` or `biome format --write` on JavaScript and TypeScript files if installed (excluding `.json` to preserve comments and never running on `replace_file_content` to prevent line-number drift).
 
 ## Destructive Command Guard with Antigravity PreToolUse Hooks
 
@@ -120,7 +120,7 @@ The hook evaluates `run_command` invocations for destructive signatures:
 - Force-pushing to protected trunk branches (`git push --force origin main`, `git push origin +master`), while explicitly allowing `--force-with-lease` on feature branches
 - Dropping databases (`drop database <name>`)
 
-When running in headless environments (`NON_INTERACTIVE="1"`, `CI="true"`, or `CLOUD_RUN_TASK_INDEX` in Cloud Run worker containers), the hook automatically bypasses and outputs `{}` to prevent hanging unattended runs or automated test suites.
+When running in headless environments (`NON_INTERACTIVE="1"`, `CI="true"`, or `CLOUD_RUN_TASK_INDEX` in Cloud Run worker containers), the hook automatically rejects destructive commands (`"decision": "reject"`) to prevent catastrophic corruption in unattended runs or automated test suites.
 
 To activate, copy or merge `hooks.json.example` into `.agents/hooks.json` (project-local) or `~/.gemini/config/hooks.json` (user-global).
 

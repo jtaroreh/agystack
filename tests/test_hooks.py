@@ -8,7 +8,9 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-HOOK_SCRIPT = REPO_ROOT / "skills" / "poteto-mode" / "scripts" / "hooks" / "post_tool_lint.py"
+HOOK_SCRIPT = (
+    REPO_ROOT / "skills" / "poteto-mode" / "scripts" / "hooks" / "post_tool_lint.py"
+)
 SAFETY_HOOK_SCRIPT = (
     REPO_ROOT / "skills" / "poteto-mode" / "scripts" / "hooks" / "pre_tool_safety.py"
 )
@@ -24,7 +26,9 @@ def run_hook(stdin_data: str) -> subprocess.CompletedProcess:
     )
 
 
-def run_safety_hook(stdin_data: str, env: dict = None) -> subprocess.CompletedProcess:
+def run_safety_hook(
+    stdin_data: str, env: dict | None = None
+) -> subprocess.CompletedProcess:
     run_env = os.environ.copy()
     run_env.pop("NON_INTERACTIVE", None)
     run_env.pop("CI", None)
@@ -43,7 +47,9 @@ def run_safety_hook(stdin_data: str, env: dict = None) -> subprocess.CompletedPr
 
 class TestPostToolLintHook(unittest.TestCase):
     def test_hook_script_exists(self):
-        self.assertTrue(HOOK_SCRIPT.is_file(), f"Hook script does not exist at {HOOK_SCRIPT}")
+        self.assertTrue(
+            HOOK_SCRIPT.is_file(), f"Hook script does not exist at {HOOK_SCRIPT}"
+        )
 
     def test_non_matching_tool(self):
         payload = {
@@ -69,7 +75,7 @@ class TestPostToolLintHook(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_formatter_formats_unformatted_python(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
             temp_py = Path(tmp_dir) / "sample.py"
             temp_py.write_text("x=1;y=2\n", encoding="utf-8")
 
@@ -92,15 +98,70 @@ class TestPostToolLintHook(unittest.TestCase):
                 self.assertIn("x = 1", formatted_content)
                 self.assertIn("y = 2", formatted_content)
 
+    def test_replace_file_content_never_formats(self):
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            temp_py = Path(tmp_dir) / "sample_replace.py"
+            temp_py.write_text("x=1;y=2\n", encoding="utf-8")
+
+            payload = {
+                "toolCall": {
+                    "name": "replace_file_content",
+                    "args": {
+                        "TargetFile": str(temp_py),
+                    },
+                }
+            }
+            result = run_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
+            self.assertEqual(temp_py.read_text(encoding="utf-8"), "x=1;y=2\n")
+
+    def test_outside_workspace_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            temp_py = Path(tmp_dir) / "outside.py"
+            temp_py.write_text("x=1;y=2\n", encoding="utf-8")
+
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(temp_py),
+                    },
+                }
+            }
+            result = run_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
+            self.assertEqual(temp_py.read_text(encoding="utf-8"), "x=1;y=2\n")
+
+    def test_json_excluded_from_formatting(self):
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            temp_json = Path(tmp_dir) / "config.json"
+            raw = '{\n  // keep comment\n  "foo": "bar"\n}\n'
+            temp_json.write_text(raw, encoding="utf-8")
+
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(temp_json),
+                    },
+                }
+            }
+            result = run_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
+            self.assertEqual(temp_json.read_text(encoding="utf-8"), raw)
+
     def test_argument_aliases(self):
         aliases = ["TargetFile", "target_file", "AbsolutePath", "FilePath", "path"]
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
             for idx, alias in enumerate(aliases):
                 temp_py = Path(tmp_dir) / f"sample_{idx}.py"
                 temp_py.write_text("a=10;b=20\n", encoding="utf-8")
                 payload = {
                     "toolCall": {
-                        "name": "replace_file_content",
+                        "name": "write_to_file",
                         "args": {
                             alias: str(temp_py),
                         },
@@ -128,6 +189,11 @@ class TestPreToolSafetyHook(unittest.TestCase):
             "rm -rf /tmp/scratch",
             "ls -la",
             "echo 'hello world'",
+            'grep -ri "drop database" migrations/',
+            "pytest -k test_drop_database",
+            'git log --grep="drop database"',
+            'cat test.sql | grep "drop database"',
+            'find . -name "*.sql" -exec grep "drop database" {} +',
         ]
         for cmd in safe_commands:
             with self.subTest(cmd=cmd):
@@ -153,10 +219,25 @@ class TestPreToolSafetyHook(unittest.TestCase):
             "rm --no-preserve-root /",
             'rm -rf "/"',
             "rm -rf '/*'",
+            "rm -rf /etc",
+            "rm -rf /usr",
+            "rm -rf /var",
+            "rm -rf ~",
+            "rm -rf $HOME",
             "git push --force origin main",
             "git push -f origin main",
             "git push origin main -f",
             "git push origin main --force",
+            "git push --force",
+            "git push -f origin",
+            "git push origin -f",
+            "git -C /tmp push -f origin main",
+            "git -c user.name=bot push --force origin main",
+            "git push origin --delete main",
+            "git push origin --delete master",
+            "git push origin :main",
+            "git push origin :master",
+            "git push origin :refs/heads/main",
             "git push origin +main",
             "git push +master",
             "git push origin +HEAD:main",
@@ -165,6 +246,14 @@ class TestPreToolSafetyHook(unittest.TestCase):
             "drop database `testdb`",
             "drop database testdb",
             "DROP DATABASE production",
+            'psql -c "DROP DATABASE testdb"',
+            'mysql -e "drop database testdb"',
+            'echo "DROP DATABASE testdb" | psql',
+            'bash -c "rm -rf /"',
+            "sh -c 'git push --force origin main'",
+            'zsh -c "rm -rf /etc"',
+            'eval "rm -rf /"',
+            "bash -c 'psql -c \"DROP DATABASE prod\"'",
         ]
         for cmd in destructive_commands:
             with self.subTest(cmd=cmd):
@@ -193,8 +282,12 @@ class TestPreToolSafetyHook(unittest.TestCase):
         ]
         destructive_commands = [
             "rm -rf /",
+            "rm -rf /etc",
             "git push origin main -f",
+            "git push --force",
+            'bash -c "rm -rf /"',
             'drop database "testdb"',
+            'psql -c "DROP DATABASE prod"',
         ]
         for env in headless_envs:
             for cmd in destructive_commands:
@@ -219,15 +312,21 @@ class TestPreToolSafetyHook(unittest.TestCase):
                     )
 
     def test_safety_hook_headless_allows_safe(self):
-        payload = {
-            "toolCall": {
-                "name": "run_command",
-                "args": {"command": "git status"},
+        safe_commands = [
+            "git status",
+            'grep -ri "drop database" .',
+            "pytest -k test_drop_database",
+        ]
+        for cmd in safe_commands:
+            payload = {
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"command": cmd},
+                }
             }
-        }
-        result = run_safety_hook(json.dumps(payload), env={"CI": "true"})
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(json.loads(result.stdout.strip()), {})
+            result = run_safety_hook(json.dumps(payload), env={"CI": "true"})
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_safety_hook_non_matching_tools(self):
         for tool_name in ["write_to_file", "view_file", "find_by_name"]:

@@ -17,7 +17,7 @@
   "agystack-formatter": {
     "PostToolUse": [
       {
-        "matcher": "write_to_file|replace_file_content",
+        "matcher": "write_to_file",
         "hooks": [
           {
             "type": "command",
