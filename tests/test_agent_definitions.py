@@ -32,16 +32,24 @@ class TestAgentDefinitions(unittest.TestCase):
     def test_agent_frontmatter_presence(self):
         agent_files = sorted(AGENTS_DIR.glob("*.md"))
         self.assertGreaterEqual(
-            len(agent_files), 2, f"Expected at least 2 agent definitions, found {len(agent_files)}"
+            len(agent_files),
+            2,
+            f"Expected at least 2 agent definitions, found {len(agent_files)}",
         )
 
         for agent_file in agent_files:
             content = agent_file.read_text(encoding="utf-8")
             fm = parse_frontmatter(content)
 
-            self.assertIn("name", fm, f"{agent_file.name} missing 'name' in frontmatter")
-            self.assertIn("subagent", fm, f"{agent_file.name} missing 'subagent' in frontmatter")
-            self.assertIn("model", fm, f"{agent_file.name} missing 'model' in frontmatter")
+            self.assertIn(
+                "name", fm, f"{agent_file.name} missing 'name' in frontmatter"
+            )
+            self.assertIn(
+                "subagent", fm, f"{agent_file.name} missing 'subagent' in frontmatter"
+            )
+            self.assertIn(
+                "model", fm, f"{agent_file.name} missing 'model' in frontmatter"
+            )
             self.assertIn(
                 "commandExecutionPolicy",
                 fm,
@@ -59,14 +67,25 @@ class TestAgentDefinitions(unittest.TestCase):
         poteto_fm = parse_frontmatter(poteto_file.read_text(encoding="utf-8"))
 
         self.assertIn(
-            "inheritCustomizations", sicko_fm, "comment-sicko.md missing 'inheritCustomizations'"
+            "inheritCustomizations",
+            sicko_fm,
+            "comment-sicko.md missing 'inheritCustomizations'",
         )
         self.assertIs(
             sicko_fm["inheritCustomizations"],
             False,
             "comment-sicko.md must have 'inheritCustomizations: false'",
         )
-        self.assertIs(poteto_fm.get("mainAgent"), True, "poteto-agent.md must have 'mainAgent: true'")
+        self.assertIn(
+            "inheritCustomizations",
+            poteto_fm,
+            "poteto-agent.md missing 'inheritCustomizations'",
+        )
+        self.assertIs(
+            poteto_fm["inheritCustomizations"],
+            False,
+            "poteto-agent.md must have 'inheritCustomizations: false'",
+        )
 
     def test_main_agent_flags(self):
         poteto_file = AGENTS_DIR / "poteto-agent.md"
@@ -78,8 +97,12 @@ class TestAgentDefinitions(unittest.TestCase):
         poteto_fm = parse_frontmatter(poteto_file.read_text(encoding="utf-8"))
         sicko_fm = parse_frontmatter(sicko_file.read_text(encoding="utf-8"))
 
-        self.assertIs(poteto_fm.get("mainAgent"), True, "poteto-agent must have mainAgent: true")
-        self.assertIs(sicko_fm.get("mainAgent"), False, "comment-sicko must have mainAgent: false")
+        self.assertIs(
+            poteto_fm.get("mainAgent"), True, "poteto-agent must have mainAgent: true"
+        )
+        self.assertIs(
+            sicko_fm.get("mainAgent"), False, "comment-sicko must have mainAgent: false"
+        )
 
 
 if __name__ == "__main__":

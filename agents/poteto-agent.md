@@ -5,6 +5,7 @@ subagent: true
 mainAgent: true
 model: inherit
 commandExecutionPolicy: sandbox
+inheritCustomizations: false
 ---
 
 # Poteto subagent
