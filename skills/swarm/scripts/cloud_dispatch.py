@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 try:
     from storage_messenger import StorageMessenger
@@ -459,6 +459,52 @@ def recover_session_id_from_execution(
         return None
 
 
+def format_monitored_line(line_str: str, use_color: Optional[bool] = None) -> str:
+    """Format a monitored Cloud Run log line with alert banners and terminal styling."""
+    if use_color is None:
+        use_color = (
+            sys.stdout.isatty()
+            and not os.environ.get("NO_COLOR")
+            and os.environ.get("TERM") != "dumb"
+        )
+
+    is_alarm = line_str.startswith("[ALARM]")
+    is_loop_milestone = line_str.startswith("[MILESTONE]") and "[PHASE: POTENTIAL_LOOP]" in line_str
+    if is_alarm:
+        content = line_str[len("[ALARM]"):].strip()
+        if content.startswith(">>>") and content.endswith("<<<"):
+            banner = f"[ALARM] {content}"
+        elif content:
+            banner = f"[ALARM] >>> {content} <<<"
+        else:
+            banner = "[ALARM]"
+        return f"\033[91;1m{banner}\033[0m" if use_color else banner
+
+    if is_loop_milestone:
+        banner = f"[ALARM] >>> {line_str} <<<"
+        return f"\033[91;1m{banner}\033[0m" if use_color else banner
+
+    is_waiting = (
+        line_str.startswith("[WAITING_FOR_ORCHESTRATOR]")
+        or line_str.startswith("WAITING_FOR_ORCHESTRATOR")
+        or bool(re.match(r"^\[TASK\s+\d+\]\s+WAITING_FOR_ORCHESTRATOR\b", line_str))
+    )
+    if is_waiting:
+        if line_str.startswith("[WAITING_FOR_ORCHESTRATOR]"):
+            content = line_str[len("[WAITING_FOR_ORCHESTRATOR]"):].strip()
+            if content.startswith(">>>") and content.endswith("<<<"):
+                banner = line_str
+            elif content:
+                banner = f"[WAITING_FOR_ORCHESTRATOR] >>> {content} <<<"
+            else:
+                banner = "[WAITING_FOR_ORCHESTRATOR]"
+        else:
+            banner = f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<"
+        return f"\033[93;1m{banner}\033[0m" if use_color else banner
+
+    return line_str
+
+
 def monitor_execution(
     execution_name: str,
     project: Optional[str],
@@ -533,12 +579,7 @@ def monitor_execution(
                         if not line_str or line_str in seen_log_entries:
                             continue
                         seen_log_entries.add(line_str)
-                        if "[ALARM]" in line_str or "POTENTIAL_LOOP" in line_str:
-                            print(f"\033[91;1m[ALARM] >>> {line_str} <<<\033[0m", flush=True)
-                        elif "WAITING_FOR_ORCHESTRATOR" in line_str:
-                            print(f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<", flush=True)
-                        else:
-                            print(line_str, flush=True)
+                        print(format_monitored_line(line_str), flush=True)
             except Exception:
                 pass
 
@@ -609,12 +650,7 @@ def monitor_execution(
                             if not line_str or line_str in seen_log_entries:
                                 continue
                             seen_log_entries.add(line_str)
-                            if "[ALARM]" in line_str or "POTENTIAL_LOOP" in line_str:
-                                print(f"\033[91;1m[ALARM] >>> {line_str} <<<\033[0m", flush=True)
-                            elif "WAITING_FOR_ORCHESTRATOR" in line_str:
-                                print(f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<", flush=True)
-                            else:
-                                print(line_str, flush=True)
+                            print(format_monitored_line(line_str), flush=True)
                 except Exception as exc:
                     print(f"Warning: Error reading completion logs: {exc}", file=sys.stderr)
                 break
@@ -1521,7 +1557,7 @@ def main() -> None:
         harvested_patches = []
         if harvest_target is not None and gcs_bucket:
             try:
-                from result_harvester import harvest_gcs_results, harvest_candidate_patches
+                from result_harvester import harvest_candidate_patches
 
                 dest_dir = Path(".slices") / session_id
                 harvested_patches = harvest_candidate_patches(

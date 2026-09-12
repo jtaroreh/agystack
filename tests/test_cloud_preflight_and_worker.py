@@ -14,6 +14,7 @@ import cloud_worker
 import setup_runtime
 from cloud_dispatch import (
     build_gcloud_command,
+    format_monitored_line,
     monitor_execution,
     parse_milestone_log,
     parse_worker_logs,
@@ -240,6 +241,133 @@ Optimized Subtree Round 5 gating successfully.
             )
             out = mock_out.getvalue()
             self.assertIn("[Cloud Swarm] Progress: 5/5 succeeded, 0 running, 0 failed.", out)
+            self.assertIsNotNone(desc)
+
+    def test_format_monitored_line_standard(self):
+        line = "[MILESTONE] [TASK 0] [PHASE: BOOTING]"
+        self.assertEqual(format_monitored_line(line), line)
+        line2 = "[STATUS: RUNNING] Normal status update"
+        self.assertEqual(format_monitored_line(line2), line2)
+
+    def test_format_monitored_line_alarm_color_tty(self):
+        line = "[ALARM] Stagnancy detected in task 3"
+        formatted = format_monitored_line(line, use_color=True)
+        self.assertEqual(
+            formatted,
+            "\033[91;1m[ALARM] >>> Stagnancy detected in task 3 <<<\033[0m",
+        )
+        self.assertNotIn("[ALARM] >>> [ALARM]", formatted)
+
+    def test_format_monitored_line_alarm_no_color(self):
+        line = "[ALARM] Stagnancy detected in task 3"
+        formatted = format_monitored_line(line, use_color=False)
+        self.assertEqual(formatted, "[ALARM] >>> Stagnancy detected in task 3 <<<")
+        self.assertNotIn("\033[", formatted)
+        self.assertEqual(format_monitored_line("[ALARM]", use_color=False), "[ALARM]")
+
+    def test_format_monitored_line_alarm_idempotency(self):
+        already_wrapped = "[ALARM] >>> already alerted <<<"
+        self.assertEqual(
+            format_monitored_line(already_wrapped, use_color=False),
+            already_wrapped,
+        )
+        self.assertEqual(
+            format_monitored_line(already_wrapped, use_color=True),
+            f"\033[91;1m{already_wrapped}\033[0m",
+        )
+
+    def test_format_monitored_line_potential_loop(self):
+        line = "[MILESTONE] [TASK 2] [PHASE: POTENTIAL_LOOP] repeated command detected"
+        self.assertEqual(
+            format_monitored_line(line, use_color=False),
+            f"[ALARM] >>> {line} <<<",
+        )
+        self.assertEqual(
+            format_monitored_line(line, use_color=True),
+            f"\033[91;1m[ALARM] >>> {line} <<<\033[0m",
+        )
+
+    def test_format_monitored_line_no_false_positive_on_args(self):
+        line = "[MILESTONE] 1 TOOL_START grep_search {'query': 'POTENTIAL_LOOP'}"
+        self.assertEqual(format_monitored_line(line, use_color=True), line)
+        line2 = "[MILESTONE] 2 TOOL_START view_file {'path': '/some/[ALARM]/file.py'}"
+        self.assertEqual(format_monitored_line(line2, use_color=True), line2)
+        line3 = "[MILESTONE] 3 TOOL_START run_command {'command': 'echo WAITING_FOR_ORCHESTRATOR'}"
+        self.assertEqual(format_monitored_line(line3, use_color=True), line3)
+        self.assertEqual(format_monitored_line(line3, use_color=False), line3)
+
+    def test_format_monitored_line_waiting_for_orchestrator(self):
+        line = "[TASK 1] WAITING_FOR_ORCHESTRATOR steer input needed"
+        self.assertEqual(
+            format_monitored_line(line, use_color=False),
+            "[WAITING_FOR_ORCHESTRATOR] >>> [TASK 1] WAITING_FOR_ORCHESTRATOR steer input needed <<<",
+        )
+        self.assertEqual(
+            format_monitored_line(line, use_color=True),
+            "\033[93;1m[WAITING_FOR_ORCHESTRATOR] >>> [TASK 1] WAITING_FOR_ORCHESTRATOR steer input needed <<<\033[0m",
+        )
+        bare_waiting = "WAITING_FOR_ORCHESTRATOR input needed"
+        self.assertEqual(
+            format_monitored_line(bare_waiting, use_color=False),
+            "[WAITING_FOR_ORCHESTRATOR] >>> WAITING_FOR_ORCHESTRATOR input needed <<<",
+        )
+        already_wrapped = "[WAITING_FOR_ORCHESTRATOR] >>> steer needed <<<"
+        self.assertEqual(format_monitored_line(already_wrapped, use_color=False), already_wrapped)
+        self.assertEqual(
+            format_monitored_line(already_wrapped, use_color=True),
+            f"\033[93;1m{already_wrapped}\033[0m",
+        )
+
+    @patch("subprocess.run")
+    def test_monitor_execution_alarm_streaming(self, mock_subproc):
+        describe_output = json.dumps({
+            "metadata": {"name": "test-exec-alarm"},
+            "status": {
+                "conditions": [{"type": "Completed", "status": "True"}],
+                "succeededCount": 1,
+            },
+        })
+        logging_output = (
+            "[MILESTONE] [TASK 0] [PHASE: BOOTING]\n"
+            "[ALARM] Task 0 stuck in loop\n"
+            "[TASK 0] WAITING_FOR_ORCHESTRATOR needs approval\n"
+            "[MILESTONE] 0 TOOL_START grep_search {'query': 'POTENTIAL_LOOP'}\n"
+        )
+
+        def fake_run(cmd, *args, **kwargs):
+            m = MagicMock()
+            m.returncode = 0
+            if "describe" in cmd:
+                m.stdout = describe_output
+            elif "logging" in cmd:
+                m.stdout = logging_output
+            else:
+                m.stdout = ""
+            return m
+
+        mock_subproc.side_effect = fake_run
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            desc = monitor_execution(
+                execution_name="test-exec-alarm",
+                project="test-proj",
+                region="us-central1",
+                task_count=1,
+                poll_interval=0.01,
+            )
+            out = mock_out.getvalue()
+            self.assertIn("[MILESTONE] [TASK 0] [PHASE: BOOTING]", out)
+            self.assertIn("[ALARM] >>> Task 0 stuck in loop <<<", out)
+            self.assertNotIn("[ALARM] >>> [ALARM]", out)
+            self.assertIn(
+                "[WAITING_FOR_ORCHESTRATOR] >>> [TASK 0] WAITING_FOR_ORCHESTRATOR needs approval <<<",
+                out,
+            )
+            self.assertIn(
+                "[MILESTONE] 0 TOOL_START grep_search {'query': 'POTENTIAL_LOOP'}",
+                out,
+            )
+            self.assertNotIn(">>> [MILESTONE] 0 TOOL_START", out)
             self.assertIsNotNone(desc)
 
 
