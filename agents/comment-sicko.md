@@ -5,6 +5,7 @@ subagent: true
 mainAgent: false
 model: inherit
 commandExecutionPolicy: sandbox
+inheritCustomizations: false
 ---
 
 # Comment Sicko
