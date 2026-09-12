@@ -78,6 +78,52 @@ You rarely need more words. You need the right name, and [the principles page](.
 
 That's the whole prompt. [`/bro`](../../skills/bro/SKILL.md) restates the last message like one human talking to another, no jargon, shorter. Use it when a reply is technically thorough and you still don't know what it said.
 
+## Automated Code Formatting with Antigravity Lifecycle Hooks
+
+Keep generated code formatted cleanly without manual cleanup turns. Enable automatic linting and formatting on every file edit using Antigravity's `PostToolUse` lifecycle hook:
+
+```bash
+# Project-local hook
+cp hooks.json.example .agents/hooks.json
+
+# Or user-global hook
+cp hooks.json.example ~/.gemini/config/hooks.json
+```
+
+Whenever an agent uses `write_to_file` or `replace_file_content`, the hook triggers `skills/poteto-mode/scripts/hooks/post_tool_lint.py`, running `ruff format` and `ruff check --fix` on Python files, and `prettier --write` or `biome format --write` on JavaScript, TypeScript, and JSON files if installed.
+
+## Destructive Command Guard with Antigravity PreToolUse Hooks
+
+Prevent accidental catastrophic commands in interactive sessions without disrupting autonomous swarms or CI pipelines. Antigravity's `PreToolUse` lifecycle hook intercepts commands before execution and prompts for confirmation if a destructive command pattern is detected:
+
+```json
+{
+  "agystack-safety": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 skills/poteto-mode/scripts/hooks/pre_tool_safety.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook evaluates `run_command` invocations for destructive signatures:
+- Root deletion (`rm -rf /`, `--no-preserve-root`)
+- Force-pushing to protected trunk branches (`git push --force origin main`, `git push origin +master`), while explicitly allowing `--force-with-lease` on feature branches
+- Dropping databases (`drop database <name>`)
+
+When running in headless environments (`NON_INTERACTIVE="1"`, `CI="true"`, or `CLOUD_RUN_TASK_INDEX` in Cloud Run worker containers), the hook automatically bypasses and outputs `{}` to prevent hanging unattended runs or automated test suites.
+
+To activate, copy or merge `hooks.json.example` into `.agents/hooks.json` (project-local) or `~/.gemini/config/hooks.json` (user-global).
+
 ## The pitfalls
 
 - **Enumerating skills in the prompt.** "use /how then /architect then /arena" reorders steps the playbook already sequences. State the goal and constraints. Name a skill only to override a default.

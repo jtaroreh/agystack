@@ -4,6 +4,16 @@ One attempt at a hard design locks in the first shape the model thought of. `/ar
 
 ![Three robots draft competing bridge models at their own tables under /architect, /arena, and /interrogate panels, while a judge robot with a clipboard inspects skeptically.](./images/design.jpg)
 
+## Flesh out ambiguous requirements with `/grill-me`
+
+```text
+/grill-me I want to add a plugin system for storage backends, but I'm not sure where the boundaries should be.
+```
+
+When a problem statement is underspecified or you have only a rough hunch, run `/grill-me` before kicking off architecture or autonomous runs. `/grill-me` conducts an upfront, Socratic dialogue—probing constraints, non-goals, trade-offs, and failure modes—until requirements are crisp.
+
+Importantly, this is an upfront human ideation tool. Once an autonomous execution run or `/architect` begins, agents do not bounce the user with mid-run interrogation; they explore solution shapes autonomously against the grounded codebase. Use `/grill-me` early when you want the agent to challenge your assumptions before settling the architectural contract.
+
 ## Settle the shape with `/architect`
 
 ```text

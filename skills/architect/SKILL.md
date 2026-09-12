@@ -25,6 +25,9 @@ Naming a file isn't grounding. Produce the traced model `how` prescribes. If the
 
 Skip Phase A only when the work is genuinely greenfield with no surrounding system to integrate.
 
+> [!NOTE]
+> If requirements are completely ambiguous before starting `/architect`, the human can use `/grill-me` upfront to Socratic-test constraints and goals. Once `/architect` begins, the agent explores shapes autonomously against code ground truth rather than stopping to interrogate the human.
+
 ## Phase B: Sketch
 
 Run the **arena** skill with the design-sketch task and the Phase A grounding artifacts. Pass `references/runner-prompt.md` as each runner's prompt. Each candidate produces a design package shaped per `references/rationale-template.md`: the caller's usage written first, then the type sketch, function signatures, module map, and prose rationale derived from it.

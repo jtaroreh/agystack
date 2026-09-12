@@ -22,7 +22,7 @@ After these sections, attach videos or screenshots when they prove a claim. Do n
 
 **Size and stacks.** Prefer five narrow PRs to one large PR. Standard workflow uses standard git branches and `gh pr create`. For complex stacks, stacked PRs with Graphite (`gt`) are optional; keep the ordered stack visible to reviewers. Branch from main only for independent work. Rebase on `main` before substantial stack work.
 
-**Readiness.** Open every PR ready, never as a draft. Cloud-agent PR tools default to draft, so set `draft: false` on every PR creation call. If a PR still opens as a draft, run the host's ready command, such as `gh pr ready <number>`. Run `gh pr view <number>` before you refer to PR status.
+**Readiness.** Open every PR ready, never as a draft. Cloud-agent PR tools default to draft, so set `draft: false` on every PR creation call. If a PR still opens as a draft, run the host's ready command, such as `gh pr ready <number>`. Run unpiped `gh pr view <number> --json state,isDraft,url -q .url` before referring to PR status; do not use shell pipes.
 
 **Babysit.** Opening a PR does not start a babysit. Post the URL and keep building. Finish the phase or stack first. Run a separate babysit pass only when the user asks for one after the whole stack exists. A babysit for each new PR stalls the build and spends checks on commits that later waves restart. Push back when feedback drifts from intent.
 

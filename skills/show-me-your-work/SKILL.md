@@ -10,7 +10,7 @@ For work a human reviews after the fact, a decision trail lets them reconstruct 
 
 ## The format
 
-A single TSV file, one row per decision. TSV because GitHub renders it as a sortable table, `column -s$'\t' -t` and spreadsheets read it, and a row appends with one command. Cells stay single-line. Evidence is a pointer, not prose.
+A single TSV file, one row per decision. TSV because GitHub renders it as a sortable table, `column -s$'\t' -t` and spreadsheets read it, and a row appends with one command. Cells stay single-line. Evidence is a pointer, not prose. Invariant: `decisions.tsv` must contain only raw unformatted text (UUID strings, no markdown links) to preserve tabular TSV parsing and spreadsheet compatibility.
 
 Copy `references/decision-log-template.tsv` (the header row) to start a clean log. Columns:
 
@@ -41,7 +41,7 @@ Log decision points and checkpoints, not every action: a fork chosen, a unit com
 
 ## Where it lives
 
-On Antigravity, store the raw TSV log at `<appDataDir>/brain/<conversation-id>/decisions.tsv`. When presenting to the human or closing a run, render a companion markdown artifact `<appDataDir>/brain/<conversation-id>/decision_trail.md` with `ArtifactMetadata` displaying the formatted table, timeline charts, and cross-model review notes.
+On Antigravity, store the raw TSV log at `<appDataDir>/brain/<conversation-id>/decisions.tsv`. When presenting to the human or closing a run, render a companion markdown artifact `<appDataDir>/brain/<conversation-id>/decision_trail.md` with `ArtifactMetadata` displaying the formatted table, timeline charts, and cross-model review notes. Companion markdown artifacts (`decision_trail.md`) can link to referenced conversations using `[Session](conversation://<id>) (<id>)`.
 
 By default the log is a working artifact, not committed to git. Keep it in the brain store (or `.audit/<task-slug>.tsv` in the repo when several efforts run at once). Most work doesn't need a committed trail; the local artifact keeps the run honest and inspectable.
 

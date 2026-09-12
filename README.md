@@ -164,6 +164,7 @@ set it up with [`/setup-agystack`](./skills/setup-agystack/SKILL.md) with your G
 | [`/why`](./skills/why/SKILL.md) | you want to know why something was built this way. discovers available MCPs at run time and queries each evidence category in parallel (source control, issue tracker, long-form docs, real-time chat, infra observability, error tracking, analytics warehouse). |
 | [`/recall`](./skills/recall/SKILL.md) | you're starting or resuming work and want your recent context on a topic rebuilt from your own chat history and the shared record, handed back as a tight current-state brief. |
 | [`/blast-radius`](./skills/blast-radius/SKILL.md) | you have a small-looking change and want to know what else it could break, with the one fact it's safe because of proven by running code, not asserted. |
+| `/grill-me` | your requirements are underspecified or ambiguous and you want Socratic pressure testing before kicking off architecture or autonomous execution ([guide](./docs/guide/04-design.md#flesh-out-ambiguous-requirements-with-grill-me)). |
 | [`/architect`](./skills/architect/SKILL.md) | you're about to write code that crosses a function boundary and want the caller's usage, types, and module shape settled first. |
 | [`/arena`](./skills/arena/SKILL.md) | you want N parallel attempts at the same thing, then to grab the best parts of each. |
 | [`/swarm`](./skills/swarm/SKILL.md) | you want N parallel workers across different slices or races, then one aggregated report. |
@@ -216,6 +217,7 @@ figure it out:     /poteto-mode i'm stepping away. migrate every caller from the
                    right when i'm back.
 how:               /how do we cancel runs? do we have an n+1 when we look up every run to cancel?
 why:               /why is this feature flag not on yet?
+grill-me:          my idea is rough. probe my assumptions and grill me before we design anything.
 architect:         design this instrumentation to be high signal with no false positives. /architect
                    this first.
 arena:             /arena take my prompt to the arena verbatim. i want to compare their proposals
