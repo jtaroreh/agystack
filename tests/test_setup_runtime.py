@@ -2,6 +2,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -321,6 +322,142 @@ class TestSetupRuntimePythonDependencies(unittest.TestCase):
         mock_run_cmd.return_value = MagicMock(returncode=0, stdout="1.0.0\n", stderr="")
         deps = setup_runtime.check_dependencies(include_python=False)
         self.assertNotIn("google-cloud-storage", deps)
+
+
+class TestBuildAndDeployWorkerStaging(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.temp_dir.name).resolve()
+
+        self.skills_dir = self.repo_root / "skills"
+        self.swarm_scripts_dir = self.skills_dir / "swarm" / "scripts"
+        self.swarm_scripts_dir.mkdir(parents=True, exist_ok=True)
+        (self.swarm_scripts_dir / "Dockerfile").write_text("FROM python:3.11-slim\n", encoding="utf-8")
+
+        self.other_skill_dir = self.skills_dir / "poteto-mode"
+        self.other_skill_dir.mkdir(parents=True, exist_ok=True)
+        (self.other_skill_dir / "SKILL.md").write_text("# Poteto Mode\n", encoding="utf-8")
+
+        (self.skills_dir / ".git").mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+        (self.skills_dir / "__pycache__").mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / "__pycache__" / "cached.pyc").write_text("bytecode", encoding="utf-8")
+        (self.skills_dir / ".pytest_cache").mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / ".pytest_cache" / "v").write_text("cache", encoding="utf-8")
+        (self.skills_dir / ".ruff_cache").mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / ".ruff_cache" / "r").write_text("cache", encoding="utf-8")
+        (self.skills_dir / "node_modules").mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / "node_modules" / "pkg.json").write_text("{}", encoding="utf-8")
+        (self.skills_dir / ".venv").mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / ".venv" / "pyvenv.cfg").write_text("home = /bin\n", encoding="utf-8")
+        (self.skills_dir / "venv").mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / "venv" / "pyvenv.cfg").write_text("home = /bin\n", encoding="utf-8")
+
+        self.rules_dir = self.repo_root / "rules"
+        self.rules_dir.mkdir(parents=True, exist_ok=True)
+        (self.rules_dir / "AGENTS.md").write_text("# Agent Rules\n", encoding="utf-8")
+
+        self.agents_dir = self.repo_root / "agents"
+        self.agents_dir.mkdir(parents=True, exist_ok=True)
+        (self.agents_dir / "poteto-agent.md").write_text("# Poteto Agent\n", encoding="utf-8")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @patch("setup_runtime.run_cmd")
+    def test_build_and_deploy_worker_staging_no_recursion(self, mock_run_cmd):
+        observed_staged = {}
+
+        def fake_run(cmd, *args, **kwargs):
+            if len(cmd) > 2 and cmd[0:3] == ["gcloud", "builds", "submit"]:
+                staged_skills = self.swarm_scripts_dir / "skills"
+                staged_rules = self.swarm_scripts_dir / "rules"
+                staged_agents = self.swarm_scripts_dir / "agents"
+
+                observed_staged["staged_skills_exists"] = staged_skills.is_dir()
+                observed_staged["staged_rules_exists"] = staged_rules.is_dir()
+                observed_staged["staged_agents_exists"] = staged_agents.is_dir()
+                observed_staged["other_skill_copied"] = (staged_skills / "poteto-mode" / "SKILL.md").is_file()
+                observed_staged["recursion_prevented"] = not (staged_skills / "swarm" / "scripts").exists()
+                observed_staged["git_ignored"] = not (staged_skills / ".git").exists()
+                observed_staged["pycache_ignored"] = not (staged_skills / "__pycache__").exists()
+                observed_staged["pytest_cache_ignored"] = not (staged_skills / ".pytest_cache").exists()
+                observed_staged["ruff_cache_ignored"] = not (staged_skills / ".ruff_cache").exists()
+                observed_staged["node_modules_ignored"] = not (staged_skills / "node_modules").exists()
+                observed_staged["dot_venv_ignored"] = not (staged_skills / ".venv").exists()
+                observed_staged["venv_ignored"] = not (staged_skills / "venv").exists()
+                observed_staged["rules_file_copied"] = (staged_rules / "AGENTS.md").is_file()
+                observed_staged["agents_file_copied"] = (staged_agents / "poteto-agent.md").is_file()
+            return MagicMock(returncode=0, stdout="{}", stderr="")
+
+        mock_run_cmd.side_effect = fake_run
+
+        setup_runtime.build_and_deploy_worker(
+            project_id="test-proj-staging",
+            region="us-central1",
+            image_tag="us-central1-docker.pkg.dev/test-proj-staging/agystack/worker:latest",
+            scripts_dir=str(self.swarm_scripts_dir),
+            job_name="test-job",
+        )
+
+        for key, val in observed_staged.items():
+            self.assertTrue(val, f"Expected {key} to be True")
+
+        self.assertFalse((self.swarm_scripts_dir / "skills").exists())
+        self.assertFalse((self.swarm_scripts_dir / "rules").exists())
+        self.assertFalse((self.swarm_scripts_dir / "agents").exists())
+
+    @patch("setup_runtime.run_cmd")
+    def test_build_and_deploy_worker_cleans_existing_dst_first(self, mock_run_cmd):
+        stale_dst = self.swarm_scripts_dir / "skills"
+        stale_dst.mkdir(parents=True, exist_ok=True)
+        stale_file = stale_dst / "stale_leftover.txt"
+        stale_file.write_text("stale data", encoding="utf-8")
+
+        observed_stale_cleaned = {}
+
+        def fake_run(cmd, *args, **kwargs):
+            if len(cmd) > 2 and cmd[0:3] == ["gcloud", "builds", "submit"]:
+                staged_skills = self.swarm_scripts_dir / "skills"
+                observed_stale_cleaned["stale_cleaned"] = not (staged_skills / "stale_leftover.txt").exists()
+                observed_stale_cleaned["new_skill_copied"] = (staged_skills / "poteto-mode" / "SKILL.md").is_file()
+            return MagicMock(returncode=0, stdout="{}", stderr="")
+
+        mock_run_cmd.side_effect = fake_run
+
+        setup_runtime.build_and_deploy_worker(
+            project_id="test-proj-cleanup",
+            region="us-central1",
+            image_tag="us-central1-docker.pkg.dev/test-proj-cleanup/agystack/worker:latest",
+            scripts_dir=str(self.swarm_scripts_dir),
+            job_name="test-job",
+        )
+
+        self.assertTrue(observed_stale_cleaned.get("stale_cleaned"))
+        self.assertTrue(observed_stale_cleaned.get("new_skill_copied"))
+        self.assertFalse((self.swarm_scripts_dir / "skills").exists())
+
+    @patch("setup_runtime.run_cmd")
+    def test_build_and_deploy_worker_cleans_staged_dirs_on_error(self, mock_run_cmd):
+        def fake_run(cmd, *args, **kwargs):
+            if len(cmd) > 2 and cmd[0:3] == ["gcloud", "builds", "submit"]:
+                raise RuntimeError("Cloud Build failed abruptly")
+            return MagicMock(returncode=0, stdout="{}", stderr="")
+
+        mock_run_cmd.side_effect = fake_run
+
+        with self.assertRaises(RuntimeError):
+            setup_runtime.build_and_deploy_worker(
+                project_id="test-proj-error",
+                region="us-central1",
+                image_tag="us-central1-docker.pkg.dev/test-proj-error/agystack/worker:latest",
+                scripts_dir=str(self.swarm_scripts_dir),
+                job_name="test-job",
+            )
+
+        self.assertFalse((self.swarm_scripts_dir / "skills").exists())
+        self.assertFalse((self.swarm_scripts_dir / "rules").exists())
+        self.assertFalse((self.swarm_scripts_dir / "agents").exists())
 
 
 if __name__ == "__main__":

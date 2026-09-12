@@ -1,6 +1,7 @@
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -368,29 +369,39 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
     staged_dirs = []
     scripts_path = Path(scripts_dir).resolve()
     repo_root = scripts_path.parents[2] if len(scripts_path.parents) >= 3 else scripts_path
-    for folder in ("skills", "rules", "agents"):
-        src = repo_root / folder
-        dst = scripts_path / folder
-        if src.is_dir() and not dst.exists():
-            try:
-                import shutil
+    ignored_patterns = {
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        "node_modules",
+        ".venv",
+        "venv",
+    }
+    try:
+        for folder in ("skills", "rules", "agents"):
+            src = repo_root / folder
+            dst = scripts_path / folder
+            if dst.exists():
+                shutil.rmtree(dst, ignore_errors=True)
+            if src.is_dir():
+                dst_resolved = dst.resolve()
 
-                def _ignore_staging(dir_path, names):
+                def _ignore_copy(directory, contents):
+                    dir_p = Path(directory).resolve()
                     ignored = set()
-                    for name in names:
-                        full = Path(dir_path) / name
-                        if full.resolve() == dst.resolve():
-                            ignored.add(name)
-                        elif name in ("__pycache__", "node_modules", ".git"):
-                            ignored.add(name)
+                    for item in contents:
+                        if item in ignored_patterns:
+                            ignored.add(item)
+                            continue
+                        resolved_item = (dir_p / item).resolve()
+                        if resolved_item == dst_resolved or resolved_item == scripts_path:
+                            ignored.add(item)
                     return ignored
 
-                shutil.copytree(src, dst, ignore=_ignore_staging)
+                shutil.copytree(src, dst, ignore=_ignore_copy)
                 staged_dirs.append(dst)
-            except Exception:
-                pass
 
-    try:
         print("Submitting Cloud Build...")
         run_cmd([
             "gcloud", "builds", "submit",
@@ -401,7 +412,6 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
     finally:
         for staged in staged_dirs:
             try:
-                import shutil
                 shutil.rmtree(staged, ignore_errors=True)
             except Exception:
                 pass

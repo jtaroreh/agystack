@@ -56,7 +56,7 @@ class TestPostToolLintHook(unittest.TestCase):
             "toolCall": {
                 "name": "view_file",
                 "args": {
-                    "AbsolutePath": "/Users/joeltaroreh/projects/pstack-agy/README.md"
+                    "AbsolutePath": str(REPO_ROOT / "README.md")
                 },
             }
         }
