@@ -507,7 +507,7 @@ def monitor_execution(
             desc_data = json.loads(res.stdout)
             status = desc_data.get("status", {}) if isinstance(desc_data, dict) else {}
 
-            log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[MILESTONE]" OR textPayload:"[STATUS:")'
+            log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[MILESTONE]" OR textPayload:"[STATUS:" OR textPayload:"[ALARM]")'
             log_cmd = [
                 "gcloud",
                 "logging",
@@ -533,7 +533,9 @@ def monitor_execution(
                         if not line_str or line_str in seen_log_entries:
                             continue
                         seen_log_entries.add(line_str)
-                        if "WAITING_FOR_ORCHESTRATOR" in line_str:
+                        if "[ALARM]" in line_str or "POTENTIAL_LOOP" in line_str:
+                            print(f"\033[91;1m[ALARM] >>> {line_str} <<<\033[0m", flush=True)
+                        elif "WAITING_FOR_ORCHESTRATOR" in line_str:
                             print(f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<", flush=True)
                         else:
                             print(line_str, flush=True)
@@ -582,7 +584,7 @@ def monitor_execution(
                     if not failure_msg:
                         failure_msg = f"{failed} task(s) failed in Cloud Run execution"
 
-                log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[STATUS:" OR textPayload:"[MILESTONE]" OR textPayload:"Score:" OR textPayload:"PASS")'
+                log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[STATUS:" OR textPayload:"[MILESTONE]" OR textPayload:"Score:" OR textPayload:"PASS" OR textPayload:"[ALARM]")'
                 log_cmd = [
                     "gcloud",
                     "logging",
@@ -607,7 +609,12 @@ def monitor_execution(
                             if not line_str or line_str in seen_log_entries:
                                 continue
                             seen_log_entries.add(line_str)
-                            print(line_str, flush=True)
+                            if "[ALARM]" in line_str or "POTENTIAL_LOOP" in line_str:
+                                print(f"\033[91;1m[ALARM] >>> {line_str} <<<\033[0m", flush=True)
+                            elif "WAITING_FOR_ORCHESTRATOR" in line_str:
+                                print(f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<", flush=True)
+                            else:
+                                print(line_str, flush=True)
                 except Exception as exc:
                     print(f"Warning: Error reading completion logs: {exc}", file=sys.stderr)
                 break
