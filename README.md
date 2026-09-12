@@ -1,5 +1,11 @@
 # agystack
 
+[![CI](https://github.com/jtaroreh/agystack/actions/workflows/ci.yml/badge.svg)](https://github.com/jtaroreh/agystack/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Antigravity Plugin](https://img.shields.io/badge/Antigravity-Plugin-purple.svg)](https://antigravity.google)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](./pyproject.toml)
+[![Bun 1.0+](https://img.shields.io/badge/Bun-1.0%2B-orange.svg)](https://bun.sh)
+
 this was adapted by [jtaroreh](https://x.com/joeltaroreh) from [poteto](https://x.com/poteto). i saw that Antigravity had potential with its native worktree isolation, first-class artifacts, asynchronous process management, and Gemini's token speeds so i brought Cursor's pstack to it
 
 poteto "i'm not a president or ceo, but i've worked with millions of lines of code at Meta, Netflix, and Cursor. i'm also on the react core team where i help build and maintain react compiler.
@@ -26,28 +32,34 @@ this repository is **agystack**, the Antigravity port of Lauren Tan's pstack, ad
 
 Install agystack globally (for all workspaces) or locally in your project:
 
+Option A: Global install (recommended)
 ```bash
-# Option A: Global install (recommended)
 git clone https://github.com/jtaroreh/agystack.git ~/.gemini/config/plugins/agystack
+```
 
-# Option B: Workspace-local install
+Option B: Workspace-local install
+```bash
 git clone https://github.com/jtaroreh/agystack.git .agents/plugins/agystack
 ```
 
 After cloning, verify installed dependencies by running `--doctor` via `setup_runtime.py`:
 
+For global install:
 ```bash
-# For global install
 python3 ~/.gemini/config/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+```
 
-# For workspace-local install
+For workspace-local install:
+```bash
 python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+```
 
-# Or from within the repository root
+Or from within the repository root:
+```bash
 python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
 ```
 
-or honestly. you can probably just tell your chat 
+**or honestly. you can probably just tell your chat**
 ```text
 install this antigravity plugin for me: https://github.com/jtaroreh/agystack
 ```
@@ -293,11 +305,14 @@ Models are configurable too. Type [`/setup-agystack`](./skills/setup-agystack/SK
 ## development & testing
 
 Run the Python test suite:
-```bash
-# Standard library test runner (zero external dependencies required)
-python3 -m unittest discover -s tests
 
-# Or via pytest if installed
+Via standard library (zero external dependencies required):
+```bash
+python3 -m unittest discover -s tests
+```
+
+Or via pytest if installed:
+```bash
 pytest -q
 ```
 
