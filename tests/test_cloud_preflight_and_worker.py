@@ -2,27 +2,16 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "setup-agystack" / "scripts"))
-import setup_runtime
 import cloud_worker
-from cloud_worker import (
-    clean_repo_url,
-    clone_and_checkout_task,
-    download_manifest,
-    emit_milestone,
-    execute_task,
-    is_candidate_file,
-    parse_task_manifest,
-    resolve_worker_branch,
-    resolve_worker_model,
-)
+import setup_runtime
 from cloud_dispatch import (
     build_gcloud_command,
     monitor_execution,
@@ -31,6 +20,20 @@ from cloud_dispatch import (
     resolve_swarm_model,
     run_preflight,
     stage_manifest,
+)
+from cloud_worker import (
+    StagnancyTracker,
+    ToolInvocationRecord,
+    clean_repo_url,
+    clone_and_checkout_task,
+    create_agent_hooks,
+    download_manifest,
+    emit_milestone,
+    execute_task,
+    is_candidate_file,
+    parse_task_manifest,
+    resolve_worker_branch,
+    resolve_worker_model,
 )
 
 
@@ -1329,6 +1332,407 @@ class TestDispatcherPartialFailureGating(unittest.TestCase):
             print_candidate_patches_table(harvested, exec_succeeded=False, failed_count=1, allow_partial=True)
             out = mock_out.getvalue()
             self.assertIn("* Winning Candidate #1", out)
+
+
+class TestStagnancyTrackerAndHooks(unittest.TestCase):
+    def test_stagnancy_tracker_identical_calls_trigger_alarm(self):
+        tracker = StagnancyTracker()
+        rec1 = ToolInvocationRecord.create("view_file", {"path": "main.py"})
+        rec2 = ToolInvocationRecord.create("view_file", {"path": "main.py"})
+        rec3 = ToolInvocationRecord.create("view_file", {"path": "main.py"})
+
+        stagnant1, count1, warn1 = tracker.record_start(rec1)
+        self.assertFalse(stagnant1)
+        self.assertEqual(count1, 1)
+        self.assertEqual(warn1, "")
+
+        stagnant2, count2, warn2 = tracker.record_start(rec2)
+        self.assertFalse(stagnant2)
+        self.assertEqual(count2, 2)
+        self.assertEqual(warn2, "")
+
+        stagnant3, count3, warn3 = tracker.record_start(rec3)
+        self.assertTrue(stagnant3)
+        self.assertEqual(count3, 3)
+        self.assertIn("Warning", warn3)
+        self.assertIn("view_file", warn3)
+        self.assertIn("3 consecutive times", warn3)
+
+    def test_stagnancy_tracker_reset_on_arg_or_tool_change(self):
+        tracker = StagnancyTracker()
+        rec1 = ToolInvocationRecord.create("view_file", {"path": "main.py"})
+        rec2 = ToolInvocationRecord.create("view_file", {"path": "main.py"})
+        tracker.record_start(rec1)
+        tracker.record_start(rec2)
+
+        rec_diff_args = ToolInvocationRecord.create("view_file", {"path": "other.py"})
+        stagnant, count, _ = tracker.record_start(rec_diff_args)
+        self.assertFalse(stagnant)
+        self.assertEqual(count, 1)
+
+        rec_diff_tool = ToolInvocationRecord.create("run_command", {"command": "pytest"})
+        stagnant_tool, count_tool, _ = tracker.record_start(rec_diff_tool)
+        self.assertFalse(stagnant_tool)
+        self.assertEqual(count_tool, 1)
+
+    def test_stagnancy_tracker_record_start_never_cancels_or_raises(self):
+        tracker = StagnancyTracker()
+        stagnant, count, warn = tracker.record_start(None)
+        self.assertFalse(stagnant)
+        self.assertEqual(count, 1)
+
+        rec = ToolInvocationRecord.create("view_file", {"path": "main.py"})
+        for i in range(1, 15):
+            stagnant, count, _ = tracker.record_start(rec)
+            self.assertEqual(count, i)
+            if i >= 3:
+                self.assertTrue(stagnant)
+
+    def test_create_agent_hooks_abort_on_steer_instruction(self):
+        class FakeHookResult:
+            def __init__(self, allow=True, error_message="", custom_context=""):
+                self.allow = allow
+                self.error_message = error_message
+                self.custom_context = custom_context
+
+        class FakeHooks:
+            def pre_tool_call_decide(self, fn):
+                return fn
+
+            def post_tool_call(self, fn):
+                return fn
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+        fake_types.HookResult = FakeHookResult
+
+        mock_messenger = MagicMock()
+        mock_messenger.check_steer_instructions.return_value = ["ABORT immediately requested by orchestrator"]
+
+        tracker = StagnancyTracker()
+        hooks_list = create_agent_hooks(
+            messenger=mock_messenger,
+            task_index=2,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        self.assertEqual(len(hooks_list), 2)
+        pre_hook, _ = hooks_list
+
+        tool_call = MagicMock()
+        tool_call.name = "run_command"
+        tool_call.args = {"command": "rm -rf /tmp/test"}
+
+        import asyncio
+
+        with patch("cloud_worker.emit_milestone") as mock_milestone:
+            res = asyncio.run(pre_hook(tool_call))
+            self.assertFalse(res.allow)
+            self.assertIn("Execution aborted by orchestrator", res.error_message)
+            mock_milestone.assert_any_call(2, "ABORT_REQUESTED", "ABORT immediately requested by orchestrator")
+
+    def test_create_agent_hooks_allows_tool_and_emits_milestones(self):
+        class FakeHookResult:
+            def __init__(self, allow=True, error_message="", custom_context=""):
+                self.allow = allow
+                self.error_message = error_message
+                self.custom_context = custom_context
+
+        class FakeHooks:
+            def pre_tool_call_decide(self, fn):
+                return fn
+
+            def post_tool_call(self, fn):
+                return fn
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+        fake_types.HookResult = FakeHookResult
+
+        tracker = StagnancyTracker()
+        hooks_list = create_agent_hooks(
+            messenger=None,
+            task_index=1,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        pre_hook, post_hook = hooks_list
+
+        tool_call = MagicMock()
+        tool_call.name = "grep_search"
+        tool_call.args = {"query": "TODO"}
+
+        import asyncio
+
+        with patch("cloud_worker.emit_milestone") as mock_milestone:
+            res = asyncio.run(pre_hook(tool_call))
+            self.assertTrue(res.allow)
+            mock_milestone.assert_any_call(1, "TOOL_START", "grep_search: query='TODO'")
+
+            data = MagicMock()
+            data.name = "grep_search"
+            data.args = {"query": "TODO"}
+            data.output = "match found"
+            asyncio.run(post_hook(data))
+            tool_end_calls = [c for c in mock_milestone.call_args_list if c[0][1] == "TOOL_END"]
+            self.assertTrue(len(tool_end_calls) > 0)
+            self.assertIn("grep_search in", tool_end_calls[0][0][2])
+
+    def test_create_agent_hooks_emits_tool_error_milestone(self):
+        class FakeHooks:
+            def pre_tool_call_decide(self, fn):
+                return fn
+
+            def post_tool_call(self, fn):
+                return fn
+
+            def on_tool_error(self, fn):
+                return fn
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+
+        tracker = StagnancyTracker()
+        hooks_list = create_agent_hooks(
+            messenger=None,
+            task_index=5,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        self.assertEqual(len(hooks_list), 3)
+        on_error_hook = hooks_list[2]
+
+        import asyncio
+
+        with patch("cloud_worker.emit_milestone") as mock_milestone:
+            err = FileNotFoundError("No such file: foo.md")
+            asyncio.run(on_error_hook(err))
+            mock_milestone.assert_any_call(5, "TOOL_ERROR", "No such file: foo.md")
+
+    def test_post_tool_call_raw_string_resolves_in_flight(self):
+        class FakeHookResult:
+            def __init__(self, allow=True, error_message="", custom_context=""):
+                self.allow = allow
+                self.error_message = error_message
+                self.custom_context = custom_context
+
+        class FakeHooks:
+            def pre_tool_call_decide(self, fn):
+                return fn
+
+            def post_tool_call(self, fn):
+                return fn
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+        fake_types.HookResult = FakeHookResult
+
+        tracker = StagnancyTracker()
+        hooks_list = create_agent_hooks(
+            messenger=None,
+            task_index=3,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        pre_hook, post_hook = hooks_list
+
+        tool_call = MagicMock()
+        tool_call.name = "read_file"
+        tool_call.args = {"path": "config.json"}
+
+        import asyncio
+
+        with patch("cloud_worker.emit_milestone") as mock_milestone:
+            res = asyncio.run(pre_hook(tool_call))
+            self.assertTrue(res.allow)
+            mock_milestone.assert_any_call(3, "TOOL_START", "read_file: path='config.json'")
+
+            raw_output = '{"status": "ok"}'
+            asyncio.run(post_hook(raw_output))
+
+            tool_end_calls = [c for c in mock_milestone.call_args_list if c[0][1] == "TOOL_END"]
+            self.assertEqual(len(tool_end_calls), 1)
+            self.assertIn("read_file in", tool_end_calls[0][0][2])
+
+            self.assertEqual(len(tracker.window), 1)
+            rec = tracker.window[0]
+            self.assertEqual(rec.tool_name, "read_file")
+            self.assertTrue(rec.success)
+            self.assertGreaterEqual(rec.duration_s, 0.0)
+            self.assertNotEqual(rec.output_hash, "")
+
+    def test_post_tool_call_structured_object(self):
+        class FakeHookResult:
+            def __init__(self, allow=True, error_message="", custom_context=""):
+                self.allow = allow
+                self.error_message = error_message
+                self.custom_context = custom_context
+
+        class FakeHooks:
+            def pre_tool_call_decide(self, fn):
+                return fn
+
+            def post_tool_call(self, fn):
+                return fn
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+        fake_types.HookResult = FakeHookResult
+
+        tracker = StagnancyTracker()
+        hooks_list = create_agent_hooks(
+            messenger=None,
+            task_index=4,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        pre_hook, post_hook = hooks_list
+
+        tool_call = MagicMock()
+        tool_call.name = "list_directory"
+        tool_call.args = {"dir": "src"}
+
+        import asyncio
+
+        with patch("cloud_worker.emit_milestone") as mock_milestone:
+            asyncio.run(pre_hook(tool_call))
+
+            data = MagicMock()
+            data.name = "list_directory"
+            data.output = ["a.py", "b.py"]
+            data.error = None
+
+            asyncio.run(post_hook(data))
+
+            tool_end_calls = [c for c in mock_milestone.call_args_list if c[0][1] == "TOOL_END"]
+            self.assertEqual(len(tool_end_calls), 1)
+            self.assertIn("list_directory in", tool_end_calls[0][0][2])
+
+            self.assertEqual(len(tracker.window), 1)
+            rec = tracker.window[0]
+            self.assertEqual(rec.tool_name, "list_directory")
+            self.assertTrue(rec.success)
+            self.assertGreaterEqual(rec.duration_s, 0.0)
+
+    def test_on_tool_error_pops_in_flight_and_records_failure(self):
+        class FakeHookResult:
+            def __init__(self, allow=True, error_message="", custom_context=""):
+                self.allow = allow
+                self.error_message = error_message
+                self.custom_context = custom_context
+
+        class FakeHooks:
+            def pre_tool_call_decide(self, fn):
+                return fn
+
+            def post_tool_call(self, fn):
+                return fn
+
+            def on_tool_error(self, fn):
+                return fn
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+        fake_types.HookResult = FakeHookResult
+
+        tracker = StagnancyTracker()
+        hooks_list = create_agent_hooks(
+            messenger=None,
+            task_index=2,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        self.assertEqual(len(hooks_list), 3)
+        pre_hook, _, on_error_hook = hooks_list
+
+        tool_call = MagicMock()
+        tool_call.name = "failing_tool"
+        tool_call.args = {"x": 1}
+
+        import asyncio
+
+        with patch("cloud_worker.emit_milestone") as mock_milestone:
+            asyncio.run(pre_hook(tool_call))
+            err = RuntimeError("Process terminated with code 1")
+            res = asyncio.run(on_error_hook(err))
+            self.assertIsNone(res)
+
+            mock_milestone.assert_any_call(
+                2, "TOOL_ERROR", "failing_tool: Process terminated with code 1"
+            )
+
+            self.assertEqual(len(tracker.window), 1)
+            rec = tracker.window[0]
+            self.assertEqual(rec.tool_name, "failing_tool")
+            self.assertFalse(rec.success)
+            self.assertGreaterEqual(rec.duration_s, 0.0)
+
+    def test_pre_tool_call_steer_custom_context_passed_to_hook_result(self):
+        class FakeHookResult:
+            def __init__(self, allow=True, error_message="", custom_context=""):
+                self.allow = allow
+                self.error_message = error_message
+                self.custom_context = custom_context
+
+        class FakeHooks:
+            def pre_tool_call_decide(self, fn):
+                return fn
+
+            def post_tool_call(self, fn):
+                return fn
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+        fake_types.HookResult = FakeHookResult
+
+        mock_messenger = MagicMock()
+        mock_messenger.check_steer_instructions.return_value = ["Focus on fixing parsing logic in parser.py"]
+
+        tracker = StagnancyTracker()
+        hooks_list = create_agent_hooks(
+            messenger=mock_messenger,
+            task_index=0,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        pre_hook, _ = hooks_list
+
+        tool_call = MagicMock()
+        tool_call.name = "run_command"
+        tool_call.args = {"command": "cargo test"}
+
+        import asyncio
+
+        with patch("cloud_worker.emit_milestone") as mock_milestone:
+            res = asyncio.run(pre_hook(tool_call))
+            self.assertTrue(res.allow)
+            self.assertEqual(res.custom_context, "Focus on fixing parsing logic in parser.py")
+            mock_milestone.assert_any_call(
+                0, "STEER_APPLIED", "Focus on fixing parsing logic in parser.py"
+            )
+
+    def test_command_task_timeout_handling(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_dir = Path(tmp_dir)
+            with patch.dict(os.environ, {"COMMAND_TIMEOUT": "5"}), patch(
+                "subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="sleep 100", timeout=5)
+            ):
+                status, output = execute_task(
+                    task_item={"type": "command", "command": "sleep 100"},
+                    task_brief="Run long command",
+                    repo_dir=repo_dir,
+                    model_override="flash",
+                    api_key="test-key",
+                )
+                self.assertEqual(status, "ISSUES")
+                self.assertEqual(output, "Command timed out after 5 seconds: sleep 100")
 
 
 if __name__ == "__main__":

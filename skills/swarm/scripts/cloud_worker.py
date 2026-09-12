@@ -8,6 +8,8 @@ delivers candidate patches via GCS under zero-push architecture,
 and outputs a structured report.
 """
 
+from dataclasses import dataclass, field
+import hashlib
 import json
 import os
 import re
@@ -15,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,6 +45,254 @@ def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     if detail:
         msg += f" {detail}"
     print(msg, flush=True)
+
+
+@dataclass
+class ToolInvocationRecord:
+    tool_name: str
+    args_hash: str
+    output_hash: str = ""
+    timestamp: float = field(default_factory=time.time)
+    duration_s: float = 0.0
+    success: bool = True
+    args_summary: str = ""
+
+    @classmethod
+    def create(cls, tool_name: str, args: Any = None) -> "ToolInvocationRecord":
+        args = args if args is not None else {}
+        try:
+            canonical = json.dumps(args, sort_keys=True, default=str)
+        except Exception:
+            canonical = str(args)
+        args_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+        if isinstance(args, dict):
+            args_summary = ", ".join(f"{k}={v!r}" for k, v in args.items())
+        else:
+            args_summary = str(args)
+        return cls(
+            tool_name=tool_name,
+            args_hash=args_hash,
+            output_hash="",
+            timestamp=time.time(),
+            duration_s=0.0,
+            success=True,
+            args_summary=args_summary,
+        )
+
+
+class StagnancyTracker:
+    def __init__(self, window_size: int = 10):
+        self.window_size = window_size
+        self.window: List[ToolInvocationRecord] = []
+        self._last_key: Optional[Tuple[str, str]] = None
+        self._consecutive_count: int = 0
+
+    def record_start(self, record: Any) -> Tuple[bool, int, str]:
+        try:
+            if not isinstance(record, ToolInvocationRecord):
+                return False, 1, ""
+
+            key = (record.tool_name, record.args_hash)
+            if self._last_key == key:
+                self._consecutive_count += 1
+            else:
+                self._last_key = key
+                self._consecutive_count = 1
+
+            self.window.append(record)
+            if len(self.window) > self.window_size:
+                self.window.pop(0)
+
+            is_stagnant = self._consecutive_count >= 3
+            warning = ""
+            if is_stagnant:
+                warning = (
+                    f"Warning: Tool '{record.tool_name}' has been executed {self._consecutive_count} "
+                    f"consecutive times with identical arguments. You may be stuck in a loop; "
+                    f"consider trying an alternative tool or different parameters."
+                )
+            return is_stagnant, self._consecutive_count, warning
+        except Exception:
+            return False, 1, ""
+
+    def record_result(
+        self,
+        tool_name: str,
+        args_hash: str,
+        output: Any,
+        success: bool,
+        duration_s: float,
+    ) -> None:
+        try:
+            out_str = output if isinstance(output, str) else str(output)
+            out_hash = hashlib.sha256(out_str.encode("utf-8")).hexdigest()[:12]
+            for rec in reversed(self.window):
+                if rec.tool_name == tool_name and rec.args_hash == args_hash:
+                    rec.output_hash = out_hash
+                    rec.success = success
+                    rec.duration_s = duration_s
+                    break
+        except Exception:
+            pass
+
+
+def create_agent_hooks(
+    messenger: Optional[Any],
+    task_index: int,
+    tracker: StagnancyTracker,
+    hooks_module: Optional[Any] = None,
+    types_module: Optional[Any] = None,
+) -> List[Any]:
+    h = hooks_module
+    t = types_module
+    if h is None or t is None:
+        try:
+            from google.antigravity.hooks import hooks as mod_hooks
+            from google.antigravity import types as mod_types
+
+            h = h or mod_hooks
+            t = t or mod_types
+        except (ImportError, AttributeError):
+            pass
+
+    if h is None or t is None:
+        return []
+
+    in_flight: List[Dict[str, Any]] = []
+
+    @h.pre_tool_call_decide
+    async def pre_tool_call_decide(tool_call: Any) -> Any:
+        steer_context = None
+        if messenger and hasattr(messenger, "check_steer_instructions"):
+            try:
+                steer_envelopes = messenger.check_steer_instructions() or []
+            except Exception:
+                steer_envelopes = []
+            for item in steer_envelopes:
+                instruction = ""
+                if isinstance(item, str):
+                    instruction = item
+                elif isinstance(item, dict):
+                    instruction = item.get("instruction") or item.get("text") or ""
+                elif hasattr(item, "payload") and isinstance(item.payload, dict):
+                    instruction = item.payload.get("instruction") or item.payload.get("text") or ""
+                elif hasattr(item, "instruction"):
+                    instruction = getattr(item, "instruction", "")
+
+                if not instruction:
+                    continue
+
+                trimmed = instruction.strip()
+                if trimmed.startswith("ABORT") or trimmed.startswith("CANCEL"):
+                    emit_milestone(task_index, "ABORT_REQUESTED", instruction)
+                    try:
+                        return t.HookResult(
+                            allow=False,
+                            error_message=f"Execution aborted by orchestrator: {instruction}",
+                        )
+                    except TypeError:
+                        return t.HookResult(allow=False)
+                else:
+                    emit_milestone(task_index, "STEER_APPLIED", instruction)
+                    steer_context = instruction
+
+        tool_name = getattr(tool_call, "name", "tool")
+        tool_args = getattr(tool_call, "args", {})
+        record = ToolInvocationRecord.create(tool_name, tool_args)
+        is_stagnant, count, warning = tracker.record_start(record)
+        in_flight.append({
+            "tool_name": tool_name,
+            "args_hash": record.args_hash,
+            "t0": time.time(),
+            "id": id(tool_call),
+        })
+
+        emit_milestone(task_index, "TOOL_START", f"{tool_name}: {record.args_summary[:60]}")
+
+        if is_stagnant:
+            emit_milestone(task_index, "POTENTIAL_LOOP", f"{tool_name} (repeated {count}x)")
+            print(
+                f"[ALARM] [TASK {task_index}] [POTENTIAL_LOOP] Tool '{tool_name}' repeated {count} times with identical inputs.",
+                flush=True,
+            )
+            try:
+                return t.HookResult(allow=True, custom_context=warning)
+            except TypeError:
+                return t.HookResult(allow=True)
+
+        if steer_context:
+            try:
+                return t.HookResult(allow=True, custom_context=steer_context)
+            except TypeError:
+                return t.HookResult(allow=True)
+
+        return t.HookResult(allow=True)
+
+    @h.post_tool_call
+    async def post_tool_call(data: Any) -> None:
+        matched = None
+        call_obj = getattr(data, "call", None)
+        data_id = getattr(data, "id", None) or (getattr(call_obj, "id", None) if call_obj else None)
+        data_name = getattr(data, "name", getattr(data, "tool_name", None))
+        if data_name is None and call_obj is not None:
+            data_name = getattr(call_obj, "name", getattr(call_obj, "tool_name", None))
+
+        match_idx = -1
+        for idx, entry in enumerate(in_flight):
+            if data_id is not None and entry.get("id") == data_id:
+                match_idx = idx
+                break
+            if entry.get("id") == id(data) or (call_obj is not None and entry.get("id") == id(call_obj)):
+                match_idx = idx
+                break
+            if data_name and entry.get("tool_name") == data_name:
+                match_idx = idx
+                break
+
+        if match_idx != -1:
+            matched = in_flight.pop(match_idx)
+        elif in_flight:
+            matched = in_flight.pop(0)
+
+        if matched:
+            tool_name = matched["tool_name"]
+            args_hash = matched["args_hash"]
+            t0 = matched.get("t0")
+            duration_s = max(0.0, time.time() - t0) if t0 is not None else 0.0
+        else:
+            tool_name = getattr(data, "name", getattr(data, "tool_name", "tool"))
+            args_hash = ""
+            duration_s = 0.0
+
+        output = getattr(data, "output", getattr(data, "result", data))
+        error = getattr(data, "error", None)
+        success = (error is None) and not isinstance(data, Exception)
+
+        tracker.record_result(tool_name, args_hash, output, success, duration_s)
+        emit_milestone(task_index, "TOOL_END", f"{tool_name} in {duration_s:.1f}s")
+
+    hooks_to_register = [pre_tool_call_decide, post_tool_call]
+    if hasattr(h, "on_tool_error"):
+        @h.on_tool_error
+        async def on_tool_error(error: Any) -> Any:
+            if in_flight:
+                matched = in_flight.pop(0)
+                t0 = matched.get("t0")
+                duration_s = max(0.0, time.time() - t0) if t0 is not None else 0.0
+                tracker.record_result(
+                    matched["tool_name"],
+                    matched["args_hash"],
+                    str(error),
+                    False,
+                    duration_s,
+                )
+                emit_milestone(task_index, "TOOL_ERROR", f"{matched['tool_name']}: {str(error)[:60]}")
+            else:
+                emit_milestone(task_index, "TOOL_ERROR", str(error)[:80])
+            return None
+        hooks_to_register.append(on_tool_error)
+
+    return hooks_to_register
 
 
 def create_ask_orchestrator_tool(
@@ -564,18 +815,23 @@ def execute_task(
 
         emit_milestone(task_index, "RUNNING_COMMAND", cmd_str)
         print(f"Executing command task: {cmd_str}", flush=True)
-        res = subprocess.run(
-            cmd_str,
-            shell=True,
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-        )
-        if res.returncode == 0:
-            return "PASS", res.stdout
-        else:
-            err_msg = res.stderr if res.stderr else res.stdout
-            return "ISSUES", err_msg
+        timeout = int(os.environ.get("COMMAND_TIMEOUT", "900"))
+        try:
+            res = subprocess.run(
+                cmd_str,
+                shell=True,
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if res.returncode == 0:
+                return "PASS", res.stdout
+            else:
+                err_msg = res.stderr if res.stderr else res.stdout
+                return "ISSUES", err_msg
+        except subprocess.TimeoutExpired:
+            return "ISSUES", f"Command timed out after {timeout} seconds: {cmd_str}"
 
     # General Agent Execution using Google Antigravity SDK
     resolved_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
@@ -584,6 +840,12 @@ def execute_task(
         import asyncio
         import google.antigravity as antigravity
         from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig, policy
+        try:
+            from google.antigravity.hooks import hooks
+            from google.antigravity import types
+        except (ImportError, AttributeError):
+            hooks = None
+            types = None
 
         capabilities = CapabilitiesConfig(
             allow_file_write=True,
@@ -592,6 +854,7 @@ def execute_task(
         )
         policies = [policy.allow_all()]
 
+        tracker = StagnancyTracker()
         custom_tools = []
         if messenger:
             ask_tool = create_ask_orchestrator_tool(
@@ -610,6 +873,17 @@ def execute_task(
         }
         if custom_tools:
             config_kwargs["custom_tools"] = custom_tools
+
+        if hooks is not None and types is not None:
+            agent_hooks = create_agent_hooks(
+                messenger=messenger,
+                task_index=task_index,
+                tracker=tracker,
+                hooks_module=hooks,
+                types_module=types,
+            )
+            if agent_hooks:
+                config_kwargs["hooks"] = agent_hooks
 
         if use_vertex:
             resolved_project = (
@@ -639,11 +913,12 @@ def execute_task(
             emit_milestone(task_index, "AGENT_FALLBACK", f"Dropped optional capabilities: {exc}")
             print(
                 f"Warning: LocalAgentConfig initialization failed with TypeError ({exc}). "
-                "Dropping custom_tools and system_prompt for fallback compatibility.",
+                "Dropping custom_tools, system_prompt, and hooks for fallback compatibility.",
                 file=sys.stderr,
             )
             config_kwargs.pop("custom_tools", None)
             config_kwargs.pop("system_prompt", None)
+            config_kwargs.pop("hooks", None)
             config = LocalAgentConfig(**config_kwargs)
 
         async def _run_agent_turn() -> str:
@@ -665,6 +940,14 @@ def main() -> None:
         task_index = int(task_index_str)
     except ValueError:
         task_index = 0
+
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format=f"[MILESTONE] [TASK {task_index}] [PHASE: %(levelname)s] %(name)s: %(message)s",
+        force=True,
+    )
 
     emit_milestone(task_index, "BOOTING")
 
@@ -870,18 +1153,25 @@ def main() -> None:
         emit_milestone(task_index, "VALIDATING_CANDIDATE")
         if verify_cmd_str:
             print(f"Running verification command: {verify_cmd_str}", flush=True)
-            test_check = subprocess.run(
-                verify_cmd_str,
-                shell=True,
-                cwd=repo_dir,
-                capture_output=True,
-                text=True,
-            )
-            if test_check.returncode != 0:
+            verify_timeout = int(os.environ.get("VERIFY_TIMEOUT", "300"))
+            try:
+                test_check = subprocess.run(
+                    verify_cmd_str,
+                    shell=True,
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=verify_timeout,
+                )
+                if test_check.returncode != 0:
+                    agent_status = "ISSUES"
+                    err_snippet = (test_check.stderr.strip() or test_check.stdout.strip())[-500:]
+                    diff_stat = f"Commit rejected: Candidate failed verification command (exit code {test_check.returncode}): {err_snippet}"
+                    print(f"Warning: Candidate modifications failed verification command (exit code {test_check.returncode}). Commit blocked.", file=sys.stderr)
+            except subprocess.TimeoutExpired:
                 agent_status = "ISSUES"
-                err_snippet = (test_check.stderr.strip() or test_check.stdout.strip())[-500:]
-                diff_stat = f"Commit rejected: Candidate failed verification command (exit code {test_check.returncode}): {err_snippet}"
-                print(f"Warning: Candidate modifications failed verification command (exit code {test_check.returncode}). Commit blocked.", file=sys.stderr)
+                diff_stat = f"Commit rejected: Candidate verification command timed out after {verify_timeout}s."
+                print(f"Warning: Candidate verification command timed out after {verify_timeout}s. Commit blocked.", file=sys.stderr)
 
         if agent_status == "PASS":
             try:

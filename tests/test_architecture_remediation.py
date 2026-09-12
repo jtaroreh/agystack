@@ -678,15 +678,19 @@ class TestArchitectureRemediation(unittest.TestCase):
             (repo_dir / "app.py").write_text("v2", encoding="utf-8")
             return ("PASS", "Work completed successfully")
 
-        with patch.dict(os.environ, env, clear=True):
-            with patch("cloud_worker.clone_and_checkout_task", side_effect=fake_clone):
-                with patch("cloud_worker.execute_task", side_effect=fake_execute):
-                    import io
-                    with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-                        cloud_worker.main()
-                        out = mock_out.getvalue()
-                        self.assertIn("[STATUS: ISSUES]", out)
-                        self.assertIn("Fail-closed: No GCS bucket configured", out)
+        orig_cwd = os.getcwd()
+        try:
+            with patch.dict(os.environ, env, clear=True):
+                with patch("cloud_worker.clone_and_checkout_task", side_effect=fake_clone):
+                    with patch("cloud_worker.execute_task", side_effect=fake_execute):
+                        import io
+                        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                            cloud_worker.main()
+                            out = mock_out.getvalue()
+                            self.assertIn("[STATUS: ISSUES]", out)
+                            self.assertIn("Fail-closed: No GCS bucket configured", out)
+        finally:
+            os.chdir(orig_cwd)
 
 
 if __name__ == "__main__":
