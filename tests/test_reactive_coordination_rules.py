@@ -97,13 +97,21 @@ class TestReactiveCoordinationRules(unittest.TestCase):
     def test_agents_md_scopes_cloud_swarm_liveness(self):
         agents_file = RULES_DIR / "AGENTS.md"
         content = agents_file.read_text(encoding="utf-8")
+        self.assertIn("Primitive Boundary:", content)
+        self.assertIn(
+            "Active heartbeat polling (every 60-120s) applies strictly to external CLI/Cloud Run subprocesses (`run_command`, `cloud_dispatch.py`), NEVER to local Antigravity subagents (`invoke_subagent`).",
+            content,
+        )
+
+        swarm_file = SKILLS_DIR / "swarm" / "SKILL.md"
+        swarm_content = swarm_file.read_text(encoding="utf-8")
         self.assertIn(
             "Active Liveness & Non-Blocking Monitoring (Cloud Run Swarms Only):",
-            content,
+            swarm_content,
         )
         self.assertIn(
             "NEVER applies to native local Antigravity subagents (`invoke_subagent`)",
-            content,
+            swarm_content,
         )
 
     def test_reviewer_prompt_has_send_message_contract(self):
@@ -189,8 +197,8 @@ class TestReactiveCoordinationRules(unittest.TestCase):
         agents_file = RULES_DIR / "AGENTS.md"
         content = agents_file.read_text(encoding="utf-8")
         self.assertIn("Non-Trivial Delegation Threshold", content)
-        self.assertIn("<= 3 lines", content)
-        self.assertIn("> 15 lines", content)
+        self.assertIn("<= 50 lines", content)
+        self.assertIn("> 50 lines", content)
         self.assertIn("poteto-agent", content)
         self.assertIn("User override", content)
 

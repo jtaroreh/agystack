@@ -149,10 +149,10 @@ Enforce the Coordinator Code Delegation Invariant deterministically. Antigravity
 
 The hook intercepts `write_to_file` and `replace_file_content` to keep coordinator contexts clean:
 - Permits markdown deliverables (`*.md`, `*.markdown`) and scratch/slice files (`scratch/*`, `.slices/*`) immediately.
-- Permits trivial surgical edits (<= 3 lines of code) directly.
+- Permits trivial surgical edits (<= 50 lines of code on a single existing file) directly.
 - Bypasses checks for active subagents (`SUBAGENT=1`, `IS_SUBAGENT=1`, or child transcript detection).
 - In headless/CI environments (`NON_INTERACTIVE="1"`, `CI="1"`, `CLOUD_RUN_TASK_INDEX`), rejects non-trivial direct code writes (`decision: reject`) unless subagents are disabled (`HEADLESS_NO_SUBAGENTS="1"`).
-- In interactive sessions, prompts the user (`decision: force_ask`) on non-trivial writes (>15 lines or creating new source files), preventing accidental coordinator bloat while providing an override when direct execution is explicitly desired.
+- In interactive sessions, prompts the user (`decision: force_ask`) on non-trivial writes (>50 lines on single existing files or creating new source files), preventing accidental coordinator bloat while providing an override when direct execution is explicitly desired.
 
 ## The pitfalls
 

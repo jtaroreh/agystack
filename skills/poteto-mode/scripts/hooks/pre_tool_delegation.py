@@ -2,7 +2,7 @@
 """
 Antigravity PreToolUse lifecycle hook for coordinator code delegation.
 Intercepts direct write_to_file and replace_file_content tool calls in coordinator sessions
-and enforces delegation of non-trivial code edits (>15 lines or new source files) to poteto-agent.
+and enforces delegation of non-trivial code edits (>50 lines or new source files) to poteto-agent.
 Outputs {} and exits 0 on all safe/allowed code paths. Never crashes.
 """
 
@@ -153,16 +153,16 @@ def evaluate_delegation(
     except Exception:
         is_existing_file = False
 
-    # Trivial check (<= 3 lines on existing file)
-    if line_count <= 3 and is_existing_file:
+    # Trivial check (<= 50 lines on existing file)
+    if line_count <= 50 and is_existing_file:
         return {}
 
     # Subagent check
     if is_subagent_environment() or is_subagent_transcript(transcript_path):
         return {}
 
-    # Non-trivial check (>15 lines or creating a new non-scratch source file)
-    is_non_trivial = (line_count > 15) or (
+    # Non-trivial check (>50 lines or creating a new non-scratch source file)
+    is_non_trivial = (line_count > 50) or (
         tool_name == "write_to_file" and not is_existing_file
     )
 
@@ -177,7 +177,7 @@ def evaluate_delegation(
             "decision": "reject",
             "reason": (
                 "Coordinator Code Delegation Invariant: Non-trivial source code modifications "
-                "(>15 lines or new source files) must be delegated to a poteto-agent subagent via invoke_subagent."
+                "(>50 lines or new source files) must be delegated to a poteto-agent subagent via invoke_subagent."
             ),
         }
 
@@ -186,7 +186,7 @@ def evaluate_delegation(
         "decision": "force_ask",
         "reason": (
             "Coordinator Code Delegation Invariant: Non-trivial source code modification "
-            "(>15 lines or new source files) detected in coordinator session. Confirm direct execution or delegate "
+            "(>50 lines or new source files) detected in coordinator session. Confirm direct execution or delegate "
             "to poteto-agent via invoke_subagent."
         ),
     }

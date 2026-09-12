@@ -469,7 +469,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
             existing_file = Path(tmp_dir) / "target_mod.py"
             existing_file.write_text("orig\n", encoding="utf-8")
-            large_target_content = "\n".join(f"line_{i} = {i}" for i in range(20))
+            large_target_content = "\n".join(f"line_{i} = {i}" for i in range(60))
             payload = {
                 "toolCall": {
                     "name": "replace_file_content",
@@ -490,7 +490,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
             existing_file = Path(tmp_dir) / "mod.py"
             existing_file.write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")
 
-            for lines_count in [1, 2, 3]:
+            for lines_count in [1, 2, 3, 25, 50]:
                 content = "\n".join(f"val_{i} = {i}" for i in range(lines_count))
                 with self.subTest(lines_count=lines_count):
                     payload = {
@@ -507,7 +507,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_nontrivial_code_edits_interactive_force_ask(self):
-        large_code = "\n".join(f"def func_{i}(): pass" for i in range(20))
+        large_code = "\n".join(f"def func_{i}(): pass" for i in range(60))
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
             existing_file = Path(tmp_dir) / "existing.py"
             existing_file.write_text("def base(): pass\n", encoding="utf-8")
@@ -548,7 +548,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
             )
 
     def test_nontrivial_code_edits_headless_reject(self):
-        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
         headless_envs = [
             {"NON_INTERACTIVE": "1"},
             {"CI": "1"},
@@ -575,6 +575,24 @@ class TestPreToolDelegationHook(unittest.TestCase):
                         "Coordinator Code Delegation Invariant",
                         parsed.get("reason", ""),
                     )
+
+    def test_forty_five_line_helper_replacement_allowed(self):
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            existing_file = Path(tmp_dir) / "helper.py"
+            existing_file.write_text("def helper():\n    pass\n", encoding="utf-8")
+            helper_replacement = "\n".join(f"    line_{i} = {i}" for i in range(45))
+            payload = {
+                "toolCall": {
+                    "name": "replace_file_content",
+                    "args": {
+                        "TargetFile": str(existing_file),
+                        "ReplacementContent": f"def helper():\n{helper_replacement}\n",
+                    },
+                }
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_cloud_run_task_permits_writes(self):
         large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
