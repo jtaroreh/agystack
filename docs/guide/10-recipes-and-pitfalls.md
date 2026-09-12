@@ -124,6 +124,36 @@ When running in headless environments (`NON_INTERACTIVE="1"`, `CI="true"`, or `C
 
 To activate, copy or merge `hooks.json.example` into `.agents/hooks.json` (project-local) or `~/.gemini/config/hooks.json` (user-global).
 
+## Coordinator Code Delegation Guard with Antigravity PreToolUse Hooks
+
+Enforce the Coordinator Code Delegation Invariant deterministically. Antigravity's `PreToolUse` lifecycle hook intercepts direct code modification attempts by coordinator sessions and prompts for confirmation or delegates to a `poteto-agent` subagent:
+
+```json
+{
+  "agystack-delegation": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.gemini/config/plugins/agystack/skills/poteto-mode/scripts/hooks/pre_tool_delegation.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook intercepts `write_to_file` and `replace_file_content` to keep coordinator contexts clean:
+- Permits markdown deliverables (`*.md`, `*.markdown`) and scratch/slice files (`scratch/*`, `.slices/*`) immediately.
+- Permits trivial surgical edits (<= 3 lines of code) directly.
+- Bypasses checks for active subagents (`SUBAGENT=1`, `IS_SUBAGENT=1`, or child transcript detection).
+- In headless/CI environments (`NON_INTERACTIVE="1"`, `CI="1"`, `CLOUD_RUN_TASK_INDEX`), rejects non-trivial direct code writes (`decision: reject`) unless subagents are disabled (`HEADLESS_NO_SUBAGENTS="1"`).
+- In interactive sessions, prompts the user (`decision: force_ask`) on non-trivial writes (>15 lines or creating new source files), preventing accidental coordinator bloat while providing an override when direct execution is explicitly desired.
+
 ## The pitfalls
 
 - **Enumerating skills in the prompt.** "use /how then /architect then /arena" reorders steps the playbook already sequences. State the goal and constraints. Name a skill only to override a default.

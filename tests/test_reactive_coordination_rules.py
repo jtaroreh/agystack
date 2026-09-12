@@ -185,6 +185,29 @@ class TestReactiveCoordinationRules(unittest.TestCase):
         )
         self.assertEqual(len(timeout_res["results"]), 2)
 
+    def test_agents_md_has_delegation_thresholds(self):
+        agents_file = RULES_DIR / "AGENTS.md"
+        content = agents_file.read_text(encoding="utf-8")
+        self.assertIn("Non-Trivial Delegation Threshold", content)
+        self.assertIn("<= 3 lines", content)
+        self.assertIn("> 15 lines", content)
+        self.assertIn("poteto-agent", content)
+        self.assertIn("User override", content)
+
+    def test_agents_md_has_artifact_scoping_matrix(self):
+        agents_file = RULES_DIR / "AGENTS.md"
+        content = agents_file.read_text(encoding="utf-8")
+        self.assertIn("Planning and Deliverable Artifact Scoping Matrix", content)
+        self.assertIn("Interactive State-Changing Playbooks", content)
+        self.assertIn("implementation_plan.md", content)
+        self.assertIn("RequestFeedback: true", content)
+        self.assertIn("walkthrough.md", content)
+        self.assertIn("Autonomous & Hillclimb Playbooks", content)
+        self.assertIn("RequestFeedback: false", content)
+        self.assertIn("decision_trail.md", content)
+        self.assertIn("Read-Only Investigation Playbooks", content)
+        self.assertIn("investigation_report.md", content)
+
 
 if __name__ == "__main__":
     unittest.main()

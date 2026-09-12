@@ -353,5 +353,382 @@ class TestPreToolSafetyHook(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout.strip()), {})
 
 
+DELEGATION_HOOK_SCRIPT = (
+    REPO_ROOT / "skills" / "poteto-mode" / "scripts" / "hooks" / "pre_tool_delegation.py"
+)
+
+
+def run_delegation_hook(
+    stdin_data: str, env: dict | None = None
+) -> subprocess.CompletedProcess:
+    run_env = os.environ.copy()
+    run_env.pop("NON_INTERACTIVE", None)
+    run_env.pop("CI", None)
+    run_env.pop("CLOUD_RUN_TASK_INDEX", None)
+    run_env.pop("SUBAGENT", None)
+    run_env.pop("IS_SUBAGENT", None)
+    run_env.pop("ANTIGRAVITY_SUBAGENT_ID", None)
+    run_env.pop("HEADLESS_NO_SUBAGENTS", None)
+    run_env.pop("ALLOW_SUBAGENTS", None)
+    if env:
+        run_env.update(env)
+    return subprocess.run(
+        [sys.executable, str(DELEGATION_HOOK_SCRIPT)],
+        input=stdin_data,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=run_env,
+    )
+
+
+class TestPreToolDelegationHook(unittest.TestCase):
+    def test_delegation_hook_script_exists(self):
+        self.assertTrue(
+            DELEGATION_HOOK_SCRIPT.is_file(),
+            f"Delegation hook script does not exist at {DELEGATION_HOOK_SCRIPT}",
+        )
+
+    def test_markdown_files_allowed(self):
+        large_markdown = "# Markdown Title\n" + "\n".join(
+            f"- Item {i}" for i in range(25)
+        )
+        for ext in [".md", ".markdown"]:
+            for tool in ["write_to_file", "replace_file_content"]:
+                with self.subTest(ext=ext, tool=tool):
+                    payload = {
+                        "toolCall": {
+                            "name": tool,
+                            "args": {
+                                "TargetFile": f"docs/spec{ext}",
+                                "CodeContent": large_markdown,
+                            },
+                        }
+                    }
+                    result = run_delegation_hook(json.dumps(payload))
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_scratch_and_slices_files_allowed(self):
+        large_code = "\n".join(f"x_{i} = {i}" for i in range(25))
+        scratch_paths = [
+            "scratch/test_script.py",
+            ".slices/slice_1.py",
+            "receipts/summary.txt",
+        ]
+        for path in scratch_paths:
+            with self.subTest(path=path):
+                payload = {
+                    "toolCall": {
+                        "name": "write_to_file",
+                        "args": {
+                            "TargetFile": path,
+                            "CodeContent": large_code,
+                        },
+                    }
+                }
+                result = run_delegation_hook(json.dumps(payload))
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_scratch_path_isolation_no_false_positive(self):
+        large_code = "\n".join(f"x_{i} = {i}" for i in range(25))
+        payload = {
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {
+                    "TargetFile": "/some/project_scratch/file.py",
+                    "CodeContent": large_code,
+                },
+            }
+        }
+        result = run_delegation_hook(json.dumps(payload))
+        self.assertEqual(result.returncode, 0)
+        parsed = json.loads(result.stdout.strip())
+        self.assertEqual(parsed.get("decision"), "force_ask")
+
+    def test_permitted_special_files(self):
+        large_content = "\n".join(f"line_{i}" for i in range(25))
+        special_files = [".gitignore", "score.json", "results.tsv"]
+        for f in special_files:
+            with self.subTest(file=f):
+                payload = {
+                    "toolCall": {
+                        "name": "write_to_file",
+                        "args": {
+                            "TargetFile": f,
+                            "CodeContent": large_content,
+                        },
+                    }
+                }
+                result = run_delegation_hook(json.dumps(payload))
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_replace_file_content_large_target_content_flagged(self):
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            existing_file = Path(tmp_dir) / "target_mod.py"
+            existing_file.write_text("orig\n", encoding="utf-8")
+            large_target_content = "\n".join(f"line_{i} = {i}" for i in range(20))
+            payload = {
+                "toolCall": {
+                    "name": "replace_file_content",
+                    "args": {
+                        "TargetFile": str(existing_file),
+                        "ReplacementContent": "single_line = 1\n",
+                        "TargetContent": large_target_content,
+                    },
+                }
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            parsed = json.loads(result.stdout.strip())
+            self.assertEqual(parsed.get("decision"), "force_ask")
+
+    def test_trivial_edits_allowed(self):
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            existing_file = Path(tmp_dir) / "mod.py"
+            existing_file.write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")
+
+            for lines_count in [1, 2, 3]:
+                content = "\n".join(f"val_{i} = {i}" for i in range(lines_count))
+                with self.subTest(lines_count=lines_count):
+                    payload = {
+                        "toolCall": {
+                            "name": "replace_file_content",
+                            "args": {
+                                "TargetFile": str(existing_file),
+                                "ReplacementContent": content,
+                            },
+                        }
+                    }
+                    result = run_delegation_hook(json.dumps(payload))
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_nontrivial_code_edits_interactive_force_ask(self):
+        large_code = "\n".join(f"def func_{i}(): pass" for i in range(20))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            existing_file = Path(tmp_dir) / "existing.py"
+            existing_file.write_text("def base(): pass\n", encoding="utf-8")
+            new_file = Path(tmp_dir) / "brand_new.py"
+
+            payload_new = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(new_file),
+                        "CodeContent": "def a(): pass\ndef b(): pass\ndef c(): pass\ndef d(): pass\n",
+                    },
+                }
+            }
+            res_new = run_delegation_hook(json.dumps(payload_new))
+            self.assertEqual(res_new.returncode, 0)
+            parsed_new = json.loads(res_new.stdout.strip())
+            self.assertEqual(parsed_new.get("decision"), "force_ask")
+            self.assertIn(
+                "Coordinator Code Delegation Invariant", parsed_new.get("reason", "")
+            )
+
+            payload_replace = {
+                "toolCall": {
+                    "name": "replace_file_content",
+                    "args": {
+                        "TargetFile": str(existing_file),
+                        "ReplacementContent": large_code,
+                    },
+                }
+            }
+            res_rep = run_delegation_hook(json.dumps(payload_replace))
+            self.assertEqual(res_rep.returncode, 0)
+            parsed_rep = json.loads(res_rep.stdout.strip())
+            self.assertEqual(parsed_rep.get("decision"), "force_ask")
+            self.assertIn(
+                "Coordinator Code Delegation Invariant", parsed_rep.get("reason", "")
+            )
+
+    def test_nontrivial_code_edits_headless_reject(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        headless_envs = [
+            {"NON_INTERACTIVE": "1"},
+            {"CI": "1"},
+            {"CI": "true"},
+        ]
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "feature.py"
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                }
+            }
+            for env in headless_envs:
+                with self.subTest(env=env):
+                    result = run_delegation_hook(json.dumps(payload), env=env)
+                    self.assertEqual(result.returncode, 0)
+                    parsed = json.loads(result.stdout.strip())
+                    self.assertEqual(parsed.get("decision"), "reject")
+                    self.assertIn(
+                        "Coordinator Code Delegation Invariant",
+                        parsed.get("reason", ""),
+                    )
+
+    def test_cloud_run_task_permits_writes(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "cloud_task_file.py"
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                }
+            }
+            result = run_delegation_hook(
+                json.dumps(payload), env={"CLOUD_RUN_TASK_INDEX": "0"}
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_coordinator_prompt_does_not_bypass(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "feature_code.py"
+            transcript_file = Path(tmp_dir) / "coordinator_transcript.jsonl"
+            first_msg = {
+                "step_index": 0,
+                "content": "You are an engineer tasked with implementing the feature.\nYour task is to refactor the auth system.",
+            }
+            transcript_file.write_text(json.dumps(first_msg) + "\n", encoding="utf-8")
+
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                },
+                "transcriptPath": str(transcript_file),
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            parsed = json.loads(result.stdout.strip())
+            self.assertEqual(parsed.get("decision"), "force_ask")
+
+    def test_subagent_env_bypass(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        subagent_envs = [
+            {"SUBAGENT": "1"},
+            {"IS_SUBAGENT": "1"},
+            {"ANTIGRAVITY_SUBAGENT_ID": "agent-xyz-987"},
+        ]
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "subagent_work.py"
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                }
+            }
+            for env in subagent_envs:
+                with self.subTest(env=env):
+                    result = run_delegation_hook(json.dumps(payload), env=env)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_subagent_transcript_bypass(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "subagent_file.py"
+            transcript_file = Path(tmp_dir) / "transcript.jsonl"
+            first_msg = {
+                "step_index": 0,
+                "content": "poteto-agent, surgical code implementation delegate.\nTask is to write code.",
+            }
+            transcript_file.write_text(json.dumps(first_msg) + "\n", encoding="utf-8")
+
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                },
+                "transcriptPath": str(transcript_file),
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_headless_bypass_when_subagents_disabled(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        bypass_envs = [
+            {"NON_INTERACTIVE": "1", "HEADLESS_NO_SUBAGENTS": "1"},
+            {"CI": "true", "ALLOW_SUBAGENTS": "0"},
+            {"NON_INTERACTIVE": "1", "ALLOW_SUBAGENTS": "false"},
+        ]
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "headless_code.py"
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                }
+            }
+            for env in bypass_envs:
+                with self.subTest(env=env):
+                    result = run_delegation_hook(json.dumps(payload), env=env)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_empty_and_invalid_json(self):
+        for invalid_input in ["", "   \n", "invalid json {{}}", '{"unclosed": ']:
+            with self.subTest(invalid_input=invalid_input):
+                result = run_delegation_hook(invalid_input)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_non_matching_tool(self):
+        payload = {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"command": "echo test"},
+            }
+        }
+        result = run_delegation_hook(json.dumps(payload))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_argument_aliases(self):
+        aliases = ["TargetFile", "target_file", "AbsolutePath", "FilePath", "path"]
+        for alias in aliases:
+            with self.subTest(alias=alias):
+                payload = {
+                    "toolCall": {
+                        "name": "write_to_file",
+                        "args": {
+                            alias: "scratch/test.py",
+                            "CodeContent": "print('hello')",
+                        },
+                    }
+                }
+                result = run_delegation_hook(json.dumps(payload))
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout.strip()), {})
+
+
 if __name__ == "__main__":
     unittest.main()

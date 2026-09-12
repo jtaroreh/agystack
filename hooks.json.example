@@ -1,5 +1,19 @@
 {
   "_comment": "Example Antigravity lifecycle hooks configuration for agystack. Path resolution: Hooks run from the active workspace root. When installed as a global plugin, reference the script via absolute path with ~ expansion (python3 ~/.gemini/config/plugins/agystack/skills/poteto-mode/scripts/hooks/...) or ensure AGYSTACK_PLUGIN_DIR is configured in your environment.",
+  "agystack-delegation": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.gemini/config/plugins/agystack/skills/poteto-mode/scripts/hooks/pre_tool_delegation.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
   "agystack-safety": {
     "PreToolUse": [
       {
