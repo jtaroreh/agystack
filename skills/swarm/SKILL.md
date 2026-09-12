@@ -30,7 +30,13 @@ Open a todolist with one entry per phase before launching anything.
 
 ### Local Subagents (N <= 8)
 
-Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Swarm Worker (<slice>)"`, `Workspace: "branch"`, and the configured model.
+Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Swarm Worker (<slice>)"`, `Workspace: "branch"`, and the configured model. In each worker prompt, explicitly provide `{PARENT_CONVERSATION_ID}` and mandate that upon task completion, the worker MUST invoke `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"` to deliver its slice status and findings (mirroring `skills/interrogate/references/reviewer-prompt.md`) so the coordinator receives reactive wakeups without timing out.
+
+**Reactive Dispatch & Watchdog Protocol:**
+- **Turn 1 (Dispatch & Arm):** Dispatch local workers via `invoke_subagent` and arm a single global watchdog deadline using `schedule(DurationSeconds: 300..600, Prompt="Watchdog: swarm workers timed out", TimerCondition: "never")`.
+- **Turn 2 (Yield):** Output a status update with ZERO tool calls (`tool_calls: []`). Never run busy polling loops on local subagents.
+- **Incremental Arrivals:** On each worker arrival via `send_message`, record slice results and yield immediately with ZERO tool calls if workers remain active.
+- **Teardown & Completion:** Once all N workers complete, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Phase C. If the watchdog fires, diagnose via `manage_subagents(Action: "list")`, terminate unresponsive workers, and aggregate available slice results.
 
 ### Cloud Run Dispatch (N > 8 or Cloud Run Runtime)
 

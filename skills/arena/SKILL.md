@@ -29,11 +29,17 @@ The N candidates will receive the same prompt, so the prompt is the contract. Ge
 
 ## Phase B: Fan out
 
-Spawn all N subagents in one turn using `invoke_subagent` with `Workspace: "branch"` (never simulate candidate outputs in the parent context), each with `TypeName: "self"` (or `"poteto-agent"`), the task, the path to the shared grounding, its own output path, and instructions to produce both the artifact and a short rationale.
+Spawn all N subagents in one turn using `invoke_subagent` with `Workspace: "branch"` (never simulate candidate outputs in the parent context), each with `TypeName: "self"` (or `"poteto-agent"`), the task, the path to the shared grounding, its own output path, and instructions to produce both the artifact and a short rationale.\n\nIn each candidate prompt, explicitly provide `{PARENT_CONVERSATION_ID}` and mandate that upon completion, the candidate MUST invoke `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"` and a summary of findings (mirroring `skills/interrogate/references/reviewer-prompt.md`) so the coordinator receives reactive wakeups without timing out.
 
 The rationale is mandatory. Without it, the parent cannot tell whether a candidate's structure is principled or accidental, which makes Phase E grafting unreliable. Each rationale names the alternatives the candidate considered and what it rejected.
 
-If a candidate fails to produce output, proceed with N-1 and note the dropout in the synthesis record.
+### Reactive Dispatch & Watchdog Protocol
+1. **Turn 1 (Dispatch & Arm):** In the dispatch turn, launch candidate subagents via `invoke_subagent` and arm a single global watchdog deadline:
+   `schedule(DurationSeconds: 300..600, Prompt="Watchdog: arena candidates timed out", TimerCondition: "never")`
+2. **Turn 2 (Mechanical Yield):** Output an update message with ZERO tool calls (`tool_calls: []`). Busy polling via `manage_subagents(list)` is strictly prohibited.
+3. **Partial Arrivals:** When a candidate reports via `send_message`, record its artifact and yield immediately with ZERO tool calls if other candidates remain running.
+4. **Full Arrival:** When all N candidates have completed, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Phase C.
+5. **Timeout Fallback:** If the watchdog fires, inspect worker statuses via `manage_subagents(Action: "list")`, terminate hanging candidates, proceed with N-k candidates, and note dropouts in the synthesis record.
 
 ## Phase C: Cross-judge
 

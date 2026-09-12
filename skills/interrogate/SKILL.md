@@ -55,10 +55,17 @@ Read `references/reviewer-prompt.md` and fill in the template with:
 2. The diff or file contents
 3. The review rubric from `references/rubric.md`
 4. The code-quality lens from `references/code-quality-review.md`
+5. The active conversation ID for `{PARENT_CONVERSATION_ID}` (retrieved from system context)
 
 The same filled template goes to all reviewers, so every model applies the code-quality lens.
 
-Each reviewer produces structured findings as described in the prompt template.
+### Reactive Dispatch & Watchdog Protocol
+1. **Turn 1 (Dispatch & Arm Watchdog):** In the same turn, dispatch all reviewers via `invoke_subagent` and arm a single unconditional watchdog deadline:
+   `schedule(DurationSeconds: 300..600, Prompt="Watchdog: adversarial reviewers timed out", TimerCondition: "never")`
+2. **Turn 2 (Yield Turn):** Immediately output a concise status update to the user and call ZERO tools (`tool_calls: []`). Never run busy-wait polling loops (`manage_subagents(list)`) or read child transcripts.
+3. **Partial Wakeups:** When a subagent calls `send_message`, Antigravity reactively resumes the coordinator. Record the reviewer's findings. If reviewers remain pending, yield immediately with ZERO tools (`tool_calls: []`). Do NOT cancel or alter the watchdog timer.
+4. **Full Arrival:** When all reviewers have delivered their findings via `send_message`, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed directly to Step 4 (Synthesize).
+5. **Watchdog Timeout Fallback:** If the watchdog timer fires before all reviewers report, call `manage_subagents(Action: "list")` to inspect status. Terminate non-responsive workers (`manage_subagents(Action: "kill")`) and proceed to synthesize with the surviving results, noting dropouts.
 
 ## Step 4, Synthesize
 
