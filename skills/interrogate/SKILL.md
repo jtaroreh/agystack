@@ -65,7 +65,7 @@ The same filled template goes to all reviewers, so every model applies the code-
 2. **Turn 2 (Yield Turn):** Immediately output a concise status update to the user and call ZERO tools (`tool_calls: []`). Never run busy-wait polling loops (`manage_subagents(list)`) or read child transcripts.
 3. **Partial Wakeups:** When a subagent calls `send_message`, Antigravity reactively resumes the coordinator. Record the reviewer's findings. If reviewers remain pending, yield immediately with ZERO tools (`tool_calls: []`). Do NOT cancel or alter the watchdog timer.
 4. **Full Arrival:** When all reviewers have delivered their findings via `send_message`, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed directly to Step 4 (Synthesize).
-5. **Watchdog Timeout Fallback:** If the watchdog timer fires before all reviewers report, call `manage_subagents(Action: "list")` to inspect status. Terminate non-responsive workers (`manage_subagents(Action: "kill")`) and proceed to synthesize with the surviving results, noting dropouts.
+5. **Watchdog Timeout Fallback:** If the watchdog timer fires before all reviewers report, call `manage_subagents(Action: "list")` to inspect status. Terminate non-responsive workers (`manage_subagents(Action: "kill", ConversationIds: [<id>])`) and proceed to synthesize with the surviving results, noting dropouts.
 
 ## Step 4, Synthesize
 

@@ -36,7 +36,7 @@ Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"
 - **Turn 1 (Dispatch & Arm):** Dispatch local workers via `invoke_subagent` and arm a single global watchdog deadline using `schedule(DurationSeconds: 300..600, Prompt="Watchdog: swarm workers timed out", TimerCondition: "never")`.
 - **Turn 2 (Yield):** Output a status update with ZERO tool calls (`tool_calls: []`). Never run busy polling loops on local subagents.
 - **Incremental Arrivals:** On each worker arrival via `send_message`, record slice results and yield immediately with ZERO tool calls if workers remain active.
-- **Teardown & Completion:** Once all N workers complete, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Phase C. If the watchdog fires, diagnose via `manage_subagents(Action: "list")`, terminate unresponsive workers, and aggregate available slice results.
+- **Teardown & Completion:** Once all N workers complete, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Phase C. If the watchdog fires, diagnose via `manage_subagents(Action: "list")`, terminate unresponsive workers (`manage_subagents(Action: "kill", ConversationIds: [<id>])`), and aggregate available slice results.
 
 ### Cloud Run Dispatch (N > 8 or Cloud Run Runtime)
 
@@ -107,6 +107,12 @@ Cloud Run swarms enable parallel execution across dozens or hundreds of containe
      --wait-execution <execution_name> --session <session_id> --gcs-bucket <bucket>
    ```
    The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job, streams real-time unbuffered `[MILESTONE]` execution progress directly to stdout as events occur, and aggregates final candidate patches into a ranked summary report. Dispatchers and coordinators must never block passively on buffered command execution.
+
+   **Observability, Loop Alarms & In-Flight Steering:**
+   - **Task-Attributed Milestones:** Workers emit streaming stdout milestones formatted as `[MILESTONE] [TASK <i>] [PHASE: <phase>] <detail>`, standardizing progress tracking and capturing internal SDK lifecycle events.
+   - **Loop Alarms (StagnancyTracker):** Non-destructive repetitiveness detection alerts on 3 consecutive identical tool invocations (`[ALARM] [TASK <i>] [POTENTIAL_LOOP]`) and injects warnings into model context without terminating execution.
+   - **Live Mailbox Steering:** Orchestrators steer in-flight workers via GCS mailbox instructions (`python3 cloud_dispatch.py --session <session_id> --steer <task_index> "ABORT|CANCEL|<instruction>"`). Workers intercept instructions at pre-tool execution to abort cleanly or adapt agent focus.
+   - **Subprocess Timeout Guards:** Shell command execution and verification scripts are bounded by explicit environment timeouts (`COMMAND_TIMEOUT`, `VERIFY_TIMEOUT`), preventing hanging processes from stalling container lifecycle.
 
 Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS]`, `[STATUS: ISSUES]`, or `[STATUS: BLOCKED]` with evidence).
 

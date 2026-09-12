@@ -39,7 +39,7 @@ The rationale is mandatory. Without it, the parent cannot tell whether a candida
 2. **Turn 2 (Mechanical Yield):** Output an update message with ZERO tool calls (`tool_calls: []`). Busy polling via `manage_subagents(list)` is strictly prohibited.
 3. **Partial Arrivals:** When a candidate reports via `send_message`, record its artifact and yield immediately with ZERO tool calls if other candidates remain running.
 4. **Full Arrival:** When all N candidates have completed, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Phase C.
-5. **Timeout Fallback:** If the watchdog fires, inspect worker statuses via `manage_subagents(Action: "list")`, terminate hanging candidates, proceed with N-k candidates, and note dropouts in the synthesis record.
+5. **Timeout Fallback:** If the watchdog fires, inspect worker statuses via `manage_subagents(Action: "list")`, terminate hanging candidates (`manage_subagents(Action: "kill", ConversationIds: [<id>])`), proceed with N-k candidates, and note dropouts in the synthesis record.
 
 ## Phase C: Cross-judge
 

@@ -21,7 +21,7 @@ Mirroring pstack in Cursor, enforce strict separation between coordination and c
      `schedule(DurationSeconds: 300..600, Prompt="Watchdog: subagents timed out", TimerCondition: "never")`
      Because `TimerCondition: "never"` is used, incremental completions wake the coordinator reactively without cancelling the timer.
    - **Quorum & Teardown Protocol:** On incremental worker completions, record findings and yield immediately (zero tool calls) if workers remain pending. Once all workers arrive, cancel the active watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` before synthesizing.
-   - **Timeout Diagnosis:** The coordinator calls `manage_subagents(Action: "list")` ONLY when the watchdog timer fires or an explicit failure occurs. If a worker is in `error` or `idle` without messaging, terminate it and proceed with partial results. Child transcripts may only be read for post-mortem diagnostics, never while waiting.
+   - **Timeout Diagnosis:** The coordinator calls `manage_subagents(Action: "list")` ONLY when the watchdog timer fires or an explicit failure occurs. If a worker is in `error` or `idle` without messaging, terminate it (`manage_subagents(Action: "kill", ConversationIds: [<id>])`) and proceed with partial results. Child transcripts may only be read for post-mortem diagnostics, never while waiting.
    - **Primitive Boundary:** Active heartbeat polling (every 60-120s) applies strictly to external CLI/Cloud Run subprocesses (`run_command`, `cloud_dispatch.py`), NEVER to local Antigravity subagents (`invoke_subagent`).
 
 ## Cloud Swarm Invariants

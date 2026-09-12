@@ -1,4 +1,5 @@
 """Tests for Subagent Reactive Wakeup and Watchdog Architecture rules."""
+
 import unittest
 from pathlib import Path
 
@@ -70,7 +71,7 @@ class CoordinatorStateMachine:
         kill_tool_calls = [
             {
                 "name": "manage_subagents",
-                "args": {"Action": "kill", "SubagentId": w["id"]},
+                "args": {"Action": "kill", "ConversationIds": [w["id"]]},
             }
             for w in missing
         ]
@@ -85,7 +86,9 @@ class TestReactiveCoordinationRules(unittest.TestCase):
     def test_agents_md_has_reactive_wakeup_invariant(self):
         agents_file = RULES_DIR / "AGENTS.md"
         content = agents_file.read_text(encoding="utf-8")
-        self.assertIn("Subagent Reactive Wakeup and Watchdog Timeout Invariant", content)
+        self.assertIn(
+            "Subagent Reactive Wakeup and Watchdog Timeout Invariant", content
+        )
         self.assertIn("ZERO tool calls", content)
         self.assertIn('TimerCondition: "never"', content)
         self.assertIn("Continuous Busy-Wait Prohibited", content)
@@ -95,7 +98,8 @@ class TestReactiveCoordinationRules(unittest.TestCase):
         agents_file = RULES_DIR / "AGENTS.md"
         content = agents_file.read_text(encoding="utf-8")
         self.assertIn(
-            "Active Liveness & Non-Blocking Monitoring (Cloud Run Swarms Only):", content
+            "Active Liveness & Non-Blocking Monitoring (Cloud Run Swarms Only):",
+            content,
         )
         self.assertIn(
             "NEVER applies to native local Antigravity subagents (`invoke_subagent`)",
@@ -176,7 +180,9 @@ class TestReactiveCoordinationRules(unittest.TestCase):
         self.assertEqual(sm2.terminated_stragglers, ["worker-3"])
         self.assertEqual(len(timeout_res["tool_calls"]), 1)
         self.assertEqual(timeout_res["tool_calls"][0]["name"], "manage_subagents")
-        self.assertEqual(timeout_res["tool_calls"][0]["args"]["SubagentId"], "worker-3")
+        self.assertEqual(
+            timeout_res["tool_calls"][0]["args"]["ConversationIds"], ["worker-3"]
+        )
         self.assertEqual(len(timeout_res["results"]), 2)
 
 
