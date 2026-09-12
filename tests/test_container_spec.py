@@ -106,6 +106,20 @@ class TestContainerSpec(unittest.TestCase):
         self.assertIn("pip install --no-cache-dir -r /app/requirements.txt", self.dockerfile_content)
         self.assertIn('ENTRYPOINT ["python", "/app/cloud_worker.py"]', self.dockerfile_content)
 
+    def test_plugin_skills_and_rules_copied(self):
+        self.assertRegex(
+            self.dockerfile_content,
+            r"COPY\s+skills\s+\/home\/worker\/\.gemini\/config\/plugins\/agystack\/skills",
+        )
+        self.assertRegex(
+            self.dockerfile_content,
+            r"COPY\s+rules\s+\/home\/worker\/\.gemini\/config\/plugins\/agystack\/rules",
+        )
+        self.assertRegex(
+            self.dockerfile_content,
+            r"COPY\s+agents\s+\/home\/worker\/\.gemini\/config\/plugins\/agystack\/agents",
+        )
+
     def test_cargo_deny_does_not_exist_on_disk(self):
         cargo_deny_path = self.scripts_dir / "cargo-deny"
         self.assertFalse(

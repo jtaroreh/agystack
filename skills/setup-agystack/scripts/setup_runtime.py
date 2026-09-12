@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
@@ -73,8 +72,72 @@ DEPENDENCY_SPECS = (
     },
 )
 
+PYTHON_DEPENDENCY_SPECS = (
+    {
+        "name": "google.cloud.storage",
+        "package": "google-cloud-storage",
+        "required": False,
+        "notes": "Required for GCS swarm artifact storage and patch harvesting",
+    },
+    {
+        "name": "google.genai",
+        "package": "google-genai",
+        "required": False,
+        "notes": "Required for Gemini API preflight probes and standalone models",
+    },
+    {
+        "name": "google.cloud.run_v2",
+        "package": "google-cloud-run",
+        "required": False,
+        "notes": "Optional client library for Cloud Run job monitoring",
+    },
+)
 
-def check_dependencies(run_cmd_fn=None):
+
+def check_python_dependencies(import_fn=None):
+    if import_fn is None:
+        import importlib
+        import_fn = importlib.import_module
+
+    deps = {}
+    for spec in PYTHON_DEPENDENCY_SPECS:
+        name = spec["name"]
+        pkg = spec["package"]
+        notes = spec.get("notes", "")
+        required = spec.get("required", False)
+        try:
+            mod = import_fn(name)
+            ver = getattr(mod, "__version__", "installed")
+            deps[pkg] = {
+                "installed": True,
+                "version": ver if isinstance(ver, str) else "installed",
+                "ok": True,
+                "error": None,
+                "notes": notes,
+                "required": required,
+            }
+        except ImportError:
+            deps[pkg] = {
+                "installed": False,
+                "version": None,
+                "ok": not required,
+                "error": f"Python package '{pkg}' is not installed (run: pip install {pkg})",
+                "notes": notes,
+                "required": required,
+            }
+        except Exception as exc:
+            deps[pkg] = {
+                "installed": False,
+                "version": None,
+                "ok": not required,
+                "error": f"Failed to import '{name}': {exc}",
+                "notes": notes,
+                "required": required,
+            }
+    return deps
+
+
+def check_dependencies(run_cmd_fn=None, include_python=True, import_fn=None):
     if run_cmd_fn is None:
         run_cmd_fn = run_cmd
 
@@ -169,6 +232,10 @@ def check_dependencies(run_cmd_fn=None):
                 "notes": notes,
                 "required": required,
             }
+
+    if include_python:
+        py_deps = check_python_dependencies(import_fn=import_fn)
+        deps.update(py_deps)
 
     return deps
 
@@ -298,13 +365,35 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
             f"--project={project_id}"
         ])
     
-    print("Submitting Cloud Build...")
-    run_cmd([
-        "gcloud", "builds", "submit",
-        f"--tag={image_tag}",
-        scripts_dir,
-        f"--project={project_id}"
-    ], capture_output=False)
+    staged_dirs = []
+    scripts_path = Path(scripts_dir).resolve()
+    repo_root = scripts_path.parents[2] if len(scripts_path.parents) >= 3 else scripts_path
+    for folder in ("skills", "rules", "agents"):
+        src = repo_root / folder
+        dst = scripts_path / folder
+        if src.is_dir() and not dst.exists():
+            try:
+                import shutil
+                shutil.copytree(src, dst)
+                staged_dirs.append(dst)
+            except Exception:
+                pass
+
+    try:
+        print("Submitting Cloud Build...")
+        run_cmd([
+            "gcloud", "builds", "submit",
+            f"--tag={image_tag}",
+            scripts_dir,
+            f"--project={project_id}"
+        ], capture_output=False)
+    finally:
+        for staged in staged_dirs:
+            try:
+                import shutil
+                shutil.rmtree(staged, ignore_errors=True)
+            except Exception:
+                pass
     
     print("Creating/Updating Cloud Run Job...")
     res = run_cmd([

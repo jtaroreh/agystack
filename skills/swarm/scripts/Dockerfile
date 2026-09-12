@@ -42,6 +42,10 @@ COPY cloud_worker.py /app/cloud_worker.py
 COPY storage_uploader.py /app/storage_uploader.py
 COPY storage_messenger.py /app/storage_messenger.py
 
+COPY skills /home/worker/.gemini/config/plugins/agystack/skills
+COPY rules /home/worker/.gemini/config/plugins/agystack/rules
+COPY agents /home/worker/.gemini/config/plugins/agystack/agents
+
 RUN mkdir -p /workspace /home/worker/.gemini/config/plugins/agystack \
     && chown -R worker:worker /workspace /app /home/worker
 
