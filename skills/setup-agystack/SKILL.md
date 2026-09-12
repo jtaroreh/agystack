@@ -12,6 +12,7 @@ Configure model tiers in `~/.gemini/config/plugins/agystack/rules/agystack-model
 - `bun` (v1.0+) is mandatory for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`). Node.js is not supported.
 - `gh` (GitHub CLI) is required for PR automation and preflight checks.
 - `gt` (Graphite CLI) is recommended for stacked PRs.
+- `google-cloud-storage`, `google-genai`, and `google-cloud-run` are optional Python libraries for GCS artifact storage, preflight checks, and Cloud Run job monitoring.
 
 Post-install, verify dependencies by running `--doctor` via the installed script path:
 

@@ -374,7 +374,18 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
         if src.is_dir() and not dst.exists():
             try:
                 import shutil
-                shutil.copytree(src, dst)
+
+                def _ignore_staging(dir_path, names):
+                    ignored = set()
+                    for name in names:
+                        full = Path(dir_path) / name
+                        if full.resolve() == dst.resolve():
+                            ignored.add(name)
+                        elif name in ("__pycache__", "node_modules", ".git"):
+                            ignored.add(name)
+                    return ignored
+
+                shutil.copytree(src, dst, ignore=_ignore_staging)
                 staged_dirs.append(dst)
             except Exception:
                 pass

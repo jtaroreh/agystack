@@ -268,5 +268,60 @@ class TestSetupRuntimeSecretManager(unittest.TestCase):
         self.assertIn("roles/secretmanager.secretAccessor", roles)
 
 
+class TestSetupRuntimePythonDependencies(unittest.TestCase):
+    def test_check_python_dependencies_all_present(self):
+        mock_mod = MagicMock()
+        mock_mod.__version__ = "1.2.3"
+
+        def fake_import(name):
+            return mock_mod
+
+        deps = setup_runtime.check_python_dependencies(import_fn=fake_import)
+        self.assertEqual(len(deps), 3)
+        for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run"]:
+            self.assertIn(pkg, deps)
+            self.assertTrue(deps[pkg]["installed"])
+            self.assertTrue(deps[pkg]["ok"])
+            self.assertEqual(deps[pkg]["version"], "1.2.3")
+            self.assertIsNone(deps[pkg]["error"])
+
+    def test_check_python_dependencies_missing_import(self):
+        def fake_import(name):
+            raise ImportError(f"No module named {name}")
+
+        deps = setup_runtime.check_python_dependencies(import_fn=fake_import)
+        for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run"]:
+            self.assertFalse(deps[pkg]["installed"])
+            self.assertTrue(deps[pkg]["ok"])
+            self.assertIsNone(deps[pkg]["version"])
+            self.assertIn(f"pip install {pkg}", deps[pkg]["error"])
+
+    def test_check_python_dependencies_unexpected_exception(self):
+        def fake_import(name):
+            raise RuntimeError("Unexpected import failure")
+
+        deps = setup_runtime.check_python_dependencies(import_fn=fake_import)
+        for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run"]:
+            self.assertFalse(deps[pkg]["installed"])
+            self.assertTrue(deps[pkg]["ok"])
+            self.assertIn("Unexpected import failure", deps[pkg]["error"])
+
+    @patch("setup_runtime.run_cmd")
+    def test_check_dependencies_includes_python(self, mock_run_cmd):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="1.0.0\n", stderr="")
+        mock_mod = MagicMock()
+        mock_mod.__version__ = "2.0.0"
+
+        deps = setup_runtime.check_dependencies(import_fn=lambda name: mock_mod)
+        self.assertIn("google-cloud-storage", deps)
+        self.assertTrue(deps["google-cloud-storage"]["ok"])
+
+    @patch("setup_runtime.run_cmd")
+    def test_check_dependencies_can_exclude_python(self, mock_run_cmd):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="1.0.0\n", stderr="")
+        deps = setup_runtime.check_dependencies(include_python=False)
+        self.assertNotIn("google-cloud-storage", deps)
+
+
 if __name__ == "__main__":
     unittest.main()
