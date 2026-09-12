@@ -2,7 +2,6 @@
 Thumbs.db
 node_modules/
 *.lockb
-bun.lock
 .agents/worktrees/
 .audit/
 __pycache__/

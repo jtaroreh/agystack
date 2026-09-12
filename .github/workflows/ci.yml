@@ -32,6 +32,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[test]"
 
+      - name: Run linter
+        run: |
+          ruff check .
+
       - name: Run setup runtime doctor
         run: |
           python skills/setup-agystack/scripts/setup_runtime.py --doctor
@@ -39,3 +43,14 @@ jobs:
       - name: Run pytest test suite
         run: |
           pytest -v --timeout=60 tests/
+
+      - name: Install script dependencies
+        working-directory: skills/poteto-mode/scripts
+        run: |
+          bun install --frozen-lockfile
+
+      - name: Run TypeScript unit tests
+        working-directory: skills/poteto-mode/scripts
+        run: |
+          bun test
+
