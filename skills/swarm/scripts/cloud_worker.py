@@ -838,7 +838,6 @@ def execute_task(
     emit_milestone(task_index, "RUNNING_AGENT", f"Antigravity SDK agent ({resolved_model})")
     try:
         import asyncio
-        import google.antigravity as antigravity
         from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig, policy
         try:
             from google.antigravity.hooks import hooks
@@ -1106,7 +1105,6 @@ def main() -> None:
 
     commit_sha = ""
     diff_stat = ""
-    changes_detected = False
     changes_pushed = False
 
     # Inspect git modifications
@@ -1182,7 +1180,6 @@ def main() -> None:
                     diff_stat = "Commit skipped: No candidate changes staged."
                     print("Notice: No candidate changes staged; skipping git commit.", file=sys.stderr)
                 else:
-                    changes_detected = True
                     commit_msg = f"worker-{task_index}: execute swarm brief"
                     run_command(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True)
                     commit_res = run_command(["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True)

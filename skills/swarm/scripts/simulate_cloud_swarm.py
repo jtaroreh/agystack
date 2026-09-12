@@ -12,7 +12,6 @@ import io
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -82,7 +81,7 @@ def probe_vertex_ai(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout):
             pass
         print(f"[PASS] Vertex AI credentials and publisher model '{model}' verified in {location} (project: {project}).", flush=True)
         return True
