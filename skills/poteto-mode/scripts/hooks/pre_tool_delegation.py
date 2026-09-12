@@ -2,12 +2,13 @@
 """
 Antigravity PreToolUse lifecycle hook for coordinator code delegation.
 Intercepts direct write_to_file and replace_file_content tool calls in coordinator sessions
-and enforces delegation of non-trivial code edits (>50 lines or new source files) to poteto-agent.
+and enforces delegation of non-trivial code edits (>50 lines) to poteto-agent.
 Outputs {} and exits 0 on all safe/allowed code paths. Never crashes.
 """
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -64,32 +65,117 @@ def is_subagent_transcript(transcript_path: str | None) -> bool:
         t_path = Path(transcript_path).expanduser().resolve()
         if not t_path.is_file():
             return False
+
+        # First, check Antigravity conversation database if accessible:
+        try:
+            cid = t_path.parent.parent.parent.name
+            conv_db = (
+                t_path.parent.parent.parent.parent.parent
+                / "conversations"
+                / f"{cid}.db"
+            )
+            if conv_db.is_file():
+                import sqlite3
+
+                with sqlite3.connect(str(conv_db)) as con:
+                    row = (
+                        con.cursor()
+                        .execute("SELECT * FROM trajectory_metadata_blob;")
+                        .fetchone()
+                    )
+                    blob = row[1] if row and len(row) > 1 else b""
+                    if isinstance(blob, bytes) and (
+                        b"poteto-agent" in blob or b"adversarial reviewer" in blob
+                    ):
+                        return True
+        except Exception:
+            pass
+
+        # Second, inspect Step 0 (the initial prompt) only from transcript.jsonl:
         with open(t_path, "r", encoding="utf-8", errors="ignore") as f:
-            line_idx = 0
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
-                line_idx += 1
-                if line_idx > 10:
-                    break
                 try:
                     data = json.loads(line)
-                    content = data.get("content", "")
-                    text_chunks = []
-                    if isinstance(content, str):
-                        text_chunks.append(content)
-                    elif isinstance(content, list):
-                        for item in content:
-                            if isinstance(item, dict) and "text" in item:
-                                text_chunks.append(str(item["text"]))
-                            elif isinstance(item, str):
-                                text_chunks.append(item)
-                    full_text = " ".join(text_chunks).lower()
-                    if "poteto-agent" in full_text or "subagent" in full_text or "adversarial reviewer" in full_text:
+                    step_type = data.get("type")
+                    step_source = data.get("source")
+                    if step_source in ("MODEL", "SYSTEM") and step_type not in (
+                        "USER_INPUT",
+                        None,
+                    ):
+                        continue
+                    content = str(data.get("content", "")).lower()
+                    if "poteto-agent" in content or "adversarial reviewer" in content:
                         return True
+                    break
                 except Exception:
                     continue
+    except Exception:
+        pass
+    return False
+
+
+DIRECT_OVERRIDE_PATTERN = re.compile(
+    r"\b(?:do\s+this\s+directly|no\s+subagents?|without\s+subagents?|execute\s+directly|edit\s+directly|write\s+directly|direct\s+execution|user\s+override)\b",
+    re.IGNORECASE,
+)
+
+
+def has_user_direct_override(transcript_path: str | None) -> bool:
+    """Check if user explicitly instructed direct execution via environment or transcript."""
+    if is_truthy(os.environ.get("USER_OVERRIDE")):
+        return True
+    if is_truthy(os.environ.get("DIRECT_EXECUTION")):
+        return True
+    if is_truthy(os.environ.get("NO_SUBAGENTS")):
+        return True
+
+    if not transcript_path:
+        return False
+
+    try:
+        t_path = Path(transcript_path).expanduser().resolve()
+        if not t_path.is_file():
+            return False
+
+        with open(t_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = [line.strip() for line in f if line.strip()]
+
+        recent_lines = lines[-50:] if len(lines) > 50 else lines
+        for line in reversed(recent_lines):
+            try:
+                data = json.loads(line)
+                step_source = data.get("source")
+                step_type = data.get("type")
+                if step_source in ("MODEL", "SYSTEM") or step_type in (
+                    "PLANNER_RESPONSE",
+                    "GENERIC",
+                    "SYSTEM_MESSAGE",
+                    "CHECKPOINT",
+                ):
+                    continue
+                if step_type and step_type != "USER_INPUT":
+                    continue
+                if step_source and step_source not in ("USER_EXPLICIT", "USER"):
+                    continue
+
+                content = data.get("content", "")
+                text_chunks = []
+                if isinstance(content, str):
+                    text_chunks.append(content)
+                elif isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and "text" in item:
+                            text_chunks.append(str(item["text"]))
+                        elif isinstance(item, str):
+                            text_chunks.append(item)
+                full_text = " ".join(text_chunks)
+                if DIRECT_OVERRIDE_PATTERN.search(full_text):
+                    return True
+            except Exception:
+                continue
     except Exception:
         pass
     return False
@@ -147,24 +233,20 @@ def evaluate_delegation(
     target_lines = count_code_lines(target_content) if tool_name == "replace_file_content" else 0
     line_count = max(replacement_lines, target_lines)
 
-    try:
-        target_path = Path(clean_path).expanduser().resolve()
-        is_existing_file = target_path.is_file()
-    except Exception:
-        is_existing_file = False
-
-    # Trivial check (<= 50 lines on existing file)
-    if line_count <= 50 and is_existing_file:
+    # Trivial check (<= 50 lines allowed directly for both existing and new files)
+    if line_count <= 50:
         return {}
 
-    # Subagent check
-    if is_subagent_environment() or is_subagent_transcript(transcript_path):
+    # Subagent or user direct override check
+    if (
+        is_subagent_environment()
+        or is_subagent_transcript(transcript_path)
+        or has_user_direct_override(transcript_path)
+    ):
         return {}
 
-    # Non-trivial check (>50 lines or creating a new non-scratch source file)
-    is_non_trivial = (line_count > 50) or (
-        tool_name == "write_to_file" and not is_existing_file
-    )
+    # Non-trivial check (>50 lines)
+    is_non_trivial = line_count > 50
 
     if not is_non_trivial:
         return {}
@@ -177,7 +259,7 @@ def evaluate_delegation(
             "decision": "reject",
             "reason": (
                 "Coordinator Code Delegation Invariant: Non-trivial source code modifications "
-                "(>50 lines or new source files) must be delegated to a poteto-agent subagent via invoke_subagent."
+                "(>50 lines) must be delegated to a poteto-agent subagent via invoke_subagent."
             ),
         }
 
@@ -186,7 +268,7 @@ def evaluate_delegation(
         "decision": "force_ask",
         "reason": (
             "Coordinator Code Delegation Invariant: Non-trivial source code modification "
-            "(>50 lines or new source files) detected in coordinator session. Confirm direct execution or delegate "
+            "(>50 lines) detected in coordinator session. Confirm direct execution or delegate "
             "to poteto-agent via invoke_subagent."
         ),
     }

@@ -370,6 +370,9 @@ def run_delegation_hook(
     run_env.pop("ANTIGRAVITY_SUBAGENT_ID", None)
     run_env.pop("HEADLESS_NO_SUBAGENTS", None)
     run_env.pop("ALLOW_SUBAGENTS", None)
+    run_env.pop("USER_OVERRIDE", None)
+    run_env.pop("DIRECT_EXECUTION", None)
+    run_env.pop("NO_SUBAGENTS", None)
     if env:
         run_env.update(env)
     return subprocess.run(
@@ -391,7 +394,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
 
     def test_markdown_files_allowed(self):
         large_markdown = "# Markdown Title\n" + "\n".join(
-            f"- Item {i}" for i in range(25)
+            f"- Item {i}" for i in range(60)
         )
         for ext in [".md", ".markdown"]:
             for tool in ["write_to_file", "replace_file_content"]:
@@ -410,7 +413,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_scratch_and_slices_files_allowed(self):
-        large_code = "\n".join(f"x_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"x_{i} = {i}" for i in range(60))
         scratch_paths = [
             "scratch/test_script.py",
             ".slices/slice_1.py",
@@ -432,7 +435,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
                 self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_scratch_path_isolation_no_false_positive(self):
-        large_code = "\n".join(f"x_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"x_{i} = {i}" for i in range(60))
         payload = {
             "toolCall": {
                 "name": "write_to_file",
@@ -448,7 +451,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
         self.assertEqual(parsed.get("decision"), "force_ask")
 
     def test_permitted_special_files(self):
-        large_content = "\n".join(f"line_{i}" for i in range(25))
+        large_content = "\n".join(f"line_{i}" for i in range(60))
         special_files = [".gitignore", "score.json", "results.tsv"]
         for f in special_files:
             with self.subTest(file=f):
@@ -518,7 +521,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
                     "name": "write_to_file",
                     "args": {
                         "TargetFile": str(new_file),
-                        "CodeContent": "def a(): pass\ndef b(): pass\ndef c(): pass\ndef d(): pass\n",
+                        "CodeContent": large_code,
                     },
                 }
             }
@@ -594,8 +597,112 @@ class TestPreToolDelegationHook(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(json.loads(result.stdout.strip()), {})
 
+    def test_small_new_source_file_allowed(self):
+        small_code = "\n".join(f"var_{i} = {i}" for i in range(30))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "new_small_file.py"
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": small_code,
+                    },
+                }
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_large_new_source_file_delegation_required(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "new_large_file.py"
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                }
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            parsed = json.loads(result.stdout.strip())
+            self.assertEqual(parsed.get("decision"), "force_ask")
+            self.assertIn(
+                "Coordinator Code Delegation Invariant", parsed.get("reason", "")
+            )
+
+    def test_user_override_transcript_bypass(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
+        override_phrases = [
+            "Please do this directly without creating a subagent.",
+            "no subagents for this task",
+            "execute directly please",
+            "edit directly",
+            "write directly to the file",
+            "direct execution mode",
+            "user override: implement the fix",
+        ]
+        for phrase in override_phrases:
+            with self.subTest(phrase=phrase):
+                with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+                    target_py = Path(tmp_dir) / "override_target.py"
+                    transcript_file = Path(tmp_dir) / "transcript.jsonl"
+                    user_msg = {
+                        "step_index": 1,
+                        "type": "USER_INPUT",
+                        "content": phrase,
+                    }
+                    transcript_file.write_text(
+                        json.dumps(user_msg) + "\n", encoding="utf-8"
+                    )
+
+                    payload = {
+                        "toolCall": {
+                            "name": "write_to_file",
+                            "args": {
+                                "TargetFile": str(target_py),
+                                "CodeContent": large_code,
+                            },
+                        },
+                        "transcriptPath": str(transcript_file),
+                    }
+                    result = run_delegation_hook(json.dumps(payload))
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_user_override_env_bypass(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
+        override_envs = [
+            {"USER_OVERRIDE": "1"},
+            {"USER_OVERRIDE": "true"},
+            {"DIRECT_EXECUTION": "1"},
+            {"DIRECT_EXECUTION": "yes"},
+            {"NO_SUBAGENTS": "1"},
+            {"NO_SUBAGENTS": "on"},
+        ]
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "override_env_target.py"
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                }
+            }
+            for env in override_envs:
+                with self.subTest(env=env):
+                    result = run_delegation_hook(json.dumps(payload), env=env)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(json.loads(result.stdout.strip()), {})
+
     def test_cloud_run_task_permits_writes(self):
-        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
             target_py = Path(tmp_dir) / "cloud_task_file.py"
             payload = {
@@ -614,7 +721,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
             self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_coordinator_prompt_does_not_bypass(self):
-        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
             target_py = Path(tmp_dir) / "feature_code.py"
             transcript_file = Path(tmp_dir) / "coordinator_transcript.jsonl"
@@ -640,7 +747,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
             self.assertEqual(parsed.get("decision"), "force_ask")
 
     def test_subagent_env_bypass(self):
-        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
         subagent_envs = [
             {"SUBAGENT": "1"},
             {"IS_SUBAGENT": "1"},
@@ -664,7 +771,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_subagent_transcript_bypass(self):
-        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
             target_py = Path(tmp_dir) / "subagent_file.py"
             transcript_file = Path(tmp_dir) / "transcript.jsonl"
@@ -689,7 +796,7 @@ class TestPreToolDelegationHook(unittest.TestCase):
             self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_headless_bypass_when_subagents_disabled(self):
-        large_code = "\n".join(f"var_{i} = {i}" for i in range(25))
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
         bypass_envs = [
             {"NON_INTERACTIVE": "1", "HEADLESS_NO_SUBAGENTS": "1"},
             {"CI": "true", "ALLOW_SUBAGENTS": "0"},
@@ -747,6 +854,101 @@ class TestPreToolDelegationHook(unittest.TestCase):
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(json.loads(result.stdout.strip()), {})
 
+    def test_view_file_rules_does_not_trigger_user_override(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "auth_service.py"
+            transcript_file = Path(tmp_dir) / "transcript.jsonl"
+            steps = [
+                {
+                    "step_index": 0,
+                    "type": "USER_INPUT",
+                    "source": "USER",
+                    "content": "Please refactor the authentication system.",
+                },
+                {
+                    "step_index": 1,
+                    "type": "GENERIC",
+                    "source": "MODEL",
+                    "content": "Tool output from view_file AGENTS.md: do this directly and no subagents for trivial edits.",
+                },
+                {
+                    "step_index": 2,
+                    "type": "PLANNER_RESPONSE",
+                    "source": "SYSTEM",
+                    "content": "Read rules/AGENTS.md: do this directly without subagents.",
+                },
+            ]
+            transcript_file.write_text(
+                "\n".join(json.dumps(s) for s in steps) + "\n", encoding="utf-8"
+            )
+
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                },
+                "transcriptPath": str(transcript_file),
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            parsed = json.loads(result.stdout.strip())
+            self.assertEqual(parsed.get("decision"), "force_ask")
+            self.assertIn(
+                "Coordinator Code Delegation Invariant", parsed.get("reason", "")
+            )
+
+    def test_coordinator_reading_skill_does_not_become_subagent(self):
+        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
+            target_py = Path(tmp_dir) / "auth_service.py"
+            transcript_file = Path(tmp_dir) / "transcript.jsonl"
+            steps = [
+                {
+                    "step_index": 0,
+                    "type": "USER_INPUT",
+                    "source": "USER",
+                    "content": "You are a coordinator tasked with implementing the feature.\nRefactor the auth system.",
+                },
+                {
+                    "step_index": 1,
+                    "type": "GENERIC",
+                    "source": "MODEL",
+                    "content": "Tool output from view_file SKILL.md: poteto-agent subagent delegate protocol.",
+                },
+                {
+                    "step_index": 2,
+                    "type": "GENERIC",
+                    "source": "MODEL",
+                    "content": "Reviewing SKILL.md: adversarial reviewer subagent.",
+                },
+            ]
+            transcript_file.write_text(
+                "\n".join(json.dumps(s) for s in steps) + "\n", encoding="utf-8"
+            )
+
+            payload = {
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": str(target_py),
+                        "CodeContent": large_code,
+                    },
+                },
+                "transcriptPath": str(transcript_file),
+            }
+            result = run_delegation_hook(json.dumps(payload))
+            self.assertEqual(result.returncode, 0)
+            parsed = json.loads(result.stdout.strip())
+            self.assertEqual(parsed.get("decision"), "force_ask")
+            self.assertIn(
+                "Coordinator Code Delegation Invariant", parsed.get("reason", "")
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
+
