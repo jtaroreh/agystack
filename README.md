@@ -42,23 +42,6 @@ Option B: Workspace-local install
 git clone https://github.com/jtaroreh/agystack.git .agents/plugins/agystack
 ```
 
-After cloning, verify installed dependencies by running `--doctor` via `setup_runtime.py`:
-
-For global install:
-```bash
-python3 ~/.gemini/config/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
-```
-
-For workspace-local install:
-```bash
-python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
-```
-
-Or from within the repository root:
-```bash
-python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
-```
-
 **or honestly. you can probably just tell your chat**
 ```text
 install this antigravity plugin for me: https://github.com/jtaroreh/agystack

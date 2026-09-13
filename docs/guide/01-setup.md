@@ -19,17 +19,6 @@ git clone https://github.com/jtaroreh/agystack ~/.gemini/config/plugins/agystack
 # Option B: Workspace-only installation (applies to current project)
 git clone https://github.com/jtaroreh/agystack .agents/plugins/agystack
 ```
-
-After installation, verify installed dependencies by running `--doctor` via `setup_runtime.py`:
-
-```bash
-# For global install
-python3 ~/.gemini/config/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
-
-# For workspace-only install
-python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
-```
-
 Restart Antigravity or start a new chat so it discovers the plugin.
 
 ## Pick your models

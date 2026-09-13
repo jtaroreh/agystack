@@ -14,14 +14,10 @@ Configure model tiers in `~/.gemini/config/plugins/agystack/rules/agystack-model
 - `gt` (Graphite CLI) is recommended for stacked PRs.
 - `google-cloud-storage`, `google-genai`, and `google-cloud-run` are optional Python libraries for GCS artifact storage, preflight checks, and Cloud Run job monitoring.
 
-Post-install, verify dependencies by running `--doctor` via the installed script path:
+During setup, verify dependencies automatically via `--doctor`:
 
 ```bash
-# For global install
-python3 ~/.gemini/config/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
-
-# For workspace install
-python3 .agents/plugins/agystack/skills/setup-agystack/scripts/setup_runtime.py --doctor
+python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/setup-agystack -name "setup_runtime.py" 2>/dev/null | head -1)" --doctor
 ```
 
 ## Steps
