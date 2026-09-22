@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.ruff_cache/
 vendor_cache/
 vendor/
 **/*agystack-runtime.json

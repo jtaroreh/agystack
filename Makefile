@@ -1,4 +1,4 @@
-.PHONY: test lint doctor build-worker clean
+.PHONY: test lint doctor clean
 
 test:
 	pytest -v tests/
@@ -10,4 +10,4 @@ doctor:
 	python3 skills/setup-agystack/scripts/setup_runtime.py --doctor
 
 clean:
-	rm -rf .pytest_cache __pycache__ *.egg-info dist build
+	rm -rf .pytest_cache .ruff_cache __pycache__ *.egg-info dist build
