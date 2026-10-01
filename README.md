@@ -6,23 +6,31 @@
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](./pyproject.toml)
 [![Bun 1.0+](https://img.shields.io/badge/Bun-1.0%2B-orange.svg)](https://bun.sh)
 
-this was adapted by [jtaroreh](https://x.com/joeltaroreh) from [poteto](https://x.com/poteto). i saw that Antigravity had potential with its native worktree isolation, first-class artifacts, asynchronous process management, and Gemini's token speeds so i brought Cursor's pstack to it
+**agystack** is an agentic engineering framework for Google Antigravity, created by [Joel Taroreh](https://x.com/joeltaroreh). It equips autonomous agents with a set of rigorous skills, playbooks, and cloud swarms built on the anti-slop foundation of [poteto](https://x.com/poteto)'s Cursor pstack.
 
-poteto "i'm not a president or ceo, but i've worked with millions of lines of code at Meta, Netflix, and Cursor. i'm also on the react core team where i help build and maintain react compiler.
+Where pstack brought anti-slop rigor to editor chats, **agystack expands it into a distributed, multi-tier engineering fleet**:
 
-there's a growing sense that ai writes too much slop code. i agree. i don't want to ship like a team of twenty slop artists. throughput without quality is not a goal i aspire to. if you want to go fast, go deep first."
+- **Google Cloud Run Fleets (`/swarm`).** When local machines hit limits, fan out across headless cloud containers. Fleet workers run in parallel, stream real-time milestones, and deliver isolated candidate patches to GCS without git worktree collisions.
+- **The `/loop` Hillclimb Engine.** Run automated hypothesis-and-verify loops against a concrete test command (`--verify "<cmd>"`). agystack applies discrete edits, reverts regressions, and reactively iterates until green without manual babysitting.
+- **Automated PR Babysitting & Stack Shipping (`watch-pr`).** Eliminate GitHub PR friction. Dedicated tooling monitors CI checks, detects merge conflicts across Graphite stacks, and triages review comments. Real defects get fixed with runtime reproduction, while bot noise gets dismissed with concrete reasons.
+- **Adversarial Reviews & Bakeoffs (`/interrogate`, `/arena`).** Prevent single-agent blind spots. Dispatch concurrent reviewers to attack diffs from independent angles before shipping, or run competing candidate implementations in parallel worktrees and graft winning pieces sequentially.
+- **Subagent Context Isolation & Anti-Slop Discipline (`/deslop`, `comment-sicko`).** Coordinator contexts stay fast and clean by delegating code modifications over 50 lines to isolated subagents, while dedicated reviewers actively strip defensive bloat, AI apologies, and narrative comments before merge.
 
-**agystack is the answer for Antigravity.** these are the same rigorous skills used everyday to ship high quality code. this turns Antigravity into a real engineering team. the goal is not to maximize loc, in fact it's the opposite. agystack helps you write less, but higher quality code.
+Underneath the platform additions is the core engineering philosophy that started it:
 
-**agystack gives you fearless parallelism.** when you can go deep on one agent and trust it to write good, verifiable code, you can truly parallelize with confidence. start multiple agents up with `poteto-mode` and trust that they'll apply rigorous engineering principles to their work.
+> "i'm not a president or ceo, but i've worked with millions of lines of code at Meta, Netflix, and Cursor. i'm also on the react core team where i help build and maintain react compiler.
+> 
+> there's a growing sense that ai writes too much slop code. i agree. i don't want to ship like a team of twenty slop artists. throughput without quality is not a goal i aspire to. if you want to go fast, go deep first."
+> 
+> — [Lauren Tan (poteto)](https://x.com/poteto)
 
-**Antigravity and Google Cloud Run.** the features with this harness enhance agystack's ability to orchestrate subagents and run verifiable closed-loops. Cloud Run allows you to run headless containers and summon fleets of parallel cloud agents within Antigravity.  
+**The goal is not to maximize lines of code.** In fact, it is the opposite. agystack helps you write less code, verify every change against real runtime evidence, and scale parallel work without multiplying slop.
 
-fork it. improve it. make it yours. PRs are welcome! 
+Fork it. Improve it. Make it yours. PRs are welcome! 
 
 ## install (Antigravity)
 
-this repository is **agystack**, the Antigravity port of Lauren Tan's pstack, adapted by Joel Taroreh.
+this repository is **agystack**, the agentic engineering framework for Google Antigravity created by Joel Taroreh, built on Lauren Tan's pstack.
 
 ### prerequisites
 
@@ -56,7 +64,7 @@ Restart Antigravity or open a new chat after install.
 two steps:
 
 1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) and choose which models you want, choose if you want to setup cloud swarm with Google Cloud auth. 
-2. use [`/poteto-mode`](./skills/poteto-mode/SKILL.md) whenever you're doing anything that requires rigor.
+2. use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/poteto-mode/SKILL.md) whenever you're doing anything that requires rigor.
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
 
@@ -64,9 +72,9 @@ that's it. the other skills are situational; the mode skill uses them for you as
 
 ## usage
 
-use [`/poteto-mode`](./skills/poteto-mode/SKILL.md) at the start of a task. it reads your request, picks from a set of playbooks, and runs the other skills as the steps need them.
+use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/poteto-mode/SKILL.md) at the start of a task. it reads your request, picks from a set of playbooks, and runs the other skills as the steps need them.
 
-### just use [`/poteto-mode`](./skills/poteto-mode/SKILL.md)
+### just use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/poteto-mode/SKILL.md)
 
 this skill is the main shortcut. i use it whenever i need the agent to do rigorous engineering work. it comes with twenty-three playbooks:
 
@@ -123,9 +131,9 @@ when invoked it:
 
 the full rules and playbooks live in [`skills/poteto-mode/SKILL.md`](./skills/poteto-mode/SKILL.md).
 
-[`/poteto-mode`](./skills/poteto-mode/SKILL.md) is also a sticky mode: once entered it stays on across turns, applying itself when a playbook matches or the task needs rigor and staying out of the way otherwise. opt out any time by saying so.
+[`/agystack`](./skills/agystack/SKILL.md) and [`/poteto-mode`](./skills/poteto-mode/SKILL.md) are also sticky modes: once entered they stay on across turns, applying themselves when a playbook matches or the task needs rigor and staying out of the way otherwise. opt out any time by saying so.
 
-[`/poteto-mode`](./skills/poteto-mode/SKILL.md) works seamlessly with Antigravity's `/goal` (for multi-hour overnight autonomy) and `/loop` (for inner-loop metric optimization and TDD hillclimbs). you can make agents work for many hours without sacrificing rigor.
+they work seamlessly with Antigravity's `/goal` (for multi-hour overnight autonomy) and `/loop` (for inner-loop metric optimization and TDD hillclimbs). you can make agents work for many hours without sacrificing rigor.
 
 ## cloud swarms (Cloud Run)
 
@@ -154,6 +162,7 @@ set it up with [`/setup-agystack`](./skills/setup-agystack/SKILL.md) with your G
 
 | skill | use it when |
 |---|---|
+| [`/agystack`](./skills/agystack/SKILL.md) | default entry point for any non-trivial task on Antigravity (twin of poteto-mode). |
 | [`/poteto-mode`](./skills/poteto-mode/SKILL.md) | default entry point for any non-trivial task. |
 | [`/how`](./skills/how/SKILL.md) | you want a walkthrough of how a subsystem works. |
 | [`/why`](./skills/why/SKILL.md) | you want to know why something was built this way. discovers available MCPs at run time and queries each evidence category in parallel (source control, issue tracker, long-form docs, real-time chat, infra observability, error tracking, analytics warehouse). |
@@ -232,9 +241,9 @@ automate-me:       /automate-me
 
 ## the `poteto-agent` and comment-sicko subagents
 
-agystack also ships a subagent that runs my style end to end. spawn it from a parent agent via `TypeName: "poteto-agent"` ([./agents/poteto-agent.md](./agents/poteto-agent.md)). it reads `poteto-mode` in full, including its inline principles index, before doing any work. substituting `self` skips that read and drifts.
+agystack also ships a subagent that runs poteto's style end to end. spawn it from a parent agent via `TypeName: "poteto-agent"` ([./agents/poteto-agent.md](./agents/poteto-agent.md)). it reads `poteto-mode` in full, including its inline principles index, before doing any work. substituting `self` skips that read and drifts.
 
-[`/poteto-mode`](./skills/poteto-mode/SKILL.md) and `TypeName: "poteto-agent"` route through the same wrapper.
+[`/agystack`](./skills/agystack/SKILL.md), [`/poteto-mode`](./skills/poteto-mode/SKILL.md), and `TypeName: "poteto-agent"` route through the same wrapper.
 
 agystack also ships [comment-sicko](./agents/comment-sicko.md), a read-only comment reviewer available as `TypeName: "comment-sicko"`. usually invoke it through [`/no-comments`](./skills/no-comments/SKILL.md), not directly.
 
