@@ -47,6 +47,8 @@ By default the log is a working artifact, not committed to git. Keep it in the b
 
 Commit it to the repository only when the work is ambitious enough that an external reviewer needs the trail in the PR to trust the result (e.g., large cross-language ports or multi-week migrations).
 
+A run is one agent conversation, including its later turns and any summary of it. A pickup, a replacement agent, or a new chat starts a new run. Every run (including the initial run that creates the file) writes an anchor row with phase `start` upon beginning work: phase `start`, decision `Run initiated`, why `Run pickup or new chat`, evidence `<agent-id>`, result `active`. When a run returns to a log in a later turn, it checks the log's most recent phase `start` row; if another run intervened, it logs a new phase `start` row before making new entries. Use phase `start` for nothing else.
+
 ## Rules
 
 - One row is one decision or checkpoint. If it doesn't fit on one line, the decision isn't crisp yet.
@@ -55,14 +57,13 @@ Commit it to the repository only when the work is ambitious enough that an exter
 
 ## Audit the log against the transcript
 
-At the end of the run, before handing back, check the log told the truth. Read this run's transcript under `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (or `~/.gemini/antigravity/brain/` / `~/.gemini/antigravity-ide/brain/`, or the path provided in context). Walk the log against what actually happened:
+At the end of the run, before handing back, check the log told the truth. Read this run's transcript under `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (or `~/.gemini/antigravity/brain/` / `~/.gemini/antigravity-ide/brain/`, or the path provided in context). Walk this run's rows against what actually happened. Each stretch of them begins at one of this run's `start` rows, or at the first data row (row 2, following the TSV header) if this run created the log, and ends at the next `start` row of another run:
 
-- Every row maps to a real action. Cut invented or aspirational entries.
-- Each row's evidence resolves and shows what the row claims.
+- Check that every row maps to a real decision or action.
+- Check that each row's evidence resolves and shows what the row claims (anchor rows with phase `start` and result `active`, and retraction rows with result `void`, are synthetic and exempt from file resolution).
 - A fork, pivot, or abandoned approach that shaped the work but isn't logged is a gap. Add it.
-- Drop padding. If nobody would audit a row, it doesn't earn its place.
 
-Fix the log, not the story. If the work diverged from what a row claims, the row is wrong.
+Correct the log, not the story. The audit never edits or removes a row, even an invented one. When a row records a decision or action with wrong claims or broken evidence, add a row with phase `supersede`, decision `<corrected decision>`, why `Supersedes <target-ts>#<target-decision>: corrected during transcript audit`, evidence pointing to the valid artifact or transcript line, and result `updated`. When a row records an invented or hallucinated action that never happened, add a retraction row: phase `supersede`, decision `Retract row at <target-ts>#<target-decision>`, why `Invented action or not performed`, evidence `retract <target-ts>#<target-decision>`, result `void`. This audit does not check rows outside this run's stretches. If this run's own work shows one of them is wrong, supersede it like any wrong call.
 
 ## Cross-model review of the trail
 
@@ -77,7 +78,7 @@ Every reply for a run that produced a trail ends with an "Attention" section. Le
 
 ## Reviewing the trail
 
-Read top to bottom, follow the evidence pointers, spot-check. GitHub renders a committed TSV as a table; `column -s$'\t' -t decisions.tsv` renders it in a terminal. A row whose evidence doesn't resolve, or whose result is unverified, is the audit catching a gap.
+Read top to bottom, follow the evidence pointers, spot-check. GitHub renders a committed TSV as a table; `column -s$'\t' -t decisions.tsv` renders it in a terminal. A row whose evidence doesn't resolve (except anchor `start` `active` rows and intentional `retract` `void` rows), or whose result is unverified, is the audit catching a gap.
 
 ## Composing this skill
 
