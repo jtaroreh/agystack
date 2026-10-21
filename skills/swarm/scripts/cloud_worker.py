@@ -761,6 +761,157 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
     else:
         candidate = os.environ.get("MODEL_OVERRIDE", "").strip()
 
+PARTNER_MODEL_ALIASES = {
+    "claude-5-5-sonnet": "claude-5-5-sonnet",
+    "claude-5.5-sonnet": "claude-5-5-sonnet",
+    "sonnet-5.5": "claude-5-5-sonnet",
+    "sonnet-5-5": "claude-5-5-sonnet",
+    "claude-5-5-opus": "claude-5-5-opus",
+    "claude-5.5-opus": "claude-5-5-opus",
+    "opus-5.5": "claude-5-5-opus",
+    "opus-5-5": "claude-5-5-opus",
+    "fable-5-1": "fable-5-1",
+    "fable-5.1": "fable-5-1",
+    "publishers/anthropic/models/claude-5-5-sonnet": "claude-5-5-sonnet",
+    "publishers/anthropic/models/claude-5.5-sonnet": "claude-5-5-sonnet",
+    "publishers/anthropic/models/claude-5-5-opus": "claude-5-5-opus",
+    "publishers/anthropic/models/claude-5.5-opus": "claude-5-5-opus",
+    "publishers/fable/models/fable-5-1": "fable-5-1",
+    "publishers/fable/models/fable-5.1": "fable-5-1",
+}
+
+PARTNER_MODELS = {
+    "claude-5-5-sonnet",
+    "claude-5-5-opus",
+    "fable-5-1",
+}
+
+
+def is_partner_model(model: str) -> bool:
+    if not model:
+        return False
+    m = model.lower().strip()
+    if m in PARTNER_MODELS or m in PARTNER_MODEL_ALIASES:
+        return True
+    if m.startswith("publishers/anthropic/") or m.startswith("publishers/fable/"):
+        return True
+    if m.startswith("claude-") or m.startswith("sonnet-") or m.startswith("opus-") or m.startswith("fable-"):
+        return True
+    return False
+
+
+def measure_partner_client_startup(
+    project: Optional[str] = None,
+    region: Optional[str] = None,
+) -> float:
+    t0 = time.perf_counter()
+    import anthropic
+
+    resolved_project = (
+        project
+        or os.environ.get("VERTEXAI_PROJECT")
+        or os.environ.get("GCP_PROJECT")
+        or os.environ.get("PROJECT_ID")
+        or None
+    )
+    resolved_region = (
+        region
+        or os.environ.get("VERTEXAI_LOCATION")
+        or os.environ.get("GCP_REGION")
+        or os.environ.get("REGION")
+        or "us-central1"
+    )
+    _ = anthropic.AnthropicVertex(project_id=resolved_project, region=resolved_region)
+    return time.perf_counter() - t0
+
+
+def execute_partner_model_agent(
+    model: str,
+    task_brief: str,
+    repo_dir: Path,
+    task_item: Any = None,
+    task_index: int = 0,
+    project: Optional[str] = None,
+    location: Optional[str] = None,
+    messenger: Optional[Any] = None,
+) -> Tuple[str, str]:
+    try:
+        import anthropic
+    except ImportError:
+        return "BLOCKED", "Missing dependency: anthropic[vertex] Python package is not installed."
+
+    resolved_project = (
+        project
+        or os.environ.get("VERTEXAI_PROJECT")
+        or os.environ.get("GCP_PROJECT")
+        or os.environ.get("PROJECT_ID")
+        or None
+    )
+    resolved_region = (
+        location
+        or os.environ.get("VERTEXAI_LOCATION")
+        or os.environ.get("GCP_REGION")
+        or os.environ.get("REGION")
+        or "us-central1"
+    )
+
+    try:
+        client = anthropic.AnthropicVertex(
+            project_id=resolved_project,
+            region=resolved_region,
+        )
+        system_prompt = (
+            os.environ.get("AGYSTACK_WORKER_SYSTEM_PROMPT")
+            or POTETO_WORKER_SYSTEM_PROMPT
+        )
+        response = client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": task_brief}
+            ],
+        )
+        agent_text = ""
+        if hasattr(response, "content") and response.content:
+            text_parts = []
+            for block in response.content:
+                if hasattr(block, "text"):
+                    text_parts.append(block.text)
+                elif isinstance(block, dict) and "text" in block:
+                    text_parts.append(block["text"])
+                elif isinstance(block, str):
+                    text_parts.append(block)
+            agent_text = "\n".join(text_parts)
+        elif isinstance(response, str):
+            agent_text = response
+        elif hasattr(response, "text"):
+            agent_text = response.text
+
+        return evaluate_agent_status(agent_text)
+    except Exception as exc:
+        return "ISSUES", f"Partner model execution exception: {exc}"
+
+
+def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None) -> str:
+    """
+    Resolves the worker model for a task, respecting per-task overrides in task_item,
+    explicit raw_model / MODEL_OVERRIDE, and resolving tier aliases ('auto', 'inherit',
+    'inherit-parent', 'flash', 'flash_lite', 'flash-lite', 'pro', and partner models).
+    """
+    candidate = ""
+    if (
+        isinstance(task_item, dict)
+        and task_item.get("model")
+        and isinstance(task_item["model"], str)
+        and task_item["model"].strip()
+    ):
+        candidate = task_item["model"].strip()
+    elif raw_model and raw_model.strip():
+        candidate = raw_model.strip()
+    else:
+        candidate = os.environ.get("MODEL_OVERRIDE", "").strip()
+
     default_model = (
         os.environ.get("DEFAULT_SWARM_MODEL", "").strip()
         or os.environ.get("DEFAULT_MODEL", "").strip()
@@ -778,6 +929,7 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
         "inherit_parent": default_model,
         "": default_model,
     }
+    alias_map.update(PARTNER_MODEL_ALIASES)
 
     norm = candidate.lower()
     if norm in alias_map:
@@ -833,8 +985,21 @@ def execute_task(
         except subprocess.TimeoutExpired:
             return "ISSUES", f"Command timed out after {timeout} seconds: {cmd_str}"
 
-    # General Agent Execution using Google Antigravity SDK
     resolved_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
+    if is_partner_model(resolved_model):
+        emit_milestone(task_index, "RUNNING_AGENT", f"Vertex Model Garden agent ({resolved_model})")
+        return execute_partner_model_agent(
+            model=resolved_model,
+            task_brief=task_brief,
+            repo_dir=repo_dir,
+            task_item=task_item,
+            task_index=task_index,
+            project=project,
+            location=location,
+            messenger=messenger,
+        )
+
+    # General Agent Execution using Google Antigravity SDK
     emit_milestone(task_index, "RUNNING_AGENT", f"Antigravity SDK agent ({resolved_model})")
     try:
         import asyncio
@@ -957,7 +1122,12 @@ def main() -> None:
     if not gh_token:
         print("Warning: Missing GH_TOKEN. Proceeding with unauthenticated git operations.", file=sys.stderr)
 
-    use_vertex = os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
+    use_vertex = (
+        os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
+        or bool(os.environ.get("VERTEXAI_PROJECT"))
+        or bool(os.environ.get("GCP_PROJECT"))
+        or is_partner_model(os.environ.get("MODEL_OVERRIDE", ""))
+    )
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not use_vertex and not gemini_api_key:
         emit_milestone(task_index, "COMPLETE", "BLOCKED")
@@ -984,6 +1154,10 @@ def main() -> None:
             flush=True,
         )
         sys.exit(1)
+
+    task_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
+    if is_partner_model(task_model):
+        use_vertex = True
 
     branch_name = resolve_worker_branch(task_item, task_index)
 
