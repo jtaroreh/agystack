@@ -10,6 +10,7 @@ from enum import Enum
 import json
 import os
 from pathlib import Path
+import re
 import time
 from typing import Any, Dict, List, Optional, Union
 import urllib.error
@@ -86,6 +87,38 @@ class MailboxEnvelope:
         return cls.from_dict(json.loads(json_str))
 
 
+def retry_gcs_operation(
+    func: Any,
+    max_retries: int = 3,
+    initial_delay: float = 0.05,
+    backoff_factor: float = 1.5,
+) -> Any:
+    """Executes a callable with retries on network timeouts or transient errors."""
+    delay = initial_delay
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except (TimeoutError, urllib.error.URLError, ConnectionError, OSError) as exc:
+            last_exc = exc
+            if attempt >= max_retries:
+                raise
+            time.sleep(delay)
+            delay *= backoff_factor
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            if "timeout" in exc_str or "timed out" in exc_str or "connection" in exc_str:
+                last_exc = exc
+                if attempt >= max_retries:
+                    raise
+                time.sleep(delay)
+                delay *= backoff_factor
+            else:
+                raise
+    if last_exc:
+        raise last_exc
+
+
 class _GcsRestBlob:
     def __init__(self, bucket_name: str, name: str, token: str):
         self.bucket_name = bucket_name
@@ -128,6 +161,21 @@ class _GcsRestBlob:
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="GET")
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.read().decode("utf-8")
+
+    def delete(self) -> None:
+        encoded_bkt = urllib.parse.quote(self.bucket_name, safe="")
+        encoded_name = urllib.parse.quote(self.name, safe="")
+        url = f"https://storage.googleapis.com/storage/v1/b/{encoded_bkt}/o/{encoded_name}"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="DELETE")
+        try:
+            with urllib.request.urlopen(req, timeout=15):
+                pass
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return
+            raise
+        except Exception:
+            pass
 
 
 class _GcsRestBucket:
@@ -181,6 +229,13 @@ class _LocalBlob:
 
     def download_as_text(self) -> str:
         return self.path.read_text(encoding="utf-8")
+
+    def delete(self) -> None:
+        if self.path.is_file():
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
 
 
 class _LocalBucket:
@@ -378,7 +433,10 @@ class StorageMessenger:
                 try:
                     content = b.download_as_text()
                     envelope = MailboxEnvelope.from_json(content)
-                    if envelope.seq not in self._seen_steer_seqs:
+                    if (
+                        envelope.seq not in self._seen_steer_seqs
+                        and envelope.status != MessageStatus.ACKNOWLEDGED
+                    ):
                         self._seen_steer_seqs.add(envelope.seq)
                         steer_envelopes.append(envelope)
                         try:
@@ -397,6 +455,8 @@ class StorageMessenger:
                             b.upload_from_string(ack_env.to_json(), content_type="application/json")
                         except Exception:
                             pass
+                    elif envelope.status == MessageStatus.ACKNOWLEDGED:
+                        self._seen_steer_seqs.add(envelope.seq)
                 except Exception:
                     continue
 
@@ -446,10 +506,18 @@ class StorageMessenger:
         blob.upload_from_string(envelope.to_json(), content_type="application/json")
         return envelope
 
-    def send_steer(self, task_index: int, instruction: str) -> MailboxEnvelope:
+    def send_steer(
+        self,
+        task_index: int,
+        instruction: str,
+        max_retries: int = 3,
+        retry_delay: float = 0.05,
+    ) -> MailboxEnvelope:
         prefix = f"{self._session_prefix()}/tasks/task-{task_index}/inbox/"
         max_seq = 0
-        try:
+
+        def _resolve_max_seq():
+            nonlocal max_seq
             blobs = self.bucket.list_blobs(prefix=prefix)
             for b in blobs:
                 name = getattr(b, "name", "")
@@ -461,6 +529,9 @@ class StorageMessenger:
                             max_seq = seq_val
                     except ValueError:
                         pass
+
+        try:
+            retry_gcs_operation(_resolve_max_seq, max_retries=max_retries, initial_delay=retry_delay)
         except Exception:
             pass
 
@@ -479,5 +550,60 @@ class StorageMessenger:
 
         obj_path = self._inbox_steer_path(task_index, steer_seq)
         blob = self.bucket.blob(obj_path)
-        blob.upload_from_string(envelope.to_json(), content_type="application/json")
+        retry_gcs_operation(
+            lambda: blob.upload_from_string(envelope.to_json(), content_type="application/json"),
+            max_retries=max_retries,
+            initial_delay=retry_delay,
+        )
         return envelope
+
+    def discover_tasks(self) -> List[int]:
+        """Discovers active or existing task indices for this session from storage."""
+        prefix = f"{self._session_prefix()}/tasks/"
+        task_indices = set()
+        try:
+            blobs = self.bucket.list_blobs(prefix=prefix)
+            for b in blobs:
+                name = getattr(b, "name", "")
+                match = re.search(r"/tasks/task-(\d+)/", name)
+                if match:
+                    task_indices.add(int(match.group(1)))
+        except Exception:
+            pass
+
+        if not task_indices:
+            for manifest_path in (f"{self._session_prefix()}/manifest.json", f"swarms/{self.session_id}/manifest.json"):
+                try:
+                    blob = self.bucket.blob(manifest_path)
+                    if blob.exists():
+                        data = json.loads(blob.download_as_text())
+                        tasks = data.get("tasks", [])
+                        if tasks:
+                            return list(range(len(tasks)))
+                except Exception:
+                    pass
+
+        return sorted(task_indices)
+
+    def cleanup_mailboxes(self, task_index: Optional[int] = None) -> int:
+        """Removes all outbox and inbox envelope objects for the session (or a specific task)."""
+        if task_index is not None:
+            prefix = f"{self._session_prefix()}/tasks/task-{task_index}/"
+        else:
+            prefix = f"{self._session_prefix()}/tasks/"
+
+        cleaned = 0
+        try:
+            blobs = self.bucket.list_blobs(prefix=prefix)
+            for b in blobs:
+                name = getattr(b, "name", "")
+                if "/inbox/" in name or "/outbox/" in name:
+                    try:
+                        if hasattr(b, "delete"):
+                            b.delete()
+                            cleaned += 1
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return cleaned

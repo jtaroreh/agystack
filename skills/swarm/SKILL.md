@@ -111,7 +111,20 @@ Cloud Run swarms enable parallel execution across dozens or hundreds of containe
    **Observability, Loop Alarms & In-Flight Steering:**
    - **Task-Attributed Milestones:** Workers emit streaming stdout milestones formatted as `[MILESTONE] [TASK <i>] [PHASE: <phase>] <detail>`, standardizing progress tracking and capturing internal SDK lifecycle events.
    - **Loop Alarms (StagnancyTracker):** Non-destructive repetitiveness detection alerts on 3 consecutive identical tool invocations (`[ALARM] [TASK <i>] [POTENTIAL_LOOP]`) and injects warnings into model context without terminating execution.
-   - **Live Mailbox Steering:** Orchestrators steer in-flight workers via GCS mailbox instructions (`python3 cloud_dispatch.py --session <session_id> --steer <task_index> "ABORT|CANCEL|<instruction>"`). Workers intercept instructions at pre-tool execution to abort cleanly or adapt agent focus.
+   - **Conversational Mailbox Steering Protocol:** Orchestrators steer in-flight workers asynchronously via structured GCS mailbox envelopes (`MailboxEnvelope`) stored under `swarms/<session_id>/tasks/task-<i>/inbox/<seq>_steer.json`.
+     - *Monotonic Sequences & Idempotency:* Envelopes carry strictly monotonic sequence numbers (`0001_steer.json`). Workers acknowledge envelopes (`status=acknowledged`) and record processed sequence numbers in `_seen_steer_seqs` to guarantee idempotent delivery without duplicate execution across reconnects or retries.
+     - *GCS Timeout Resilience & Retry Logic:* Storage messenger operations employ exponential backoff retry loops (`retry_gcs_operation`) to handle transient network timeouts and connection resets when interacting with Cloud Storage.
+     - *Session Mailbox Cleanup:* Upon session completion, `cleanup_session` purges ephemeral mailbox envelopes (`cleanup_mailboxes`) across worker inboxes and outboxes while preserving task shadow transcripts.
+   - **CLI Steering Commands:**
+     - *Directed Steering:* `python3 cloud_dispatch.py steer --task <index> --instruction "<text>" [--session <id>] [--gcs-bucket <bucket>]`
+     - *Broadcast Steering:* `python3 cloud_dispatch.py steer --task all --instruction "<text>" [--session <id>] [--gcs-bucket <bucket>]` delivers steering instructions to every worker in the swarm session.
+     - *Dedicated Utility:* `python3 steer_cloud_task.py --task <index|all> --instruction "<text>" [--session <id>] [--gcs-bucket <bucket>] [--abort]` wraps steering calls with structured validation (validating task indices, non-empty instructions, monotonic sequences, and bounds checking with exit code 1 on out-of-range targets).
+     - *Standardized Log Output:* Steering tools emit `[STEER] Instruction delivered to task-<index> mailbox in GCS`.
+   - **In-Flight Redirection & Hook Interception:**
+     - Workers poll their GCS inboxes inside the agent's pre-tool execution hook (`pre_tool_call_decide`).
+     - *Dynamic Focus Adaptation:* General instructions emit `[MILESTONE] [TASK <i>] [PHASE: STEER_APPLIED] <instruction>` and inject custom context into the LLM prompt via `HookResult(allow=True, custom_context=instruction)`.
+     - *Immediate Abort Directives:* Instructions starting with `ABORT` or `CANCEL` emit `[MILESTONE] [TASK <i>] [PHASE: ABORT_REQUESTED] <instruction>` and cleanly terminate execution via `HookResult(allow=False, error_message=...)`.
+     - *Dashboard Reflection:* `SwarmDashboardWriter` captures steering dispatches to display `STEER_PENDING: <instruction>` under `Active Phase / Tool` and clears the pending status once `STEER_APPLIED` is acknowledged.
    - **Subprocess Timeout Guards:** Shell command execution and verification scripts are bounded by explicit environment timeouts (`COMMAND_TIMEOUT`, `VERIFY_TIMEOUT`), preventing hanging processes from stalling container lifecycle.
 
 Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS]`, `[STATUS: ISSUES]`, or `[STATUS: BLOCKED]` with evidence).

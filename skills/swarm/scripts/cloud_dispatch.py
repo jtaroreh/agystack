@@ -1115,11 +1115,13 @@ def handle_mailbox_reply(
 
 
 def handle_mailbox_steer(
-    task_index: int,
+    task_index: Union[int, str],
     text: str,
     session_id: str,
     bucket_name: Optional[str] = None,
     messenger: Optional[Any] = None,
+    dashboard_writer: Optional[Any] = None,
+    max_tasks: Optional[int] = None,
 ) -> Any:
     if messenger is None:
         if not bucket_name:
@@ -1133,9 +1135,28 @@ def handle_mailbox_steer(
             sys.exit(1)
         messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
 
-    steer_env = messenger.send_steer(task_index=task_index, instruction=text)
-    print(f"Steer instruction sent to task {task_index} (seq {steer_env.seq}): {text}")
-    return steer_env
+    try:
+        from steer_cloud_task import steer_task
+        envs = steer_task(
+            task=task_index,
+            instruction=text,
+            session_id=session_id,
+            bucket_name=bucket_name,
+            messenger=messenger,
+            max_tasks=max_tasks,
+            dashboard_writer=dashboard_writer,
+        )
+        for env in envs:
+            print(f"Steer instruction sent to task {env.task_index} (seq {env.seq}): {text}")
+        if isinstance(task_index, str) and task_index.strip().lower() == "all":
+            return envs
+        return envs[0] if envs else None
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        print(f"Error delivering steering instruction: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def print_candidate_patches_table(
@@ -1238,6 +1259,13 @@ def main() -> None:
     parser.set_defaults(wait=True)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
+    steer_sub = subparsers.add_parser("steer", help="Send a steering instruction to worker(s)")
+    steer_sub.add_argument("--task", type=str, required=True, help="Task index or 'all' for broadcast")
+    steer_sub.add_argument("--instruction", "--text", dest="instruction", type=str, required=True, help="Steering instruction text")
+    steer_sub.add_argument("--session", "--session-id", dest="session", type=str, help="Session ID")
+    steer_sub.add_argument("--gcs-bucket", type=str, help="GCS bucket name")
+    steer_sub.add_argument("--task-count", "--max-tasks", dest="max_tasks", type=int, default=None, help="Total task count")
+
     mailbox_parser = subparsers.add_parser("mailbox", help="Interact with worker mailboxes")
     mailbox_subparsers = mailbox_parser.add_subparsers(dest="mailbox_action", help="Mailbox action")
 
@@ -1256,12 +1284,26 @@ def main() -> None:
 
     # mailbox steer
     steer_p = mailbox_subparsers.add_parser("steer", help="Send a steering instruction to a worker")
-    steer_p.add_argument("--task", type=int, required=True, help="Task index")
-    steer_p.add_argument("--text", type=str, required=True, help="Steering instruction text")
-    steer_p.add_argument("--session", type=str, help="Session ID")
+    steer_p.add_argument("--task", type=str, required=True, help="Task index or 'all' for broadcast")
+    steer_p.add_argument("--instruction", "--text", dest="instruction", type=str, required=True, help="Steering instruction text")
+    steer_p.add_argument("--session", "--session-id", dest="session", type=str, help="Session ID")
     steer_p.add_argument("--gcs-bucket", type=str, help="GCS bucket name")
+    steer_p.add_argument("--task-count", "--max-tasks", dest="max_tasks", type=int, default=None, help="Total task count")
 
     args = parser.parse_args()
+
+    if args.subcommand == "steer":
+        runtime_cfg = find_runtime_config() or {}
+        session_id = args.session or os.environ.get("SWARM_SESSION_ID") or os.environ.get("SESSION_ID") or "default"
+        bkt = args.gcs_bucket or runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        handle_mailbox_steer(
+            task_index=args.task,
+            text=args.instruction,
+            session_id=session_id,
+            bucket_name=bkt,
+            max_tasks=getattr(args, "max_tasks", None),
+        )
+        return
 
     if args.subcommand == "mailbox":
         runtime_cfg = find_runtime_config() or {}
@@ -1272,7 +1314,13 @@ def main() -> None:
         elif args.mailbox_action == "reply":
             handle_mailbox_reply(task_index=args.task, seq=args.seq, text=args.text, session_id=session_id, bucket_name=bkt)
         elif args.mailbox_action == "steer":
-            handle_mailbox_steer(task_index=args.task, text=args.text, session_id=session_id, bucket_name=bkt)
+            handle_mailbox_steer(
+                task_index=args.task,
+                text=args.instruction,
+                session_id=session_id,
+                bucket_name=bkt,
+                max_tasks=getattr(args, "max_tasks", None),
+            )
         else:
             mailbox_parser.print_help()
         return
@@ -1791,7 +1839,7 @@ def main() -> None:
         else:
             print(f"\n[STATUS: EXECUTION_SUCCESS] (All {len(report_items) or task_count} tasks succeeded)")
 
-        cleanup_session(session_id=session_id)
+        cleanup_session(session_id=session_id, bucket_name=gcs_bucket)
 
         if not exec_succeeded:
             sys.exit(1)
