@@ -742,25 +742,6 @@ def evaluate_agent_status(agent_text: str) -> Tuple[str, str]:
     return "ISSUES", agent_text
 
 
-def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None) -> str:
-    """
-    Resolves the worker model for a task, respecting per-task overrides in task_item,
-    explicit raw_model / MODEL_OVERRIDE, and resolving tier aliases ('auto', 'inherit',
-    'inherit-parent', 'flash', 'flash_lite', 'flash-lite', 'pro').
-    """
-    candidate = ""
-    if (
-        isinstance(task_item, dict)
-        and task_item.get("model")
-        and isinstance(task_item["model"], str)
-        and task_item["model"].strip()
-    ):
-        candidate = task_item["model"].strip()
-    elif raw_model and raw_model.strip():
-        candidate = raw_model.strip()
-    else:
-        candidate = os.environ.get("MODEL_OVERRIDE", "").strip()
-
 PARTNER_MODEL_ALIASES = {
     "claude-5-5-sonnet": "claude-5-5-sonnet",
     "claude-5.5-sonnet": "claude-5-5-sonnet",
