@@ -572,7 +572,7 @@ class ShadowTranscriptProjector:
         for p in (primary, system):
             if not p.exists():
                 continue
-            lines = [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+            lines = [line for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
             if lines:
                 lines[-1] = json.dumps(entry)
                 p.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -581,7 +581,7 @@ class ShadowTranscriptProjector:
         primary, _ = self.get_transcript_files(task_index)
         if not primary.exists():
             return None
-        lines = [l for l in primary.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [line for line in primary.read_text(encoding="utf-8").splitlines() if line.strip()]
         if not lines:
             return None
         try:
