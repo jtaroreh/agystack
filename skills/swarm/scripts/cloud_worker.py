@@ -47,7 +47,35 @@ def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     print(msg, flush=True)
 
 
-def emit_thought(task_index_or_thought: Any, thought: Optional[str] = None) -> None:
+def emit_telemetry(
+    task_index: int,
+    event_type: str,
+    data: Optional[Dict[str, Any]] = None,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    ts = timestamp if timestamp is not None else time.time()
+    payload = {
+        "timestamp": ts,
+        "event": event_type,
+        "task_index": task_index,
+    }
+    if data:
+        payload.update(data)
+    line = f"[TELEMETRY] [TASK {task_index}] {json.dumps(payload, default=str)}"
+    target = stream if stream is not None else sys.stderr
+    try:
+        print(line, file=target, flush=True)
+    except Exception:
+        pass
+
+
+def emit_thought(
+    task_index_or_thought: Any,
+    thought: Optional[str] = None,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
     if thought is None and isinstance(task_index_or_thought, str):
         task_idx = 0
         th = task_index_or_thought
@@ -57,23 +85,174 @@ def emit_thought(task_index_or_thought: Any, thought: Optional[str] = None) -> N
     else:
         task_idx = 0
         th = str(task_index_or_thought)
-    print(f"[THOUGHT] [TASK {task_idx}] {th}", flush=True)
+    emit_telemetry(
+        task_idx,
+        "thought",
+        {"thought": th},
+        timestamp=timestamp,
+        stream=stream,
+    )
 
 
-def emit_tool_invocation(task_index: int, tool_name: str, tool_input: Any) -> None:
-    if isinstance(tool_input, dict):
-        args_summary = ", ".join(f"{k}={v!r}" for k, v in tool_input.items())
-    else:
-        args_summary = str(tool_input)
-    print(f"[TOOL_INVOCATION] [TASK {task_index}] [{tool_name}] {args_summary}", flush=True)
-    emit_milestone(task_index, "TOOL_START", f"{tool_name}: {args_summary[:60]}")
+def emit_tool_invocation(
+    task_index: int,
+    tool_name: str,
+    args: Any = None,
+    call_id: Optional[str] = None,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    tool_args = args if isinstance(args, dict) else ({"args": str(args)} if args is not None else {})
+    emit_telemetry(
+        task_index,
+        "tool_call",
+        {
+            "tool_name": tool_name,
+            "args": tool_args,
+            "call_id": call_id or "",
+        },
+        timestamp=timestamp,
+        stream=stream,
+    )
 
 
-def emit_tool_result(task_index: int, tool_name: str, result: Any) -> None:
-    res_str = str(result)
-    summary = res_str[:200] if len(res_str) > 200 else res_str
-    print(f"[TOOL_RESULT] [TASK {task_index}] [{tool_name}] {summary}", flush=True)
-    emit_milestone(task_index, "TOOL_END", f"{tool_name}")
+def emit_tool_result(
+    task_index: int,
+    tool_name: str,
+    output: Any = "",
+    success: bool = True,
+    call_id: Optional[str] = None,
+    duration_s: float = 0.0,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    emit_telemetry(
+        task_index,
+        "tool_result",
+        {
+            "tool_name": tool_name,
+            "output": output,
+            "success": success,
+            "call_id": call_id or "",
+            "duration_s": duration_s,
+        },
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+def emit_user_input(
+    task_index: int,
+    content: str,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    emit_telemetry(
+        task_index,
+        "user_input",
+        {"content": content},
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+def emit_agent_response(
+    task_index: int,
+    content: str,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    emit_telemetry(
+        task_index,
+        "agent_response",
+        {"content": content},
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+class TokenShield:
+    def __init__(
+        self,
+        task_index: int = 0,
+        target_stream: Optional[Any] = None,
+        telemetry_stream: Optional[Any] = None,
+    ):
+        self.task_index = task_index
+        self.target_stream = target_stream
+        self.telemetry_stream = telemetry_stream or sys.stderr
+        self.captured_thoughts: List[str] = []
+        self._orig_stdout: Optional[Any] = None
+        self._buffer = ""
+
+    def __enter__(self) -> "TokenShield":
+        self._orig_stdout = sys.stdout
+        self.target_stream = self.target_stream or self._orig_stdout
+        sys.stdout = self
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._buffer.strip():
+            self._handle_non_milestone(self._buffer)
+            self._buffer = ""
+        if self._orig_stdout is not None:
+            sys.stdout = self._orig_stdout
+
+    def write(self, s: str) -> int:
+        if not s:
+            return 0
+        self._buffer += s
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._process_line(line)
+        return len(s)
+
+    def _process_line(self, line: str) -> None:
+        stripped = line.strip()
+        if not stripped:
+            return
+        if stripped.startswith("[MILESTONE]"):
+            out = self.target_stream or self._orig_stdout or sys.__stdout__
+            out.write(line + "\n")
+            if hasattr(out, "flush"):
+                out.flush()
+        else:
+            self._handle_non_milestone(stripped)
+
+    def _handle_non_milestone(self, text: str) -> None:
+        self.captured_thoughts.append(text)
+        emit_thought(self.task_index, text, stream=self.telemetry_stream)
+
+    def flush(self) -> None:
+        out = self.target_stream or self._orig_stdout or sys.__stdout__
+        if hasattr(out, "flush"):
+            out.flush()
+
+    def emit_milestone(self, phase: str, detail: str = "") -> None:
+        emit_milestone(self.task_index, phase, detail)
+
+    def emit_thought(self, thought: str) -> None:
+        self.captured_thoughts.append(thought)
+        emit_thought(self.task_index, thought, stream=self.telemetry_stream)
+
+    def emit_tool_invocation(
+        self,
+        tool_name: str,
+        args: Any = None,
+        call_id: Optional[str] = None,
+    ) -> None:
+        emit_tool_invocation(self.task_index, tool_name, args, call_id=call_id, stream=self.telemetry_stream)
+
+    def emit_tool_result(
+        self,
+        tool_name: str,
+        output: Any = "",
+        success: bool = True,
+        call_id: Optional[str] = None,
+        duration_s: float = 0.0,
+    ) -> None:
+        emit_tool_result(self.task_index, tool_name, output, success=success, call_id=call_id, duration_s=duration_s, stream=self.telemetry_stream)
+
 
 
 @dataclass
@@ -237,6 +416,7 @@ def create_agent_hooks(
         })
 
         emit_milestone(task_index, "TOOL_START", f"{tool_name}: {record.args_summary[:60]}")
+        emit_tool_invocation(task_index, tool_name, tool_args, call_id=str(id(tool_call)))
 
         if is_stagnant:
             emit_milestone(task_index, "POTENTIAL_LOOP", f"{tool_name} (repeated {count}x)")
@@ -299,6 +479,14 @@ def create_agent_hooks(
 
         tracker.record_result(tool_name, args_hash, output, success, duration_s)
         emit_milestone(task_index, "TOOL_END", f"{tool_name} in {duration_s:.1f}s")
+        emit_tool_result(
+            task_index,
+            tool_name,
+            output,
+            success=success,
+            call_id=str(matched.get("id", "")) if matched else "",
+            duration_s=duration_s,
+        )
 
     hooks_to_register = [pre_tool_call_decide, post_tool_call]
     if hasattr(h, "on_tool_error"):
@@ -316,10 +504,30 @@ def create_agent_hooks(
                     duration_s,
                 )
                 emit_milestone(task_index, "TOOL_ERROR", f"{matched['tool_name']}: {str(error)[:60]}")
+                emit_tool_result(
+                    task_index,
+                    matched["tool_name"],
+                    str(error),
+                    success=False,
+                    call_id=str(matched.get("id", "")),
+                    duration_s=duration_s,
+                )
             else:
                 emit_milestone(task_index, "TOOL_ERROR", str(error)[:80])
+                emit_tool_result(task_index, "tool", str(error), success=False)
             return None
         hooks_to_register.append(on_tool_error)
+
+    if hasattr(h, "on_thought"):
+        @h.on_thought
+        async def on_thought(thought_content: Any) -> None:
+            emit_thought(task_index, str(thought_content))
+        hooks_to_register.append(on_thought)
+    elif hasattr(h, "on_model_thought"):
+        @h.on_model_thought
+        async def on_model_thought(thought_content: Any) -> None:
+            emit_thought(task_index, str(thought_content))
+        hooks_to_register.append(on_model_thought)
 
     return hooks_to_register
 
@@ -1451,6 +1659,8 @@ def execute_task(
         if not cmd_str:
             cmd_str = task_brief
 
+        emit_user_input(task_index, cmd_str)
+        emit_tool_invocation(task_index, "run_command", {"command": cmd_str})
         emit_milestone(task_index, "RUNNING_COMMAND", cmd_str)
         print(f"Executing command task: {cmd_str}", flush=True)
         timeout = int(os.environ.get("COMMAND_TIMEOUT", "900"))
@@ -1464,11 +1674,14 @@ def execute_task(
                 timeout=timeout,
             )
             if res.returncode == 0:
+                emit_tool_result(task_index, "run_command", res.stdout, success=True)
                 return "PASS", res.stdout
             else:
                 err_msg = res.stderr if res.stderr else res.stdout
+                emit_tool_result(task_index, "run_command", err_msg, success=False)
                 return "ISSUES", err_msg
         except subprocess.TimeoutExpired:
+            emit_tool_result(task_index, "run_command", f"Command timed out after {timeout} seconds", success=False)
             return "ISSUES", f"Command timed out after {timeout} seconds: {cmd_str}"
 
     resolved_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
@@ -1571,12 +1784,25 @@ def execute_task(
             config_kwargs.pop("hooks", None)
             config = LocalAgentConfig(**config_kwargs)
 
+        emit_user_input(task_index, task_brief)
+
         async def _run_agent_turn() -> str:
             async with Agent(config=config) as agent:
                 resp = await agent.chat(task_brief)
-                return await resp.text()
+                if hasattr(resp, "thinking") and resp.thinking:
+                    emit_thought(task_index, str(resp.thinking))
+                elif hasattr(resp, "thoughts") and resp.thoughts:
+                    emit_thought(task_index, str(resp.thoughts))
+                if hasattr(resp, "text"):
+                    res = resp.text() if callable(resp.text) else resp.text
+                    text = await res if asyncio.iscoroutine(res) else str(res)
+                else:
+                    text = str(resp)
+                emit_agent_response(task_index, text)
+                return text
 
-        agent_text = asyncio.run(_run_agent_turn())
+        with TokenShield(task_index=task_index):
+            agent_text = asyncio.run(_run_agent_turn())
         return evaluate_agent_status(agent_text)
     except ImportError:
         return "BLOCKED", "Missing dependency: google.antigravity Python package is not installed."
