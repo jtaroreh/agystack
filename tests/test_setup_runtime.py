@@ -460,5 +460,114 @@ class TestBuildAndDeployWorkerStaging(unittest.TestCase):
         self.assertFalse((self.swarm_scripts_dir / "agents").exists())
 
 
+class TestSetupRuntimePlatformValidation(unittest.TestCase):
+    def test_check_hook_contract_success(self):
+        res = setup_runtime.check_hook_contract()
+        self.assertTrue(res["installed"])
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["decision"], "deny")
+        self.assertIsNone(res["error"])
+        self.assertTrue(res["required"])
+        self.assertTrue(Path(res["path"]).is_file())
+
+    def test_check_hook_contract_missing_file(self):
+        res = setup_runtime.check_hook_contract(hook_path="/nonexistent/path/pre_tool_safety.py")
+        self.assertFalse(res["installed"])
+        self.assertFalse(res["ok"])
+        self.assertIsNone(res["decision"])
+        self.assertIn("not found", res["error"])
+
+    def test_check_hook_contract_unexpected_decision(self):
+        fake_proc = MagicMock(returncode=0, stdout=json.dumps({"decision": "allow"}), stderr="")
+        res = setup_runtime.check_hook_contract(
+            hook_path=Path(__file__).resolve().parent.parent / "skills" / "poteto-mode" / "scripts" / "hooks" / "pre_tool_safety.py",
+            run_cmd_fn=lambda *args, **kwargs: fake_proc,
+        )
+        self.assertTrue(res["installed"])
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "allow")
+        self.assertIn("Expected decision 'deny'", res["error"])
+
+    def test_check_artifact_dir_writable_success(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            res = setup_runtime.check_artifact_dir(brain_dir=tmp_dir)
+            self.assertTrue(res["installed"])
+            self.assertTrue(res["ok"])
+            self.assertTrue(res["writable"])
+            self.assertIsNone(res["error"])
+            self.assertEqual(res["path"], str(Path(tmp_dir).resolve()))
+
+    def test_check_artifact_dir_not_writable(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch.object(Path, "write_text", side_effect=PermissionError("Permission denied")):
+                res = setup_runtime.check_artifact_dir(brain_dir=tmp_dir)
+                self.assertTrue(res["installed"])
+                self.assertFalse(res["ok"])
+                self.assertFalse(res["writable"])
+                self.assertIn("not writable", res["error"])
+
+    def test_parse_model_config_success(self):
+        res = setup_runtime.parse_model_config()
+        self.assertTrue(res["installed"])
+        self.assertTrue(res["ok"])
+        self.assertGreater(res["roles_count"], 0)
+        self.assertIn("arena runners", res["roles"])
+        self.assertEqual(res["roles"]["arena runners"], ["inherit", "flash", "pro"])
+        self.assertIn("swarm workers", res["roles"])
+        self.assertEqual(res["roles"]["swarm workers"], ["flash"])
+        self.assertIn("feature", res["roles"])
+        self.assertEqual(res["roles"]["feature"], ["inherit"])
+
+    def test_parse_model_config_missing_file(self):
+        res = setup_runtime.parse_model_config(config_path="/nonexistent/agystack-models.md")
+        self.assertFalse(res["installed"])
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["roles_count"], 0)
+        self.assertIn("not found", res["error"])
+
+    def test_parse_model_config_empty_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            empty_file = Path(tmp_dir) / "agystack-models.md"
+            empty_file.write_text("# only comments\n\n", encoding="utf-8")
+            res = setup_runtime.parse_model_config(config_path=str(empty_file))
+            self.assertTrue(res["installed"])
+            self.assertFalse(res["ok"])
+            self.assertEqual(res["roles_count"], 0)
+            self.assertIn("No model roles defined", res["error"])
+
+    def test_check_platform_all_passing(self):
+        res = setup_runtime.check_platform()
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["hook_contract"]["ok"])
+        self.assertEqual(res["hook_contract"]["decision"], "deny")
+        self.assertTrue(res["artifact_dir"]["ok"])
+        self.assertTrue(res["artifact_dir"]["writable"])
+        self.assertTrue(res["model_config"]["ok"])
+
+    def test_doctor_platform_overall_status_ok_exit_0(self):
+        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                with self.assertRaises(SystemExit) as cm:
+                    setup_runtime.main()
+                self.assertEqual(cm.exception.code, 0)
+                report = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(report["status"], "OK")
+                self.assertTrue(report["platform"]["ok"])
+                self.assertEqual(report["safety_hook"]["decision"], "deny")
+                self.assertTrue(report["artifact_dir"]["writable"])
+                self.assertIn("arena runners", report["model_config"]["roles"])
+
+    def test_doctor_platform_failure_exits_1(self):
+        with patch("setup_runtime.check_hook_contract", return_value={"ok": False, "required": True, "error": "Hook failure"}):
+            with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    with self.assertRaises(SystemExit) as cm:
+                        setup_runtime.main()
+                    self.assertEqual(cm.exception.code, 1)
+                    report = json.loads(mock_out.getvalue().strip())
+                    self.assertEqual(report["status"], "ERROR")
+                    self.assertFalse(report["platform"]["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
