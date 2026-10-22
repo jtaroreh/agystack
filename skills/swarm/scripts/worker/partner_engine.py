@@ -5,7 +5,6 @@ Handles model alias resolution, workspace tool execution with pre-tool safety
 interception, AnthropicVertex client integration, and autonomous turn loops.
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -320,7 +319,7 @@ def execute_workspace_tool(tool_name: str, tool_input: Dict[str, Any], repo_dir:
                 safety_res = evaluate_safety(cmd_str, is_headless=True)
                 if isinstance(safety_res, dict) and safety_res.get("decision") in ("deny", "reject"):
                     reason = safety_res.get("reason", "Destructive command rejected.")
-                    return f"Error: Command blocked by safety policy ({safety_res.get(decision)}): {reason}"
+                    return f"Error: Command blocked by safety policy ({safety_res.get('decision')}): {reason}"
 
             timeout = int(os.environ.get("COMMAND_TIMEOUT", "300"))
             try:

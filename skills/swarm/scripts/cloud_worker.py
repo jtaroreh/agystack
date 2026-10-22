@@ -8,8 +8,6 @@ delivers candidate patches via GCS under zero-push architecture,
 and outputs a structured report.
 """
 
-from dataclasses import dataclass, field
-import hashlib
 import json
 import os
 import re
@@ -17,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,17 +46,17 @@ def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
 
 try:
     from worker.agent_hooks import (
-        StagnancyTracker,
-        ToolInvocationRecord,
-        create_agent_hooks,
-        create_ask_orchestrator_tool,
+        StagnancyTracker as StagnancyTracker,
+        ToolInvocationRecord as ToolInvocationRecord,
+        create_agent_hooks as create_agent_hooks,
+        create_ask_orchestrator_tool as create_ask_orchestrator_tool,
     )
 except ImportError:
     from skills.swarm.scripts.worker.agent_hooks import (
-        StagnancyTracker,
-        ToolInvocationRecord,
-        create_agent_hooks,
-        create_ask_orchestrator_tool,
+        StagnancyTracker as StagnancyTracker,
+        ToolInvocationRecord as ToolInvocationRecord,
+        create_agent_hooks as create_agent_hooks,
+        create_ask_orchestrator_tool as create_ask_orchestrator_tool,
     )
 
 
@@ -487,35 +484,35 @@ def evaluate_agent_status(agent_text: str) -> Tuple[str, str]:
 
 try:
     from worker.partner_engine import (
-        PARTNER_MODEL_ALIASES,
-        PARTNER_MODELS,
-        WORKSPACE_TOOLS,
-        emit_thought,
-        emit_tool_invocation,
-        emit_tool_result,
-        execute_claude_model_agent,
-        execute_fable_model_agent,
-        execute_partner_model_agent,
-        execute_workspace_tool,
-        is_fable_model,
-        is_partner_model,
-        measure_partner_client_startup,
+        PARTNER_MODEL_ALIASES as PARTNER_MODEL_ALIASES,
+        PARTNER_MODELS as PARTNER_MODELS,
+        WORKSPACE_TOOLS as WORKSPACE_TOOLS,
+        emit_thought as emit_thought,
+        emit_tool_invocation as emit_tool_invocation,
+        emit_tool_result as emit_tool_result,
+        execute_claude_model_agent as execute_claude_model_agent,
+        execute_fable_model_agent as execute_fable_model_agent,
+        execute_partner_model_agent as execute_partner_model_agent,
+        execute_workspace_tool as execute_workspace_tool,
+        is_fable_model as is_fable_model,
+        is_partner_model as is_partner_model,
+        measure_partner_client_startup as measure_partner_client_startup,
     )
 except ImportError:
     from skills.swarm.scripts.worker.partner_engine import (
-        PARTNER_MODEL_ALIASES,
-        PARTNER_MODELS,
-        WORKSPACE_TOOLS,
-        emit_thought,
-        emit_tool_invocation,
-        emit_tool_result,
-        execute_claude_model_agent,
-        execute_fable_model_agent,
-        execute_partner_model_agent,
-        execute_workspace_tool,
-        is_fable_model,
-        is_partner_model,
-        measure_partner_client_startup,
+        PARTNER_MODEL_ALIASES as PARTNER_MODEL_ALIASES,
+        PARTNER_MODELS as PARTNER_MODELS,
+        WORKSPACE_TOOLS as WORKSPACE_TOOLS,
+        emit_thought as emit_thought,
+        emit_tool_invocation as emit_tool_invocation,
+        emit_tool_result as emit_tool_result,
+        execute_claude_model_agent as execute_claude_model_agent,
+        execute_fable_model_agent as execute_fable_model_agent,
+        execute_partner_model_agent as execute_partner_model_agent,
+        execute_workspace_tool as execute_workspace_tool,
+        is_fable_model as is_fable_model,
+        is_partner_model as is_partner_model,
+        measure_partner_client_startup as measure_partner_client_startup,
     )
 def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None) -> str:
     """
