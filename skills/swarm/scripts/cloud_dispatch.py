@@ -391,6 +391,45 @@ except ImportError:
         resolve_app_data_dir,
     )
 
+try:
+    from swarm_dashboard import (
+        MILESTONE_REGEX,
+        STATUS_BADGES,
+        SwarmDashboardWriter,
+        TaskDashboardState,
+        colorize,
+        format_cloud_logging_url,
+        format_cloud_run_execution_url,
+        format_cloud_run_url,
+        format_elapsed_time,
+        format_gcs_console_url,
+        format_gcs_url,
+        format_log_viewer_url,
+        format_monitored_line,
+        format_status_badge,
+        format_tool_snippet,
+        parse_milestone_log,
+    )
+except ImportError:
+    from skills.swarm.scripts.swarm_dashboard import (
+        MILESTONE_REGEX,
+        STATUS_BADGES,
+        SwarmDashboardWriter,
+        TaskDashboardState,
+        colorize,
+        format_cloud_logging_url,
+        format_cloud_run_execution_url,
+        format_cloud_run_url,
+        format_elapsed_time,
+        format_gcs_console_url,
+        format_gcs_url,
+        format_log_viewer_url,
+        format_monitored_line,
+        format_status_badge,
+        format_tool_snippet,
+        parse_milestone_log,
+    )
+
 __all__ = [
     "TELEMETRY_REGEX",
     "ShadowTranscriptProjector",
@@ -402,23 +441,23 @@ __all__ = [
     "is_telemetry_line",
     "parse_telemetry_line",
     "resolve_app_data_dir",
+    "STATUS_BADGES",
+    "MILESTONE_REGEX",
+    "SwarmDashboardWriter",
+    "TaskDashboardState",
+    "colorize",
+    "format_cloud_logging_url",
+    "format_cloud_run_execution_url",
+    "format_cloud_run_url",
+    "format_elapsed_time",
+    "format_gcs_console_url",
+    "format_gcs_url",
+    "format_log_viewer_url",
+    "format_monitored_line",
+    "format_status_badge",
+    "format_tool_snippet",
+    "parse_milestone_log",
 ]
-
-
-MILESTONE_REGEX = re.compile(
-    r"\[MILESTONE\]\s+\[TASK\s+(\d+)\]\s+\[PHASE:\s*([^\]]+)\](?:\s+(.*))?"
-)
-
-
-def parse_milestone_log(line: str) -> Optional[Dict[str, str]]:
-    m = MILESTONE_REGEX.search(line)
-    if not m:
-        return None
-    return {
-        "task_index": m.group(1),
-        "phase": m.group(2).strip(),
-        "detail": m.group(3).strip() if m.group(3) else "",
-    }
 
 
 class MonitorResult(tuple):
@@ -500,50 +539,61 @@ def recover_session_id_from_execution(
         return None
 
 
-def format_monitored_line(line_str: str, use_color: Optional[bool] = None) -> str:
-    """Format a monitored Cloud Run log line with alert banners and terminal styling."""
-    if use_color is None:
-        use_color = (
-            sys.stdout.isatty()
-            and not os.environ.get("NO_COLOR")
-            and os.environ.get("TERM") != "dumb"
-        )
+def _process_log_entries(
+    stdout: str,
+    seen_log_entries: Set[str],
+    last_seen_timestamp: Optional[str],
+    dashboard_writer: Optional[Any] = None,
+    projector: Optional[Any] = None,
+    print_lines: bool = True,
+) -> Optional[str]:
+    """Parse JSON or text log lines, update last_seen_timestamp, deduplicate, and dispatch."""
+    if not stdout:
+        return last_seen_timestamp
 
-    is_alarm = line_str.startswith("[ALARM]")
-    is_loop_milestone = line_str.startswith("[MILESTONE]") and "[PHASE: POTENTIAL_LOOP]" in line_str
-    if is_alarm:
-        content = line_str[len("[ALARM]"):].strip()
-        if content.startswith(">>>") and content.endswith("<<<"):
-            banner = f"[ALARM] {content}"
-        elif content:
-            banner = f"[ALARM] >>> {content} <<<"
-        else:
-            banner = "[ALARM]"
-        return f"\033[91;1m{banner}\033[0m" if use_color else banner
+    entries = []
+    try:
+        parsed = json.loads(stdout)
+        if isinstance(parsed, list):
+            entries = parsed
+        elif isinstance(parsed, dict):
+            entries = [parsed]
+    except Exception:
+        for line in stdout.splitlines():
+            if line.strip():
+                entries.append({"textPayload": line.strip()})
 
-    if is_loop_milestone:
-        banner = f"[ALARM] >>> {line_str} <<<"
-        return f"\033[91;1m{banner}\033[0m" if use_color else banner
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ts = entry.get("timestamp")
+        if ts and isinstance(ts, str):
+            if last_seen_timestamp is None or ts > last_seen_timestamp:
+                last_seen_timestamp = ts
 
-    is_waiting = (
-        line_str.startswith("[WAITING_FOR_ORCHESTRATOR]")
-        or line_str.startswith("WAITING_FOR_ORCHESTRATOR")
-        or bool(re.match(r"^\[TASK\s+\d+\]\s+WAITING_FOR_ORCHESTRATOR\b", line_str))
-    )
-    if is_waiting:
-        if line_str.startswith("[WAITING_FOR_ORCHESTRATOR]"):
-            content = line_str[len("[WAITING_FOR_ORCHESTRATOR]"):].strip()
-            if content.startswith(">>>") and content.endswith("<<<"):
-                banner = line_str
-            elif content:
-                banner = f"[WAITING_FOR_ORCHESTRATOR] >>> {content} <<<"
+        raw_payload = entry.get("textPayload") or ""
+        insert_id = entry.get("insertId")
+        dedup_key = insert_id if insert_id else f"{ts or ''}:{raw_payload.strip()}"
+        if dedup_key in seen_log_entries:
+            continue
+        seen_log_entries.add(dedup_key)
+
+        for line in raw_payload.splitlines():
+            line_str = line.strip()
+            if not line_str:
+                continue
+            if is_telemetry_line(line_str):
+                if projector:
+                    projector.process_log_line(line_str)
+                if dashboard_writer:
+                    dashboard_writer.process_log_line(line_str)
             else:
-                banner = "[WAITING_FOR_ORCHESTRATOR]"
-        else:
-            banner = f"[WAITING_FOR_ORCHESTRATOR] >>> {line_str} <<<"
-        return f"\033[93;1m{banner}\033[0m" if use_color else banner
+                if dashboard_writer:
+                    dashboard_writer.process_log_line(line_str)
+                if print_lines:
+                    print(format_monitored_line(line_str), flush=True)
 
-    return line_str
+    return last_seen_timestamp
 
 
 def monitor_execution(
@@ -555,8 +605,10 @@ def monitor_execution(
     timeout: float = 2700.0,
     projector: Optional[Any] = None,
     session_id: Optional[str] = None,
+    dashboard_writer: Optional["SwarmDashboardWriter"] = None,
 ) -> MonitorResult:
-    seen_log_entries = set()
+    seen_log_entries: Set[str] = set()
+    last_seen_timestamp: Optional[str] = None
     last_counts = None
     desc_data: Optional[Dict[str, Any]] = None
     execution_succeeded = False
@@ -597,13 +649,15 @@ def monitor_execution(
             status = desc_data.get("status", {}) if isinstance(desc_data, dict) else {}
 
             log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[MILESTONE]" OR textPayload:"[STATUS:" OR textPayload:"[ALARM]" OR textPayload:"[TELEMETRY]")'
+            if last_seen_timestamp:
+                log_filter += f' AND timestamp > "{last_seen_timestamp}"'
             log_cmd = [
                 "gcloud",
                 "logging",
                 "read",
                 log_filter,
                 "--limit=1000",
-                "--format=value(textPayload)",
+                "--format=json(textPayload,timestamp,insertId)",
                 "--order=asc",
             ]
             if project:
@@ -617,16 +671,14 @@ def monitor_execution(
                     check=False,
                 )
                 if log_res.returncode == 0 and log_res.stdout:
-                    for line in log_res.stdout.splitlines():
-                        line_str = line.strip()
-                        if not line_str or line_str in seen_log_entries:
-                            continue
-                        seen_log_entries.add(line_str)
-                        if is_telemetry_line(line_str):
-                            if projector:
-                                projector.process_log_line(line_str)
-                        else:
-                            print(format_monitored_line(line_str), flush=True)
+                    last_seen_timestamp = _process_log_entries(
+                        log_res.stdout,
+                        seen_log_entries=seen_log_entries,
+                        last_seen_timestamp=last_seen_timestamp,
+                        dashboard_writer=dashboard_writer,
+                        projector=projector,
+                        print_lines=True,
+                    )
             except Exception:
                 pass
 
@@ -673,13 +725,15 @@ def monitor_execution(
                         failure_msg = f"{failed} task(s) failed in Cloud Run execution"
 
                 log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[STATUS:" OR textPayload:"[MILESTONE]" OR textPayload:"Score:" OR textPayload:"PASS" OR textPayload:"[ALARM]")'
+                if last_seen_timestamp:
+                    log_filter += f' AND timestamp > "{last_seen_timestamp}"'
                 log_cmd = [
                     "gcloud",
                     "logging",
                     "read",
                     log_filter,
                     "--limit=2000",
-                    "--format=value(textPayload)",
+                    "--format=json(textPayload,timestamp,insertId)",
                     "--order=asc",
                 ]
                 if project:
@@ -692,12 +746,14 @@ def monitor_execution(
                         check=False,
                     )
                     if log_res.returncode == 0 and log_res.stdout:
-                        for line in log_res.stdout.splitlines():
-                            line_str = line.strip()
-                            if not line_str or line_str in seen_log_entries:
-                                continue
-                            seen_log_entries.add(line_str)
-                            print(format_monitored_line(line_str), flush=True)
+                        last_seen_timestamp = _process_log_entries(
+                            log_res.stdout,
+                            seen_log_entries=seen_log_entries,
+                            last_seen_timestamp=last_seen_timestamp,
+                            dashboard_writer=dashboard_writer,
+                            projector=None,
+                            print_lines=True,
+                        )
                 except Exception as exc:
                     print(f"Warning: Error reading completion logs: {exc}", file=sys.stderr)
                 break
@@ -705,10 +761,22 @@ def monitor_execution(
         except Exception as exc:
             print(f"Warning: Exception in monitor_execution: {exc}", file=sys.stderr)
 
+        if dashboard_writer:
+            try:
+                dashboard_writer.write()
+            except Exception:
+                pass
+
         time.sleep(poll_interval)
 
     if not execution_succeeded and not failure_msg:
         failure_msg = "Execution did not complete successfully or condition was not met."
+
+    if dashboard_writer:
+        try:
+            dashboard_writer.write()
+        except Exception:
+            pass
 
     return MonitorResult(desc_data, execution_succeeded, failure_msg)
 
@@ -1165,6 +1233,7 @@ def main() -> None:
     parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
     parser.add_argument("--set-secrets", type=str, help="Comma-separated secrets mapping for Cloud Run Job (e.g. GEMINI_API_KEY=gemini-key:latest).")
     parser.add_argument("--base-branch", type=str, default=None, help="Base branch for workers to checkout (default: remote default branch).")
+    parser.add_argument("--conversation-id", type=str, default=None, help="Coordinator conversation ID for swarm dashboard artifact.")
     parser.add_argument("--ignore-partial-failures", action="store_true", help="Allow promotion of candidate patches from partially-failed swarm executions.")
     parser.set_defaults(wait=True)
 
@@ -1262,12 +1331,25 @@ def main() -> None:
 
         bkt = gcs_bucket or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
         task_count = args.tasks or 1
+        dashboard_writer = SwarmDashboardWriter(
+            session_id=session_id,
+            conversation_id=args.conversation_id or os.environ.get("CONVERSATION_ID"),
+            task_count=task_count,
+            project=project,
+            region=region,
+            execution_name=execution_name,
+            gcs_bucket=bkt,
+            model=model,
+        )
+        dashboard_writer.write()
         print(f"Attaching to Cloud Run execution '{execution_name}' in region '{region}'...")
         desc_data, exec_succeeded, failure_msg = wait_for_execution(
             execution_name=execution_name,
             project=project,
             region=region,
             task_count=task_count,
+            session_id=session_id,
+            dashboard_writer=dashboard_writer,
         )
         if not exec_succeeded:
             print(f"Error: Cloud Run execution '{execution_name}' failed: {failure_msg}", file=sys.stderr)
@@ -1518,6 +1600,19 @@ def main() -> None:
             sys.exit(exc.returncode)
 
     projector = ShadowTranscriptProjector(session_id=session_id, task_count=task_count)
+    dashboard_writer = SwarmDashboardWriter(
+        session_id=session_id,
+        conversation_id=getattr(args, "conversation_id", None) or os.environ.get("CONVERSATION_ID"),
+        task_count=task_count,
+        project=project,
+        region=region,
+        execution_name=None,
+        gcs_bucket=gcs_bucket,
+        model=model,
+        tasks_list=tasks_list,
+    )
+    dashboard_writer.write()
+
     for t_idx in range(task_count):
         brief_text = ""
         if tasks_list and t_idx < len(tasks_list):
@@ -1552,6 +1647,10 @@ def main() -> None:
             if m:
                 execution_name = m.group(1)
 
+        if execution_name:
+            dashboard_writer.set_execution_name(execution_name)
+            dashboard_writer.write()
+
         if not args.wait:
             if execution_name:
                 print(f"Execution: {execution_name}")
@@ -1573,6 +1672,7 @@ def main() -> None:
                 task_count=task_count,
                 projector=projector,
                 session_id=session_id,
+                dashboard_writer=dashboard_writer,
             )
             if not exec_succeeded:
                 print(f"Error: Cloud Run execution '{execution_name}' failed: {exec_failure_msg}", file=sys.stderr)
