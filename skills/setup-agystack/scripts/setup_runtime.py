@@ -115,8 +115,9 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
         "region": region,
         "anthropic_installed": False,
         "partner_models": [
-            "claude-5-5-sonnet",
-            "claude-5-5-opus",
+            "claude-3-7-sonnet@20250219",
+            "claude-3-5-sonnet-v2@20241022",
+            "claude-3-opus@20240229",
             "fable-5-1",
         ],
         "error": None,

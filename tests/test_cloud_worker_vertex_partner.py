@@ -32,28 +32,28 @@ from setup_runtime import check_model_garden
 class TestVertexPartnerModelResolution(unittest.TestCase):
     def test_alias_resolution_sonnet(self):
         aliases = [
-            "claude-5-5-sonnet",
-            "claude-5.5-sonnet",
+            "claude-3-5-sonnet-v2@20241022",
+            "claude-3-5-sonnet-v2@20241022",
             "sonnet-5.5",
             "sonnet-5-5",
-            "publishers/anthropic/models/claude-5-5-sonnet",
+            "publishers/anthropic/models/claude-3-5-sonnet-v2@20241022",
         ]
         for alias in aliases:
             resolved = resolve_worker_model(alias)
-            self.assertEqual(resolved, "claude-5-5-sonnet")
+            self.assertEqual(resolved, "claude-3-5-sonnet-v2@20241022")
             self.assertTrue(is_partner_model(resolved))
 
     def test_alias_resolution_opus(self):
         aliases = [
-            "claude-5-5-opus",
-            "claude-5.5-opus",
+            "claude-3-opus@20240229",
+            "claude-3-opus@20240229",
             "opus-5.5",
             "opus-5-5",
-            "publishers/anthropic/models/claude-5-5-opus",
+            "publishers/anthropic/models/claude-3-opus@20240229",
         ]
         for alias in aliases:
             resolved = resolve_worker_model(alias)
-            self.assertEqual(resolved, "claude-5-5-opus")
+            self.assertEqual(resolved, "claude-3-opus@20240229")
             self.assertTrue(is_partner_model(resolved))
 
     def test_alias_resolution_fable(self):
@@ -83,7 +83,7 @@ class TestVertexPartnerModelResolution(unittest.TestCase):
     def test_task_item_model_override(self):
         task_item = {"model": "sonnet-5.5"}
         resolved = resolve_worker_model(task_item=task_item)
-        self.assertEqual(resolved, "claude-5-5-sonnet")
+        self.assertEqual(resolved, "claude-3-5-sonnet-v2@20241022")
         self.assertTrue(is_partner_model(resolved))
 
 
@@ -99,10 +99,10 @@ class TestVertexPartnerExecution(unittest.TestCase):
     def test_missing_sdk_fallback_blocked(self):
         with patch.dict(sys.modules, {"anthropic": None}):
             status, summary = execute_task(
-                task_item={"model": "claude-5-5-sonnet"},
+                task_item={"model": "claude-3-5-sonnet-v2@20241022"},
                 task_brief="Implement task",
                 repo_dir=self.repo_dir,
-                model_override="claude-5-5-sonnet",
+                model_override="claude-3-5-sonnet-v2@20241022",
                 api_key="",
             )
             self.assertEqual(status, "BLOCKED")
@@ -123,10 +123,10 @@ class TestVertexPartnerExecution(unittest.TestCase):
 
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
             status, summary = execute_task(
-                task_item={"model": "claude-5-5-sonnet"},
+                task_item={"model": "claude-3-5-sonnet-v2@20241022"},
                 task_brief="Implement task",
                 repo_dir=self.repo_dir,
-                model_override="claude-5-5-sonnet",
+                model_override="claude-3-5-sonnet-v2@20241022",
                 api_key="",
                 project="custom-prod-project",
                 location="europe-west1",
@@ -155,10 +155,10 @@ class TestVertexPartnerExecution(unittest.TestCase):
         }
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}), patch.dict(os.environ, env):
             status, _ = execute_task(
-                task_item={"model": "claude-5-5-opus"},
+                task_item={"model": "claude-3-opus@20240229"},
                 task_brief="Implement task",
                 repo_dir=self.repo_dir,
-                model_override="claude-5-5-opus",
+                model_override="claude-3-opus@20240229",
                 api_key="",
             )
             self.assertEqual(status, "PASS")
@@ -196,16 +196,16 @@ class TestVertexPartnerExecution(unittest.TestCase):
             "cloud_worker.emit_milestone"
         ) as mock_milestone:
             status, _ = execute_task(
-                task_item={"model": "claude-5-5-sonnet"},
+                task_item={"model": "claude-3-5-sonnet-v2@20241022"},
                 task_brief="Execute brief",
                 repo_dir=self.repo_dir,
-                model_override="claude-5-5-sonnet",
+                model_override="claude-3-5-sonnet-v2@20241022",
                 api_key="",
                 task_index=2,
             )
             self.assertEqual(status, "PASS")
             mock_milestone.assert_called_with(
-                2, "RUNNING_AGENT", "Vertex Model Garden agent (claude-5-5-sonnet)"
+                2, "RUNNING_AGENT", "Vertex Model Garden agent (claude-3-5-sonnet-v2@20241022)"
             )
 
     def test_milestone_emission_fable_model(self):
@@ -273,10 +273,10 @@ class TestVertexPartnerExecution(unittest.TestCase):
             "cloud_worker.emit_tool_result"
         ) as mock_res:
             status, summary = execute_task(
-                task_item={"model": "claude-5-5-sonnet"},
+                task_item={"model": "claude-3-5-sonnet-v2@20241022"},
                 task_brief="Implement solve in solution.py",
                 repo_dir=self.repo_dir,
-                model_override="claude-5-5-sonnet",
+                model_override="claude-3-5-sonnet-v2@20241022",
                 api_key="",
                 task_index=1,
             )
@@ -335,10 +335,10 @@ class TestVertexPartnerExecution(unittest.TestCase):
 
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
             status, _ = execute_task(
-                task_item={"model": "claude-5-5-opus"},
+                task_item={"model": "claude-3-opus@20240229"},
                 task_brief="Update README",
                 repo_dir=self.repo_dir,
-                model_override="claude-5-5-opus",
+                model_override="claude-3-opus@20240229",
                 api_key="",
                 task_index=0,
             )
@@ -405,7 +405,7 @@ class TestMixedManifestRouting(unittest.TestCase):
 
         manifest_tasks = [
             {"model": "gemini-3.8-flash", "brief": "Gemini subtask"},
-            {"model": "claude-5-5-sonnet", "brief": "Claude subtask"},
+            {"model": "claude-3-5-sonnet-v2@20241022", "brief": "Claude subtask"},
             {"model": "fable-5-1", "brief": "Fable subtask"},
         ]
 
@@ -437,7 +437,7 @@ class TestMixedManifestRouting(unittest.TestCase):
             self.assertEqual(st1, "PASS")
             mock_anthropic.AnthropicVertex.assert_called_once()
             mock_aiplatform.Endpoint.assert_not_called()
-            mock_milestone.assert_any_call(1, "RUNNING_AGENT", "Vertex Model Garden agent (claude-5-5-sonnet)")
+            mock_milestone.assert_any_call(1, "RUNNING_AGENT", "Vertex Model Garden agent (claude-3-5-sonnet-v2@20241022)")
 
             # Task 2: Fable 5.1
             st2, out2 = execute_task(
@@ -489,8 +489,8 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         self.assertTrue(result["model_garden_verified"])
         self.assertEqual(result["project_id"], "test-project")
         self.assertEqual(result["region"], "us-central1")
-        self.assertIn("claude-5-5-sonnet", result["partner_models"])
-        self.assertIn("claude-5-5-opus", result["partner_models"])
+        self.assertIn("claude-3-5-sonnet-v2@20241022", result["partner_models"])
+        self.assertIn("claude-3-opus@20240229", result["partner_models"])
         self.assertIn("fable-5-1", result["partner_models"])
         mock_mod.AnthropicVertex.assert_called_once_with(
             project_id="test-project",
@@ -652,3 +652,20 @@ class TestStartupLatencyProbe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_workspace_tool_run_command_destructive_blocked_by_safety(self):
+        destructive_commands = [
+            "rm -rf /",
+            "git push origin main -f",
+            "git push --force origin main",
+            "drop database testdb",
+        ]
+        for cmd in destructive_commands:
+            with self.subTest(cmd=cmd):
+                res = execute_workspace_tool("run_command", {"command": cmd}, self.repo_dir)
+                self.assertIn("Error: Command blocked by safety policy", res)
+                self.assertIn("deny", res.lower())
+
+    def test_workspace_tool_run_command_safe_allowed(self):
+        res = execute_workspace_tool("run_command", {"command": "echo safe_test_output"}, self.repo_dir)
+        self.assertIn("safe_test_output", res)
