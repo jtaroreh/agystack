@@ -7,17 +7,23 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
 
+import swarm_dashboard
 from cloud_dispatch import (
     SwarmDashboardWriter,
     TaskDashboardState,
+    colorize,
     format_cloud_logging_url,
     format_cloud_run_execution_url,
+    format_cloud_run_url,
     format_elapsed_time,
     format_gcs_console_url,
+    format_gcs_url,
+    format_log_viewer_url,
+    format_monitored_line,
     format_status_badge,
     format_tool_snippet,
 )
@@ -28,8 +34,13 @@ class TestSwarmDashboardGeneration(unittest.TestCase):
         self.temp_dir = Path(tempfile.mkdtemp()).resolve()
         self.app_data_dir = self.temp_dir / "antigravity"
         self.session_id = f"test-sess-{int(time.time() * 1000)}"
+        self._orig_env = os.environ.copy()
+        os.environ.pop("CONVERSATION_ID", None)
+        os.environ.pop("ANTIGRAVITY_CONVERSATION_ID", None)
 
     def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self._orig_env)
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_initial_pending_table_rendering_all_tasks_queued(self):
@@ -347,6 +358,204 @@ class TestSwarmDashboardGeneration(unittest.TestCase):
             50.0,
             f"Max dashboard write latency ({max_duration_ms:.2f}ms) exceeded 50ms spike limit.",
         )
+
+    def test_reexported_symbols_match_between_modules(self):
+        import cloud_dispatch
+
+        self.assertIs(cloud_dispatch.SwarmDashboardWriter, swarm_dashboard.SwarmDashboardWriter)
+        self.assertIs(cloud_dispatch.TaskDashboardState, swarm_dashboard.TaskDashboardState)
+        self.assertIs(cloud_dispatch.format_status_badge, swarm_dashboard.format_status_badge)
+        self.assertIs(cloud_dispatch.format_elapsed_time, swarm_dashboard.format_elapsed_time)
+        self.assertIs(cloud_dispatch.format_tool_snippet, swarm_dashboard.format_tool_snippet)
+        self.assertIs(cloud_dispatch.format_cloud_run_execution_url, swarm_dashboard.format_cloud_run_execution_url)
+        self.assertIs(cloud_dispatch.format_cloud_logging_url, swarm_dashboard.format_cloud_logging_url)
+        self.assertIs(cloud_dispatch.format_gcs_console_url, swarm_dashboard.format_gcs_console_url)
+        self.assertIs(cloud_dispatch.format_monitored_line, swarm_dashboard.format_monitored_line)
+        self.assertIs(cloud_dispatch.colorize, swarm_dashboard.colorize)
+        self.assertIs(cloud_dispatch.format_cloud_run_url, swarm_dashboard.format_cloud_run_url)
+        self.assertIs(cloud_dispatch.format_gcs_url, swarm_dashboard.format_gcs_url)
+        self.assertIs(cloud_dispatch.format_log_viewer_url, swarm_dashboard.format_log_viewer_url)
+
+    def test_conversation_id_resolution_precedence(self):
+        # 1. Explicit argument takes top priority over environment variables and session_id
+        with patch.dict(os.environ, {"CONVERSATION_ID": "env-conv-123", "ANTIGRAVITY_CONVERSATION_ID": "antigravity-conv-456"}):
+            writer = SwarmDashboardWriter(
+                session_id=self.session_id,
+                conversation_id="explicit-conv-999",
+                app_data_dir=self.app_data_dir,
+            )
+            self.assertEqual(writer.conversation_id, "explicit-conv-999")
+            self.assertEqual(writer.dashboard_path, self.app_data_dir / "brain" / "explicit-conv-999" / "swarm_dashboard.md")
+
+        # 2. CONVERSATION_ID from environment takes precedence over session_id
+        with patch.dict(os.environ, {"CONVERSATION_ID": "env-conv-123"}):
+            os.environ.pop("ANTIGRAVITY_CONVERSATION_ID", None)
+            writer = SwarmDashboardWriter(
+                session_id=self.session_id,
+                app_data_dir=self.app_data_dir,
+            )
+            self.assertEqual(writer.conversation_id, "env-conv-123")
+            self.assertEqual(writer.dashboard_path, self.app_data_dir / "brain" / "env-conv-123" / "swarm_dashboard.md")
+
+        # 3. ANTIGRAVITY_CONVERSATION_ID takes precedence when CONVERSATION_ID is unset
+        with patch.dict(os.environ, {"ANTIGRAVITY_CONVERSATION_ID": "antigravity-conv-456"}):
+            os.environ.pop("CONVERSATION_ID", None)
+            writer = SwarmDashboardWriter(
+                session_id=self.session_id,
+                app_data_dir=self.app_data_dir,
+            )
+            self.assertEqual(writer.conversation_id, "antigravity-conv-456")
+            self.assertEqual(writer.dashboard_path, self.app_data_dir / "brain" / "antigravity-conv-456" / "swarm_dashboard.md")
+
+        # 4. Fallback to session_id when no environment variables or explicit argument are set
+        os.environ.pop("CONVERSATION_ID", None)
+        os.environ.pop("ANTIGRAVITY_CONVERSATION_ID", None)
+        writer = SwarmDashboardWriter(
+            session_id=self.session_id,
+            app_data_dir=self.app_data_dir,
+        )
+        self.assertEqual(writer.conversation_id, self.session_id)
+        self.assertEqual(writer.dashboard_path, self.app_data_dir / "brain" / self.session_id / "swarm_dashboard.md")
+
+        # 5. Empty session_id falls back to "default"
+        writer_default = SwarmDashboardWriter(
+            session_id="",
+            app_data_dir=self.app_data_dir,
+        )
+        self.assertEqual(writer_default.conversation_id, "default")
+
+    def test_storage_url_formatting_uses_swarms_prefix(self):
+        bucket = "my-test-bucket"
+        sess = "sess-20261021"
+
+        # Default prefix format in SwarmDashboardWriter uses swarms/<session_id>
+        writer = SwarmDashboardWriter(
+            session_id=sess,
+            app_data_dir=self.app_data_dir,
+            gcs_bucket=bucket,
+        )
+        expected_url = f"https://console.cloud.google.com/storage/browser/{bucket}/swarms/{sess}"
+        self.assertEqual(writer.format_gcs_console_url(), expected_url)
+
+        # Legacy prefix starting with swarm- is normalized to swarms/
+        legacy_url = format_gcs_console_url(bucket=bucket, prefix=f"swarm-{sess}")
+        self.assertEqual(legacy_url, expected_url)
+        self.assertNotIn("swarm-", legacy_url)
+
+        # Legacy prefix starting with swarm/ is normalized to swarms/
+        slash_url = format_gcs_console_url(bucket=bucket, prefix=f"swarm/{sess}")
+        self.assertEqual(slash_url, expected_url)
+
+        # Task subpath formatting
+        task_url = format_gcs_console_url(bucket=bucket, prefix=f"swarms/{sess}/tasks/task-3")
+        self.assertEqual(task_url, f"https://console.cloud.google.com/storage/browser/{bucket}/swarms/{sess}/tasks/task-3")
+
+        # format_gcs_url alias behaves identically
+        alias_url = format_gcs_url(bucket=bucket, prefix=f"swarms/{sess}")
+        self.assertEqual(alias_url, expected_url)
+
+    def test_log_monitoring_timestamp_cursor_pagination_past_1000_entries(self):
+        from cloud_dispatch import monitor_execution
+
+        dashboard_writer = SwarmDashboardWriter(
+            session_id=self.session_id,
+            app_data_dir=self.app_data_dir,
+            task_count=1,
+        )
+
+        poll_count = 0
+        logged_commands = []
+
+        # Generate 1,000 entries for batch 1
+        batch_1_entries = []
+        for i in range(1000):
+            ts = f"2026-10-21T18:00:00.{i:06d}Z"
+            batch_1_entries.append({
+                "insertId": f"log-id-{i}",
+                "timestamp": ts,
+                "textPayload": f"[MILESTONE] [TASK 0] [PHASE: RUNNING_AGENT] Step {i}",
+            })
+
+        # Generate 200 entries for batch 2
+        batch_2_entries = []
+        for i in range(1000, 1200):
+            ts = f"2026-10-21T18:00:01.{i - 1000:06d}Z"
+            batch_2_entries.append({
+                "insertId": f"log-id-{i}",
+                "timestamp": ts,
+                "textPayload": f"[MILESTONE] [TASK 0] [PHASE: RUNNING_AGENT] Step {i}",
+            })
+        # Add a duplicate from batch 1 to verify deduplication
+        batch_2_entries.append(batch_1_entries[0])
+
+        def fake_subprocess_run(cmd, capture_output=True, text=True, check=False):
+            nonlocal poll_count
+            cmd_str = " ".join(cmd)
+            logged_commands.append(cmd)
+
+            if "executions describe" in cmd_str:
+                poll_count += 1
+                if poll_count == 1:
+                    return MagicMock(
+                        returncode=0,
+                        stdout=json.dumps({
+                            "status": {
+                                "runningCount": 1,
+                                "succeededCount": 0,
+                                "failedCount": 0,
+                                "conditions": [{"type": "Completed", "status": "Unknown"}],
+                            }
+                        }),
+                    )
+                else:
+                    return MagicMock(
+                        returncode=0,
+                        stdout=json.dumps({
+                            "status": {
+                                "runningCount": 0,
+                                "succeededCount": 1,
+                                "failedCount": 0,
+                                "conditions": [{"type": "Completed", "status": "True"}],
+                            }
+                        }),
+                    )
+
+            if "logging read" in cmd_str:
+                if poll_count == 1:
+                    return MagicMock(returncode=0, stdout=json.dumps(batch_1_entries))
+                else:
+                    return MagicMock(returncode=0, stdout=json.dumps(batch_2_entries))
+
+            return MagicMock(returncode=0, stdout="")
+
+        with patch("subprocess.run", side_effect=fake_subprocess_run):
+            with patch("time.sleep", return_value=None):
+                result = monitor_execution(
+                    execution_name="exec-cursor-test",
+                    project="test-proj",
+                    region="us-central1",
+                    task_count=1,
+                    poll_interval=0.01,
+                    timeout=10.0,
+                    session_id=self.session_id,
+                    dashboard_writer=dashboard_writer,
+                )
+
+        self.assertTrue(result.succeeded)
+
+        # Inspect the logging read commands across batches
+        log_read_cmds = [
+            c for c in logged_commands
+            if len(c) > 2 and c[0] == "gcloud" and c[1] == "logging" and c[2] == "read"
+        ]
+        self.assertGreaterEqual(len(log_read_cmds), 2)
+
+        # First read command has no cursor
+        self.assertNotIn("timestamp >", log_read_cmds[0][3])
+
+        # Second read command must have the timestamp cursor from the latest timestamp in batch 1
+        expected_cursor = 'timestamp > "2026-10-21T18:00:00.000999Z"'
+        self.assertIn(expected_cursor, log_read_cmds[1][3])
 
 
 if __name__ == "__main__":
