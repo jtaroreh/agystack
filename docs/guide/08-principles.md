@@ -56,6 +56,7 @@ The verification principles define what counts as proof:
 - [Fix Root Causes](../../skills/principle-fix-root-causes/SKILL.md) reproduces and traces to the cause before changing code.
 - [Sequence Work into Verifiable Units](../../skills/principle-sequence-verifiable-units/SKILL.md) ends each small unit in a check before starting the next.
 - [Test Behavior, Not Implementation](../../skills/principle-test-behavior-not-implementation/SKILL.md) tests what the system does from the outside, not internal structures or mock wiring.
+- [Explain the Number](../../skills/principle-explain-the-number/SKILL.md) names the bottleneck and physical cause rather than guessing from code.
 
 The delegation principles keep parallel work sane:
 

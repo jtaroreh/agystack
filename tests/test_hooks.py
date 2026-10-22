@@ -209,12 +209,12 @@ class TestPreToolSafetyHook(unittest.TestCase):
                 self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_safety_hook_feature_branch_force_push_allowed(self):
-        feature_cmds = [
+        commands = [
             "git push --force",
             "git push -f origin",
             "git push origin -f",
         ]
-        for cmd in feature_cmds:
+        for cmd in commands:
             with self.subTest(cmd=cmd):
                 payload = {
                     "toolCall": {
@@ -222,7 +222,9 @@ class TestPreToolSafetyHook(unittest.TestCase):
                         "args": {"command": cmd},
                     }
                 }
-                result = run_safety_hook(json.dumps(payload), env={"GIT_BRANCH": "feature/refactor"})
+                result = run_safety_hook(
+                    json.dumps(payload), env={"GIT_BRANCH": "feature/refactor"}
+                )
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(json.loads(result.stdout.strip()), {})
 
