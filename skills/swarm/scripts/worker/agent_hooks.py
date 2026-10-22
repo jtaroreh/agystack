@@ -6,11 +6,15 @@ Agent hooks and loop stagnancy tracking for Cloud Run worker container.
 from dataclasses import dataclass, field
 import hashlib
 import json
+import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 
 def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
+    cw = sys.modules.get("cloud_worker")
+    if cw and hasattr(cw, "emit_milestone") and cw.emit_milestone is not emit_milestone:
+        return cw.emit_milestone(task_index, phase, detail)
     msg = f"[MILESTONE] [TASK {task_index}] [PHASE: {phase}]"
     if detail:
         msg += f" {detail}"
