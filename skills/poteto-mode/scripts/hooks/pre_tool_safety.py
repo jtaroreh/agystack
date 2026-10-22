@@ -184,6 +184,9 @@ def is_root_deletion(command: str) -> bool:
 
 
 def get_current_branch() -> str:
+    env_branch = os.environ.get("GIT_BRANCH") or os.environ.get("CURRENT_BRANCH")
+    if env_branch:
+        return env_branch.strip()
     try:
         proc = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -314,7 +317,9 @@ def is_trunk_force_push(command: str) -> bool:
                     if any(is_trunk_ref(t) for t in targets):
                         return True
                     if not targets:
-                        return True
+                        curr_branch = get_current_branch()
+                        if curr_branch in ("main", "master", ""):
+                            return True
     return False
 
 
