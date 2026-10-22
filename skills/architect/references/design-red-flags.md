@@ -31,3 +31,27 @@ Group code around domain knowledge and ownership. Methods that run at different 
 A pass-through method forwards the same arguments to another method with the same shape. It adds a layer without hiding complexity.
 
 Remove it or move responsibility to the module that can complete the operation. Keep a forwarding boundary only when it adds policy, adaptation, or a distinct abstraction.
+
+## Split ownership
+
+Two components, services, or stores both claim responsibility for updating, deleting, or syncing the same state. Split ownership leads to drift, race conditions, and split-brain failures.
+
+Assign a single authoritative owner for every piece of state. Other components must query or request mutations strictly through that single owner.
+
+## Two ways to do one task
+
+Exposing multiple paths, methods, or APIs to perform the same semantic operation causes maintenance drift, uneven validation, and cognitive load. Fixes and invariants applied to one path are inevitably missed in the alternate path.
+
+Provide exactly one canonical way to perform each task. Deprecate and delete redundant alternatives.
+
+## Importable internals
+
+Exposing or importing private helpers, internal models, or raw state across module boundaries instead of communicating strictly through defined public boundaries causes tight coupling and fragile refactoring.
+
+Enforce boundary discipline. Keep internal representations private to the package. Expose only explicit, typed public contracts.
+
+## Hand-synced lists
+
+Multiple hardcoded lists, enums, switch statements, or mappings across files that must be manually synchronized by hand whenever an item changes. Hand-synced lists invite subtle bugs because maintainers and agents inevitably miss remote sites during updates.
+
+Prefer derivation, a single source of truth, or code generation. Derive secondary collections and mappings directly from the primary definition.

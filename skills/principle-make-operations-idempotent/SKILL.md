@@ -10,14 +10,25 @@ Design operations so they converge to the correct state regardless of how many t
 
 **Why:** Commands, lifecycle operations, and processing loops run where crashes, restarts, and retries are normal. If partial state changes the next run's outcome, every restart becomes a debugging session.
 
-**The pattern:**
-- Convergent startup: scan for existing state, clean stale artifacts, adopt live sessions
-- Content-based cleanup: compare by content equivalence, not creation order
-- Self-healing locks: use PID-based stale lock detection
-- Idempotent scheduling: failed work respawns cleanly, fresh input regenerated after each cycle
+## Derive State Deltas
 
-**The test:**
-1. What happens if this runs twice in a row?
+Compute state deltas instead of executing imperative mutation sequences.
+
+1. **Inspect actual and desired state.** Given the current actual state and the target desired state, compute `delta = desired - actual`.
+2. **Apply only the delta.** Execute mutations only for the missing or diverged elements. Do not re-run actions for state that already matches the target.
+3. **Safe no-ops on converged state.** Re-running the operation on an already-converged state results in `delta = empty`. The operation exits immediately with zero side effects.
+4. **Crash recovery by design.** An operation that crashes midway leaves a partially converged state. On retry, the reconciliation step computes the remaining delta and finishes the transition without duplicating work.
+
+## Patterns
+
+- **Convergent startup.** Scan for existing state, clean stale artifacts, and adopt live sessions.
+- **Content-based cleanup.** Compare by content equivalence rather than creation order or timestamps.
+- **Self-healing locks.** Use PID-based or lease-based stale lock detection.
+- **Idempotent scheduling.** Ensure failed work respawns cleanly and fresh input is regenerated after each cycle.
+
+## The Test
+
+1. What happens if this operation runs twice in a row?
 2. What happens if the previous run crashed at every possible point?
 3. Does re-execution converge to the same end state?
 
