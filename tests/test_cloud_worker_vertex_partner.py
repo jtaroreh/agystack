@@ -16,8 +16,12 @@ sys.path.insert(0, str(REPO_ROOT / "skills" / "setup-agystack" / "scripts"))
 import cloud_worker
 import setup_runtime
 from cloud_worker import (
+    emit_thought,
+    emit_tool_invocation,
+    emit_tool_result,
     execute_partner_model_agent,
     execute_task,
+    execute_workspace_tool,
     is_partner_model,
     measure_partner_client_startup,
     resolve_worker_model,
@@ -163,6 +167,21 @@ class TestVertexPartnerExecution(unittest.TestCase):
                 region="us-central1",
             )
 
+    def test_missing_aiplatform_fallback_blocked_for_fable(self):
+        with patch.dict(sys.modules, {"google.cloud.aiplatform": None}):
+            status, summary = execute_task(
+                task_item={"model": "fable-5-1"},
+                task_brief="Implement fable task",
+                repo_dir=self.repo_dir,
+                model_override="fable-5-1",
+                api_key="",
+            )
+            self.assertEqual(status, "BLOCKED")
+            self.assertEqual(
+                summary,
+                "Missing dependency: google-cloud-aiplatform Python package is not installed.",
+            )
+
     def test_milestone_emission_partner_model(self):
         mock_anthropic = MagicMock()
         mock_client = MagicMock()
@@ -177,6 +196,30 @@ class TestVertexPartnerExecution(unittest.TestCase):
             "cloud_worker.emit_milestone"
         ) as mock_milestone:
             status, _ = execute_task(
+                task_item={"model": "claude-5-5-sonnet"},
+                task_brief="Execute brief",
+                repo_dir=self.repo_dir,
+                model_override="claude-5-5-sonnet",
+                api_key="",
+                task_index=2,
+            )
+            self.assertEqual(status, "PASS")
+            mock_milestone.assert_called_with(
+                2, "RUNNING_AGENT", "Vertex Model Garden agent (claude-5-5-sonnet)"
+            )
+
+    def test_milestone_emission_fable_model(self):
+        mock_aiplatform = MagicMock()
+        mock_endpoint = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.predictions = ["[STATUS: PASS] Done."]
+        mock_endpoint.predict.return_value = mock_resp
+        mock_aiplatform.Endpoint.return_value = mock_endpoint
+
+        with patch.dict(sys.modules, {"google.cloud.aiplatform": mock_aiplatform}), patch(
+            "cloud_worker.emit_milestone"
+        ) as mock_milestone:
+            status, _ = execute_task(
                 task_item={"model": "fable-5-1"},
                 task_brief="Execute brief",
                 repo_dir=self.repo_dir,
@@ -188,6 +231,129 @@ class TestVertexPartnerExecution(unittest.TestCase):
             mock_milestone.assert_called_with(
                 2, "RUNNING_AGENT", "Vertex Model Garden agent (fable-5-1)"
             )
+
+    def test_autonomous_tool_calling_loop_writes_files_and_passes(self):
+        mock_anthropic = MagicMock()
+        mock_client = MagicMock()
+
+        block_think = MagicMock()
+        block_think.type = "thinking"
+        block_think.thinking = "I need to write solution.py"
+
+        block_tool1 = MagicMock()
+        block_tool1.type = "tool_use"
+        block_tool1.id = "call_write_1"
+        block_tool1.name = "write_file"
+        block_tool1.input = {"path": "solution.py", "content": "def solve(): return 42\n"}
+
+        resp0 = MagicMock()
+        resp0.content = [block_think, block_tool1]
+
+        block_tool2 = MagicMock()
+        block_tool2.type = "tool_use"
+        block_tool2.id = "call_cmd_2"
+        block_tool2.name = "run_command"
+        block_tool2.input = {"command": "python3 -c 'import solution; assert solution.solve() == 42'"}
+
+        resp1 = MagicMock()
+        resp1.content = [block_tool2]
+
+        block_final = MagicMock()
+        block_final.text = "[STATUS: PASS] Solution implemented and tests pass."
+
+        resp2 = MagicMock()
+        resp2.content = [block_final]
+
+        mock_client.messages.create.side_effect = [resp0, resp1, resp2]
+        mock_anthropic.AnthropicVertex.return_value = mock_client
+
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}), patch(
+            "cloud_worker.emit_thought"
+        ) as mock_thought, patch("cloud_worker.emit_tool_invocation") as mock_inv, patch(
+            "cloud_worker.emit_tool_result"
+        ) as mock_res:
+            status, summary = execute_task(
+                task_item={"model": "claude-5-5-sonnet"},
+                task_brief="Implement solve in solution.py",
+                repo_dir=self.repo_dir,
+                model_override="claude-5-5-sonnet",
+                api_key="",
+                task_index=1,
+            )
+            self.assertEqual(status, "PASS")
+            self.assertIn("Solution implemented and tests pass.", summary)
+
+            solution_file = self.repo_dir / "solution.py"
+            self.assertTrue(solution_file.is_file())
+            self.assertEqual(solution_file.read_text(encoding="utf-8"), "def solve(): return 42\n")
+
+            git_res = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=self.repo_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertIn("solution.py", git_res.stdout)
+
+            mock_thought.assert_called_once_with(1, "I need to write solution.py")
+            self.assertEqual(mock_inv.call_count, 2)
+            mock_inv.assert_any_call(1, "write_file", {"path": "solution.py", "content": "def solve(): return 42\n"})
+            mock_inv.assert_any_call(1, "run_command", {"command": "python3 -c 'import solution; assert solution.solve() == 42'"})
+            self.assertEqual(mock_res.call_count, 2)
+
+    def test_autonomous_tool_calling_loop_edit_and_read_file(self):
+        readme = self.repo_dir / "README.md"
+        readme.write_text("Hello World\n", encoding="utf-8")
+
+        mock_anthropic = MagicMock()
+        mock_client = MagicMock()
+
+        block_read = MagicMock()
+        block_read.type = "tool_use"
+        block_read.id = "call_read"
+        block_read.name = "read_file"
+        block_read.input = {"path": "README.md"}
+        resp0 = MagicMock()
+        resp0.content = [block_read]
+
+        block_edit = MagicMock()
+        block_edit.type = "tool_use"
+        block_edit.id = "call_edit"
+        block_edit.name = "edit_file"
+        block_edit.input = {"path": "README.md", "target": "World", "replacement": "Agystack"}
+        resp1 = MagicMock()
+        resp1.content = [block_edit]
+
+        block_final = MagicMock()
+        block_final.text = "[STATUS: PASS] Readme edited."
+        resp2 = MagicMock()
+        resp2.content = [block_final]
+
+        mock_client.messages.create.side_effect = [resp0, resp1, resp2]
+        mock_anthropic.AnthropicVertex.return_value = mock_client
+
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            status, _ = execute_task(
+                task_item={"model": "claude-5-5-opus"},
+                task_brief="Update README",
+                repo_dir=self.repo_dir,
+                model_override="claude-5-5-opus",
+                api_key="",
+                task_index=0,
+            )
+            self.assertEqual(status, "PASS")
+            self.assertEqual(readme.read_text(encoding="utf-8"), "Hello Agystack\n")
+
+    def test_workspace_tool_path_traversal_prevention(self):
+        res_read = execute_workspace_tool("read_file", {"path": "../../etc/passwd"}, self.repo_dir)
+        self.assertIn("outside repository directory", res_read)
+
+        res_write = execute_workspace_tool("write_file", {"path": "../evil.py", "content": "bad"}, self.repo_dir)
+        self.assertIn("outside repository directory", res_write)
+
+        res_edit = execute_workspace_tool("edit_file", {"path": "../evil.py", "target": "a", "replacement": "b"}, self.repo_dir)
+        self.assertIn("outside repository directory", res_edit)
 
 
 class TestMixedManifestRouting(unittest.TestCase):
@@ -215,18 +381,26 @@ class TestMixedManifestRouting(unittest.TestCase):
         mock_ag.Agent = MagicMock(return_value=mock_agent_cm)
 
         mock_anthropic = MagicMock()
-        mock_partner_client = MagicMock()
-        mock_partner_resp = MagicMock()
-        mock_block = MagicMock()
-        mock_block.text = "[STATUS: PASS] Partner agent done"
-        mock_partner_resp.content = [mock_block]
-        mock_partner_client.messages.create.return_value = mock_partner_resp
-        mock_anthropic.AnthropicVertex.return_value = mock_partner_client
+        mock_claude_client = MagicMock()
+        mock_claude_resp = MagicMock()
+        mock_claude_block = MagicMock()
+        mock_claude_block.text = "[STATUS: PASS] Claude agent done"
+        mock_claude_resp.content = [mock_claude_block]
+        mock_claude_client.messages.create.return_value = mock_claude_resp
+        mock_anthropic.AnthropicVertex.return_value = mock_claude_client
+
+        mock_aiplatform = MagicMock()
+        mock_fable_endpoint = MagicMock()
+        mock_fable_resp = MagicMock()
+        mock_fable_resp.predictions = ["[STATUS: PASS] Fable agent done"]
+        mock_fable_endpoint.predict.return_value = mock_fable_resp
+        mock_aiplatform.Endpoint.return_value = mock_fable_endpoint
 
         modules_patch = {
             "google": MagicMock(),
             "google.antigravity": mock_ag,
             "anthropic": mock_anthropic,
+            "google.cloud.aiplatform": mock_aiplatform,
         }
 
         manifest_tasks = [
@@ -248,6 +422,7 @@ class TestMixedManifestRouting(unittest.TestCase):
             self.assertEqual(st0, "PASS")
             mock_ag.Agent.assert_called_once()
             mock_anthropic.AnthropicVertex.assert_not_called()
+            mock_aiplatform.Endpoint.assert_not_called()
             mock_milestone.assert_any_call(0, "RUNNING_AGENT", "Antigravity SDK agent (gemini-3.8-flash)")
 
             # Task 1: Claude 5.5 Sonnet
@@ -261,6 +436,7 @@ class TestMixedManifestRouting(unittest.TestCase):
             )
             self.assertEqual(st1, "PASS")
             mock_anthropic.AnthropicVertex.assert_called_once()
+            mock_aiplatform.Endpoint.assert_not_called()
             mock_milestone.assert_any_call(1, "RUNNING_AGENT", "Vertex Model Garden agent (claude-5-5-sonnet)")
 
             # Task 2: Fable 5.1
@@ -273,7 +449,10 @@ class TestMixedManifestRouting(unittest.TestCase):
                 task_index=2,
             )
             self.assertEqual(st2, "PASS")
-            self.assertEqual(mock_anthropic.AnthropicVertex.call_count, 2)
+            self.assertEqual(mock_anthropic.AnthropicVertex.call_count, 1)
+            mock_aiplatform.init.assert_called_once()
+            mock_aiplatform.Endpoint.assert_called_once_with(endpoint_name="fable-5-1")
+            mock_fable_endpoint.predict.assert_called_once()
             mock_milestone.assert_any_call(2, "RUNNING_AGENT", "Vertex Model Garden agent (fable-5-1)")
 
 
@@ -297,14 +476,17 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
     def test_successful_probe(self):
         mock_mod = MagicMock()
         mock_mod.AnthropicVertex = MagicMock()
+        mock_run_cmd = MagicMock(return_value=MagicMock(returncode=0, stdout="Listed 0 items.", stderr=""))
 
         result = check_model_garden(
             project_id="test-project",
             region="us-central1",
+            run_cmd_fn=mock_run_cmd,
             import_fn=lambda name: mock_mod,
         )
         self.assertTrue(result["ok"])
         self.assertTrue(result["anthropic_installed"])
+        self.assertTrue(result["model_garden_verified"])
         self.assertEqual(result["project_id"], "test-project")
         self.assertEqual(result["region"], "us-central1")
         self.assertIn("claude-5-5-sonnet", result["partner_models"])
@@ -313,6 +495,10 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         mock_mod.AnthropicVertex.assert_called_once_with(
             project_id="test-project",
             region="us-central1",
+        )
+        mock_run_cmd.assert_called_once_with(
+            ["gcloud", "ai", "models", "list", "--project=test-project", "--region=us-central1", "--limit=1"],
+            check=False,
         )
 
     def test_client_init_error_fails(self):
@@ -326,6 +512,34 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(result["anthropic_installed"])
         self.assertIn("ADC credentials expired", result["error"])
+
+    def test_probe_iam_failure(self):
+        mock_mod = MagicMock()
+        mock_run_cmd = MagicMock(return_value=MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="ERROR: (gcloud.ai.models.list) User does not have permission aiplatform.models.list on resource",
+        ))
+        result = check_model_garden(
+            project_id="test-project",
+            run_cmd_fn=mock_run_cmd,
+            import_fn=lambda name: mock_mod,
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("Model Garden API check failed", result["error"])
+        self.assertIn("permission", result["error"])
+
+    def test_probe_network_or_credential_exception(self):
+        mock_mod = MagicMock()
+        mock_run_cmd = MagicMock(side_effect=OSError("Network unreachable"))
+        result = check_model_garden(
+            project_id="test-project",
+            run_cmd_fn=mock_run_cmd,
+            import_fn=lambda name: mock_mod,
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("Model Garden API check exception", result["error"])
+        self.assertIn("Network unreachable", result["error"])
 
     def test_cli_check_model_garden(self):
         cmd = [

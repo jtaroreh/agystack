@@ -146,6 +146,22 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
         result["error"] = f"Error importing 'anthropic': {exc}"
         return result
 
+    # Lightweight verification check for IAM permissions / Model Garden API
+    try:
+        cmd = ["gcloud", "ai", "models", "list", f"--project={project}", f"--region={region}", "--limit=1"]
+        probe_res = run_cmd_fn(cmd, check=False)
+        if probe_res and hasattr(probe_res, "returncode"):
+            if probe_res.returncode != 0:
+                err_msg = getattr(probe_res, "stderr", "") or getattr(probe_res, "stdout", "") or f"Exit code {probe_res.returncode}"
+                result["ok"] = False
+                result["error"] = f"Model Garden API check failed for project '{project}': {err_msg.strip()}"
+                return result
+            result["model_garden_verified"] = True
+    except Exception as exc:
+        result["ok"] = False
+        result["error"] = f"Model Garden API check exception for project '{project}': {exc}"
+        return result
+
     return result
 
 
