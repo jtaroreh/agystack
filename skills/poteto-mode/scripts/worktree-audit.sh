@@ -4,18 +4,94 @@
 # operated in it. Emits a table sorted by size with a suggested bucket. Never
 # deletes anything; deletion stays a human-gated step in the playbook.
 #
-# Usage: worktree-audit.sh [repo-path]   (defaults to the current repo)
+# Usage: worktree-audit.sh [-b <base-branch>] [repo-path]   (defaults to current repo)
 set -u
 
-repo="${1:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+usage() {
+	cat <<'EOF'
+Usage: worktree-audit.sh [-b <base-branch>] [repo-path]
+
+Classifies every git worktree by size, merge state, uncommitted work,
+remote/PR state, and the most recent chat that operated in it.
+
+Options:
+  -b <base-branch>  Specify the base branch for merge checks (e.g. origin/main, release)
+  -h, --help        Show this help message and exit
+EOF
+	exit 0
+}
+
+base_branch=""
+repo=""
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-h|--help)
+			usage
+			;;
+		-b)
+			shift
+			if [ $# -eq 0 ]; then
+				echo "error: -b requires an argument" >&2
+				exit 1
+			fi
+			base_branch="$1"
+			shift
+			;;
+		-b*)
+			base_branch="${1#-b}"
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			echo "error: unknown option: $1" >&2
+			exit 1
+			;;
+		*)
+			if [ -z "$repo" ]; then
+				repo="$1"
+			else
+				echo "error: unexpected extra argument: $1" >&2
+				exit 1
+			fi
+			shift
+			;;
+	esac
+done
+
+[ -z "$repo" ] && repo="$(git rev-parse --show-toplevel 2>/dev/null)"
 [ -z "$repo" ] && { echo "not in a git repo; pass a repo path" >&2; exit 1; }
 cd "$repo" || exit 1
+
+if [ -z "$base_branch" ]; then
+	if ref=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); then
+		base_branch="${ref#refs/remotes/}"
+	elif git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+		base_branch="origin/main"
+	elif git rev-parse --verify --quiet origin/master >/dev/null 2>&1; then
+		base_branch="origin/master"
+	else
+		base_branch="main"
+	fi
+fi
 
 # Main worktree is the first entry; everything else is a candidate.
 main_wt=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
 
-# origin/main drives the merge check. Best-effort; stale is fine for a first pass.
-git fetch origin main --quiet 2>/dev/null || echo "warn: could not fetch origin/main; merged column may be stale" >&2
+# Best-effort fetch of base branch; stale is fine for a first pass.
+case "$base_branch" in
+	*/*)
+		fetch_remote="${base_branch%%/*}"
+		fetch_ref="${base_branch#*/}"
+		git fetch "$fetch_remote" "$fetch_ref" --quiet 2>/dev/null || echo "warn: could not fetch $base_branch; merged column may be stale" >&2
+		;;
+	*)
+		git fetch origin "$base_branch" --quiet 2>/dev/null || true
+		;;
+esac
 
 # PR state by branch, fetched once. Empty if gh is unavailable.
 prs=$(mktemp)
@@ -29,6 +105,7 @@ agy_cli_transcripts="$HOME/.gemini/antigravity/brain"
 now=$(date +%s)
 is_darwin=$([ "$(uname -s)" = "Darwin" ] && echo yes || echo no)
 
+printf "# base: %s\n" "$base_branch"
 printf "SIZE\tAGE\tMERGED\tDIRTY\tREMOTE\tPR\tLAST_CHAT\tBUCKET\tWORKTREE\n"
 
 git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | while IFS= read -r wt; do
@@ -41,7 +118,7 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | while
 
 	# Squash-merged branches are not ancestors of main, so PR state is the
 	# real signal; merge-base only catches fast-forward/rebase merges.
-	git merge-base --is-ancestor "$head" origin/main 2>/dev/null && merged=YES || merged=no
+	git merge-base --is-ancestor "$head" "$base_branch" 2>/dev/null && merged=YES || merged=no
 
 	# Distinguish real WIP (tracked edits) from disposable untracked scratch.
 	porcelain=$(git -C "$wt" status --porcelain 2>/dev/null)

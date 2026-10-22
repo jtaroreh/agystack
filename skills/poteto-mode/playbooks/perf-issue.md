@@ -3,7 +3,7 @@
 **You own the measurement story. Plan, review, verify the numbers.** Tie every fix to a measurement, don't read source instead of measuring.
 
 1. Capture a baseline trace via the matching control skill.
-2. `how` to ground hypotheses; don't claim a perf ceiling without running it first.
+2. `how` to ground hypotheses; don't claim a perf ceiling without running it first. Validate measurement viability against the **benchmark-checklist** skill (tuning flags, arithmetic limits, and lazy execution checks).
    Most fixes come from eight strategy families. Use them as hypothesis generators, not a checklist. A family earns an attempt only when the trace shows the signal it names, and a focused fix for the dominant cost beats applying all eight.
    - **Elimination.** The cheapest work is work that doesn't run. Before optimizing the hot path, ask whether it needs to exist: a computation nobody consumes, a feature gate that's always off for this user, a sync that redundantly mirrors state, a legacy path kept "just in case". The trace shows what's slow, never that it's deletable, so this family needs the `how` pass, not the profiler. Deleting the work beats every other family when it applies.
    - **Divide and conquer.** The dominant cost scales with input size. Split the work so each piece touches less (chunk, shard, prune the search space) or so independent pieces run in parallel.
@@ -15,7 +15,7 @@
    - **Scheduling.** The work must happen, but not during the interactive moment. Move it to where nobody is waiting: idle callbacks, a background warmup after boot, precompute before the user arrives, cleanup after the frame commits. Distinct from Lazy (later-when-needed): Scheduling often runs the work *earlier* than the hot moment, or in its shadow. The win is perceived latency, so measure the interactive path, not total work done.
 3. Plan the fix from the trace. If it crosses a function boundary, `architect` first. Delegate implementation to a subagent using your configured perf-issue model (default `pro`); review the diff. Capture a post-fix trace.
    Apply the **sequence-verifiable-units** principle skill, verifying each attempt before trying the next.
-4. Parse and compare the artifacts (JSON to sqlite, diff). "Inconclusive" or wrong-surface is not a pass; flag it. Publish the full comparative analysis, charts, and trace diffs to `<appDataDir>/brain/<conversation-id>/perf_report.md` (or `walkthrough.md`) artifact.
+4. Parse and compare the artifacts (JSON to sqlite, diff). "Inconclusive" or wrong-surface is not a pass; flag it. Run the **benchmark-checklist** skill and apply the **explain-the-number** principle (**principle-explain-the-number**) before claiming wins or publishing numbers. Name the physical bottleneck and hardware/kernel root cause rather than guessing from code. Publish the full comparative analysis, charts, and trace diffs to `<appDataDir>/brain/<conversation-id>/perf_report.md` (or `walkthrough.md`) artifact.
 5. Cite the measurement in the PR.
 6. Run **Opening a PR**.
 

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import type * as T from "./types.ts";
 import { nonEmpty, parsePrNumber } from "./types.ts";
 export const REVIEW_THREADS_QUERY =
-  "\nquery ReviewThreads($owner: String!, $repo: String!, $pr: Int!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequest(number: $pr) {\n      reviewThreads(first: 100) {\n        nodes {\n          id\n          isResolved\n          comments(first: 10) {\n            nodes {\n              body\n              createdAt\n              path\n              line\n              author { login }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n";
+  "\nquery ReviewThreads($owner: String!, $repo: String!, $pr: Int!, $after: String) {\n  repository(owner: $owner, name: $repo) {\n    pullRequest(number: $pr) {\n      reviewThreads(first: 100, after: $after) {\n        pageInfo {\n          hasNextPage\n          endCursor\n        }\n        nodes {\n          id\n          isResolved\n          comments(first: 10) {\n            nodes {\n              body\n              createdAt\n              path\n              line\n              author { login }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n";
 export const PR_COMMIT_STATUS_QUERY =
   "\nquery PrCommitStatuses($owner: String!, $repo: String!, $pr: Int!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequest(number: $pr) {\n      commits(last: 50) {\n        nodes {\n          commit {\n            oid\n            statusCheckRollup {\n              state\n            }\n          }\n        }\n      }\n    }\n  }\n}\n";
 export const PR_CHECK_ROLLUP_QUERY =
@@ -358,10 +358,21 @@ function passKey(comment: T.ReviewComment | null): string | null {
   return null;
 }
 export function parseReviewThreads(value: unknown): readonly T.ReviewThread[] {
-  const nodes = list(
-    at(value, ["data", "repository", "pullRequest", "reviewThreads", "nodes"]),
-    "reviewThreads.nodes"
-  );
+  let nodes: readonly unknown[];
+  if (Array.isArray(value)) {
+    nodes = value;
+  } else if (
+    isRecord(value) &&
+    "nodes" in value &&
+    Array.isArray(value.nodes)
+  ) {
+    nodes = value.nodes;
+  } else {
+    nodes = list(
+      at(value, ["data", "repository", "pullRequest", "reviewThreads", "nodes"]),
+      "reviewThreads.nodes"
+    );
+  }
   const threads: {
     readonly id: string;
     readonly firstComment: T.ReviewComment | null;
@@ -451,6 +462,11 @@ function graphqlArgs(
 }
 
 export class GhGitHubReader implements T.GitHubReader {
+  constructor(
+    private readonly runJsonFn: (
+      argv: readonly [string, ...string[]]
+    ) => Promise<unknown> = runJson
+  ) {}
   async originRepo(): Promise<T.Repository | null> {
     const result = await run(["git", "remote", "get-url", "origin"]);
     return result.code === 0 ? parseRemote(result.stdout) : null;
@@ -571,9 +587,29 @@ export class GhGitHubReader implements T.GitHubReader {
   async reviewThreads(
     context: T.PrContext
   ): Promise<readonly T.ReviewThread[]> {
-    return parseReviewThreads(
-      await runJson(graphqlArgs(REVIEW_THREADS_QUERY, context))
-    );
+    const allNodes: unknown[] = [];
+    let cursor: string | null = null;
+    while (true) {
+      const argv = graphqlArgs(REVIEW_THREADS_QUERY, context);
+      if (cursor !== null) argv.push("-f", `after=${cursor}`);
+      const value = await (this.runJsonFn ?? runJson)(argv);
+      const threads = record(
+        at(value, ["data", "repository", "pullRequest", "reviewThreads"]),
+        "reviewThreads"
+      );
+      const nodes = list(threads.nodes, "reviewThreads.nodes");
+      allNodes.push(...nodes);
+      const page = record(threads.pageInfo, "reviewThreads.pageInfo");
+      if (typeof page.hasNextPage !== "boolean")
+        missing("reviewThreads.pageInfo.hasNextPage", page.hasNextPage);
+      const endCursor = optionalString(
+        page.endCursor,
+        "reviewThreads.pageInfo.endCursor"
+      );
+      if (!page.hasNextPage || !endCursor) break;
+      cursor = endCursor;
+    }
+    return parseReviewThreads(allNodes);
   }
   async commitRollups(
     context: T.PrContext

@@ -44,13 +44,38 @@ if (raw[0] === "---") {
 }
 
 const lines = [];
-let fence = false;
+let currentFence = null;
+const OPEN_FENCE_RE = /^[ ]{0,3}(`{3,}|~{3,})(.*)$/;
+
 for (let i = start; i < raw.length; i++) {
 	const text = raw[i];
 	const n = i + 1;
-	if (/^```/.test(text)) fence = !fence;
-	lines.push({ n, text, code: fence });
-	if (fence) continue;
+
+	if (currentFence) {
+		const char = currentFence.char === "~" ? "~" : "`";
+		const closeRe = new RegExp(`^[ ]{0,3}${char}{${currentFence.length},}\\s*$`);
+		if (closeRe.test(text)) {
+			lines.push({ n, text, code: true });
+			currentFence = null;
+			continue;
+		}
+		lines.push({ n, text, code: true });
+		continue;
+	}
+
+	const openMatch = text.match(OPEN_FENCE_RE);
+	if (openMatch) {
+		const fenceChars = openMatch[1];
+		const info = openMatch[2];
+		const fenceChar = fenceChars[0];
+		if (!(fenceChar === "`" && info.includes("`"))) {
+			currentFence = { char: fenceChar, length: fenceChars.length };
+			lines.push({ n, text, code: true });
+			continue;
+		}
+	}
+
+	lines.push({ n, text, code: false });
 	const prose = text
 		.replace(/`[^`]*`/g, "`")
 		.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
@@ -58,6 +83,10 @@ for (let i = start; i < raw.length; i++) {
 	if (/[\u2013\u2014]/.test(prose)) fail(n, "long dash");
 	if (/[\u2018\u2019\u201c\u201d]/.test(prose)) fail(n, "curly quote");
 	if (/: \S/.test(prose)) fail(n, "mid-sentence colon");
+}
+
+if (currentFence) {
+	fail(raw.length, "unclosed code fence");
 }
 
 const h2 = (l) => (!l.code && l.text.startsWith("## ") ? l.text.slice(3).trim() : null);

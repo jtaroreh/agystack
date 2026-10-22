@@ -184,6 +184,9 @@ def is_root_deletion(command: str) -> bool:
 
 
 def get_current_branch() -> str:
+    env_branch = os.environ.get("GIT_BRANCH") or os.environ.get("CURRENT_BRANCH")
+    if env_branch:
+        return env_branch.strip()
     try:
         proc = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
