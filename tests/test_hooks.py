@@ -33,6 +33,7 @@ def run_safety_hook(
     run_env.pop("NON_INTERACTIVE", None)
     run_env.pop("CI", None)
     run_env.pop("CLOUD_RUN_TASK_INDEX", None)
+    run_env.setdefault("GIT_BRANCH", "main")
     if env:
         run_env.update(env)
     return subprocess.run(
@@ -207,6 +208,26 @@ class TestPreToolSafetyHook(unittest.TestCase):
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(json.loads(result.stdout.strip()), {})
 
+    def test_safety_hook_feature_branch_force_push_allowed(self):
+        commands = [
+            "git push --force",
+            "git push -f origin",
+            "git push origin -f",
+        ]
+        for cmd in commands:
+            with self.subTest(cmd=cmd):
+                payload = {
+                    "toolCall": {
+                        "name": "run_command",
+                        "args": {"command": cmd},
+                    }
+                }
+                result = run_safety_hook(
+                    json.dumps(payload), env={"GIT_BRANCH": "feature/refactor"}
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout.strip()), {})
+
     def test_safety_hook_destructive_commands_interactive(self):
         destructive_commands = [
             "rm -rf /",
@@ -303,7 +324,7 @@ class TestPreToolSafetyHook(unittest.TestCase):
                     parsed = json.loads(result.stdout.strip())
                     self.assertEqual(
                         parsed.get("decision"),
-                        "reject",
+                        "deny",
                         f"Failed rejection in {env} for {cmd}",
                     )
                     self.assertEqual(

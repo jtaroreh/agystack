@@ -3,7 +3,7 @@
 Antigravity PreToolUse lifecycle hook for scoped destructive command safety.
 Intercepts run_command calls and prompts confirmation for destructive patterns
 (root deletion, trunk force-push, database drop) in interactive sessions.
-In headless/CI/Cloud Run environments, rejects destructive commands with decision: reject.
+In headless/CI/Cloud Run environments, rejects destructive commands with decision: deny.
 Outputs {} and exits 0 on all safe code paths. Never crashes.
 """
 
@@ -184,6 +184,9 @@ def is_root_deletion(command: str) -> bool:
 
 
 def get_current_branch() -> str:
+    env_branch = os.environ.get("GIT_BRANCH") or os.environ.get("CURRENT_BRANCH")
+    if env_branch:
+        return env_branch.strip()
     try:
         proc = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -400,7 +403,7 @@ def evaluate_safety(command: str, is_headless: bool) -> dict:
     if is_destructive:
         if is_headless:
             return {
-                "decision": "reject",
+                "decision": "deny",
                 "reason": "Destructive command rejected in headless/automated environment.",
             }
         return {

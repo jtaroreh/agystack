@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   ChecksUnavailable,
+  GhGitHubReader,
   WatcherQueryError,
   mapRollupNode,
   orderStack,
@@ -304,3 +305,108 @@ describe("context and stack discovery", () => {
     expect(ordered.map((item) => Number(item.number))).toEqual([41, 42, 43]);
   });
 });
+
+describe("review thread pagination", () => {
+  it("paginates GraphQL reviewThreads across pages and resolves over 100 threads", async () => {
+    const page1Nodes = Array.from({ length: 70 }, (_, i) => ({
+      id: `thread-${i}`,
+      isResolved: false,
+      comments: {
+        nodes: [
+          {
+            body: `thread body ${i}`,
+            createdAt: "2026-10-21T00:00:00Z",
+            path: `file-${i}.ts`,
+            line: i + 1,
+            author: { login: `author-${i}` },
+          },
+        ],
+      },
+    }));
+
+    const page2Nodes = Array.from({ length: 50 }, (_, i) => ({
+      id: `thread-${70 + i}`,
+      isResolved: false,
+      comments: {
+        nodes: [
+          {
+            body: `thread body ${70 + i}`,
+            createdAt: "2026-10-21T00:00:00Z",
+            path: `file-${70 + i}.ts`,
+            line: i + 1,
+            author: { login: `author-${70 + i}` },
+          },
+        ],
+      },
+    }));
+
+    const capturedCalls: string[][] = [];
+    const reader = new GhGitHubReader(async (argv) => {
+      capturedCalls.push([...argv]);
+      const afterArg = argv.find((arg) => arg.startsWith("after="));
+      if (!afterArg) {
+        return {
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  pageInfo: {
+                    hasNextPage: true,
+                    endCursor: "cursor-page-1",
+                  },
+                  nodes: page1Nodes,
+                },
+              },
+            },
+          },
+        };
+      }
+      expect(afterArg).toBe("after=cursor-page-1");
+      return {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                pageInfo: {
+                  hasNextPage: false,
+                  endCursor: null,
+                },
+                nodes: page2Nodes,
+              },
+            },
+          },
+        },
+      };
+    });
+
+    const threads = await reader.reviewThreads(context);
+    expect(threads).toHaveLength(120);
+    expect(capturedCalls).toHaveLength(2);
+    expect(threads[0].id).toBe("thread-0");
+    expect(threads[119].id).toBe("thread-119");
+  });
+
+  it("handles nodes array directly in parseReviewThreads", () => {
+    const nodes = [
+      {
+        id: "direct-node-1",
+        isResolved: false,
+        comments: {
+          nodes: [
+            {
+              body: "comment 1",
+              createdAt: "now",
+              path: "test.ts",
+              line: 1,
+              author: { login: "alice" },
+            },
+          ],
+        },
+      },
+    ];
+    const threads = parseReviewThreads(nodes);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].id).toBe("direct-node-1");
+  });
+});
+
