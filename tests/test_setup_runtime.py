@@ -291,7 +291,7 @@ class TestSetupRuntimePythonDependencies(unittest.TestCase):
             raise ImportError(f"No module named {name}")
 
         deps = setup_runtime.check_python_dependencies(import_fn=fake_import)
-        for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run"]:
+        for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run", "anthropic[vertex]"]:
             self.assertFalse(deps[pkg]["installed"])
             self.assertTrue(deps[pkg]["ok"])
             self.assertIsNone(deps[pkg]["version"])
@@ -302,7 +302,7 @@ class TestSetupRuntimePythonDependencies(unittest.TestCase):
             raise RuntimeError("Unexpected import failure")
 
         deps = setup_runtime.check_python_dependencies(import_fn=fake_import)
-        for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run"]:
+        for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run", "anthropic[vertex]"]:
             self.assertFalse(deps[pkg]["installed"])
             self.assertTrue(deps[pkg]["ok"])
             self.assertIn("Unexpected import failure", deps[pkg]["error"])
