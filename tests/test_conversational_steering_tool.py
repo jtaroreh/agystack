@@ -116,7 +116,8 @@ class TestConversationalSteeringTool(unittest.TestCase):
         inbox_file = (
             self.storage_root
             / self.bucket_name
-            / f"swarm-{self.session_id}"
+            / "swarms"
+            / self.session_id
             / "tasks"
             / "task-0"
             / "inbox"
@@ -422,7 +423,7 @@ class TestConversationalSteeringTool(unittest.TestCase):
         orch.send_steer(task_index=1, instruction="Steer 1")
 
         session_tasks_dir = (
-            self.storage_root / self.bucket_name / f"swarm-{self.session_id}" / "tasks"
+            self.storage_root / self.bucket_name / "swarms" / self.session_id / "tasks"
         )
         self.assertTrue(session_tasks_dir.exists())
 
@@ -470,6 +471,83 @@ class TestConversationalSteeringTool(unittest.TestCase):
             600.0,
             f"Max steering delivery latency ({max_latency_ms:.2f}ms) exceeded 600ms spike limit",
         )
+
+    def test_12_broadcast_steering_fails_closed_when_no_tasks_discovered(self):
+        """Verify that broadcast steering (--task all) raises RuntimeError when no tasks discovered."""
+        empty_session = f"empty-sess-{int(time.time() * 1000)}"
+        orch = StorageMessenger(
+            bucket_name=self.bucket_name,
+            session_id=empty_session,
+            is_worker=False,
+            local_dir=self.storage_root,
+        )
+        with self.assertRaises(RuntimeError) as cm:
+            steer_task(
+                task="all",
+                instruction="Cancel exploration",
+                session_id=empty_session,
+                messenger=orch,
+                max_tasks=None,
+            )
+        self.assertIn("Broadcast steering failed: No tasks discovered", str(cm.exception))
+
+    def test_13_sequence_resolution_fails_closed_on_persistent_gcs_failure(self):
+        """Verify sequence resolution fails closed (RuntimeError) and does not default to 0 on persistent failure."""
+        orch = self._create_messenger(is_worker=False)
+
+        # Mock list_blobs to simulate persistent network timeouts
+        with patch.object(orch.bucket, "list_blobs", side_effect=TimeoutError("Persistent connection timeout")):
+            with self.assertRaises(RuntimeError) as cm:
+                orch.send_steer(task_index=0, instruction="Should fail safely", max_retries=1, retry_delay=0.01)
+            self.assertIn("GCS sequence resolution failed", str(cm.exception))
+
+    def test_14_storage_prefix_alignment_swarms_hierarchy(self):
+        """Verify StorageMessenger normalizes session prefixes to swarms/<session_id>."""
+        msg1 = StorageMessenger(bucket_name="bkt", session_id="test-123", is_worker=False, local_dir=self.storage_root)
+        self.assertEqual(msg1._session_prefix(), "swarms/test-123")
+
+        msg2 = StorageMessenger(bucket_name="bkt", session_id="swarm-test-123", is_worker=False, local_dir=self.storage_root)
+        self.assertEqual(msg2._session_prefix(), "swarms/test-123")
+
+        msg3 = StorageMessenger(bucket_name="bkt", session_id="swarms/test-123", is_worker=False, local_dir=self.storage_root)
+        self.assertEqual(msg3._session_prefix(), "swarms/test-123")
+
+    def test_15_steering_context_preserved_alongside_stagnancy_warning(self):
+        """Verify that when a tool call is stagnant and steer is pending, both contexts are preserved."""
+        orch = self._create_messenger(is_worker=False)
+        worker = self._create_messenger(task_index=4, is_worker=True)
+
+        fake_hooks = FakeHooks()
+        fake_types = MagicMock()
+        fake_types.HookResult = FakeHookResult
+
+        tracker = StagnancyTracker()
+        hooks = create_agent_hooks(
+            messenger=worker,
+            task_index=4,
+            tracker=tracker,
+            hooks_module=fake_hooks,
+            types_module=fake_types,
+        )
+        pre_hook = hooks[0]
+
+        tool_call = MagicMock()
+        tool_call.name = "list_dir"
+        tool_call.args = {"DirectoryPath": "/tmp"}
+
+        # Simulate 2 prior calls to establish consecutive call pattern
+        asyncio.run(pre_hook(tool_call))
+        asyncio.run(pre_hook(tool_call))
+
+        # Deliver steering directive immediately before the stagnant 3rd call
+        steer_text = "Pivot to breadth-first search"
+        orch.send_steer(task_index=4, instruction=steer_text)
+
+        # Third identical call triggers stagnancy (count >= 3) AND consumes pending steer
+        res = asyncio.run(pre_hook(tool_call))
+        self.assertTrue(res.allow)
+        self.assertIn(steer_text, res.custom_context)
+        self.assertIn("consecutive times with identical arguments", res.custom_context)
 
 
 if __name__ == "__main__":

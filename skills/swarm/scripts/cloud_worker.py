@@ -444,8 +444,9 @@ def create_agent_hooks(
                 f"[ALARM] [TASK {task_index}] [POTENTIAL_LOOP] Tool '{tool_name}' repeated {count} times with identical inputs.",
                 flush=True,
             )
+            combined_context = f"{steer_context}\n\n{warning}" if steer_context else warning
             try:
-                return t.HookResult(allow=True, custom_context=warning)
+                return t.HookResult(allow=True, custom_context=combined_context)
             except TypeError:
                 return t.HookResult(allow=True)
 

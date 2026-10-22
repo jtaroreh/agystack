@@ -88,7 +88,8 @@ class TestStorageMessenger(unittest.TestCase):
         expected_q1_path = (
             self.storage_root
             / self.bucket_name
-            / f"swarm-{self.session_id}"
+            / "swarms"
+            / self.session_id
             / "tasks"
             / "task-1"
             / "outbox"

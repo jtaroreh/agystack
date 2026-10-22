@@ -275,6 +275,11 @@ class TaskDashboardState:
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     created_at: float = field(default_factory=time.time)
+    pending_steer: Optional[str] = None
+
+    @property
+    def is_steer_pending(self) -> bool:
+        return bool(self.pending_steer)
 
     def get_badge(self) -> str:
         return format_status_badge(self.status)
@@ -286,6 +291,8 @@ class TaskDashboardState:
         return max(0.0, current - self.start_time)
 
     def get_active_display(self) -> str:
+        if self.pending_steer:
+            return f"STEER_PENDING: {self.pending_steer}"
         if self.active_tool:
             if self.tool_snippet:
                 return self.tool_snippet
@@ -417,6 +424,22 @@ class SwarmDashboardWriter:
                     state.status = "PASS"
                 if state.end_time is None:
                     state.end_time = time.time()
+            if phase in ("STEER_APPLIED", "ABORT_REQUESTED"):
+                state.pending_steer = None
+
+    def update_task_steer(self, task_index: int, instruction: str) -> None:
+        with self._lock:
+            if task_index not in self._states:
+                self._states[task_index] = TaskDashboardState(
+                    task_index=task_index,
+                    model=self.default_model,
+                )
+            self._states[task_index].pending_steer = instruction
+
+    def clear_task_steer(self, task_index: int) -> None:
+        with self._lock:
+            if task_index in self._states:
+                self._states[task_index].pending_steer = None
 
     def update_task_tool(
         self,
@@ -473,9 +496,48 @@ class SwarmDashboardWriter:
                 phase = m["phase"]
                 detail = m.get("detail", "")
                 self.update_task_phase(t_idx, phase, detail)
+                if phase in ("STEER_APPLIED", "ABORT_REQUESTED"):
+                    self.clear_task_steer(t_idx)
                 return True
             except Exception:
                 pass
+
+        # Check for [STEER] log lines:
+        # e.g. "[STEER] Instruction delivered to task-0 mailbox in GCS"
+        # e.g. "[STEER] [TASK 0] Abort search"
+        if "[STEER]" in s:
+            m_steer = re.search(
+                r"\[STEER\](?:\s+\[TASK\s+(\d+)\]|\s+Instruction delivered to task-(\d+)|\s+task-(\d+)|\s+Task\s+(\d+))?(?:\s*[:\-]\s*(.*?)(?:\s+mailbox in GCS)?|\s+mailbox in GCS)?$",
+                s,
+                re.IGNORECASE,
+            )
+            if m_steer:
+                try:
+                    idx_str = m_steer.group(1) or m_steer.group(2) or m_steer.group(3) or m_steer.group(4)
+                    if idx_str is not None:
+                        t_idx = int(idx_str)
+                        instruction = (m_steer.group(5) or "").strip()
+                        with self._lock:
+                            curr = self._states.get(t_idx)
+                            inst = instruction or (curr.pending_steer if curr and curr.pending_steer else "Pending")
+                        self.update_task_steer(t_idx, inst)
+                        return True
+                except Exception:
+                    pass
+
+        if "STEER_APPLIED" in s or "ABORT_REQUESTED" in s:
+            m_steer_act = re.search(r"\b(STEER_APPLIED|ABORT_REQUESTED)\b", s)
+            if m_steer_act:
+                act = m_steer_act.group(1)
+                m_t = re.search(r"\[TASK\s+(\d+)\]", s, re.IGNORECASE) or re.search(r"task-(\d+)", s, re.IGNORECASE)
+                if m_t:
+                    try:
+                        t_idx = int(m_t.group(1))
+                        self.clear_task_steer(t_idx)
+                        self.update_task_phase(t_idx, act)
+                        return True
+                    except Exception:
+                        pass
 
         if is_telemetry_line(s):
             try:

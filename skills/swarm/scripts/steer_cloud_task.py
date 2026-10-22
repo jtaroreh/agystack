@@ -128,8 +128,7 @@ def steer_task(
             target_tasks = list(range(max_tasks))
 
         if not target_tasks:
-            # Fallback to task 0 if no other tasks discovered
-            target_tasks = [0]
+            raise RuntimeError("Broadcast steering failed: No tasks discovered")
 
         for t_idx in target_tasks:
             env = messenger.send_steer(task_index=t_idx, instruction=valid_instruction)

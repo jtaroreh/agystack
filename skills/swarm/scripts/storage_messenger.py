@@ -140,14 +140,25 @@ class _GcsRestBlob:
         except Exception:
             return False
 
-    def upload_from_string(self, data: str, content_type: str = "application/json") -> None:
+    def upload_from_string(
+        self,
+        data: str,
+        content_type: str = "application/json",
+        if_generation_match: Optional[int] = None,
+        **kwargs: Any,
+    ) -> None:
         encoded_bkt = urllib.parse.quote(self.bucket_name, safe="")
         encoded_name = urllib.parse.quote(self.name, safe="")
         url = f"https://storage.googleapis.com/upload/storage/v1/b/{encoded_bkt}/o?uploadType=media&name={encoded_name}"
+        if if_generation_match is not None:
+            url += f"&ifGenerationMatch={if_generation_match}"
+        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": content_type}
+        if if_generation_match is not None:
+            headers["if-generation-match"] = str(if_generation_match)
         req = urllib.request.Request(
             url,
             data=data.encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.token}", "Content-Type": content_type},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -193,17 +204,14 @@ class _GcsRestBucket:
             encoded_prefix = urllib.parse.quote(prefix, safe="")
             url += f"?prefix={encoded_prefix}"
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                items = data.get("items", [])
-                blobs = []
-                for it in items:
-                    name = it.get("name", "")
-                    blobs.append(_GcsRestBlob(self.name, name, self.token))
-                return sorted(blobs, key=lambda b: b.name)
-        except Exception:
-            return []
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            items = data.get("items", [])
+            blobs = []
+            for it in items:
+                name = it.get("name", "")
+                blobs.append(_GcsRestBlob(self.name, name, self.token))
+            return sorted(blobs, key=lambda b: b.name)
 
 
 class _GcsRestClient:
@@ -223,7 +231,15 @@ class _LocalBlob:
     def exists(self) -> bool:
         return self.path.is_file()
 
-    def upload_from_string(self, data: str, content_type: str = "application/json") -> None:
+    def upload_from_string(
+        self,
+        data: str,
+        content_type: str = "application/json",
+        if_generation_match: Optional[int] = None,
+        **kwargs: Any,
+    ) -> None:
+        if if_generation_match == 0 and self.path.exists():
+            raise FileExistsError(f"Target object already exists: {self.path}")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(data, encoding="utf-8")
 
@@ -322,9 +338,12 @@ class StorageMessenger:
             self._sync_existing_question_seq()
 
     def _session_prefix(self) -> str:
-        if self.session_id.startswith("swarm-"):
-            return self.session_id
-        return f"swarm-{self.session_id}"
+        clean_id = self.session_id.strip()
+        if clean_id.startswith("swarms/"):
+            clean_id = clean_id[len("swarms/"):]
+        elif clean_id.startswith("swarm-"):
+            clean_id = clean_id[len("swarm-"):]
+        return f"swarms/{clean_id}"
 
     def _outbox_question_path(self, task_index: int, seq: int) -> str:
         return f"{self._session_prefix()}/tasks/task-{task_index}/outbox/{seq:04d}_question.json"
@@ -532,8 +551,8 @@ class StorageMessenger:
 
         try:
             retry_gcs_operation(_resolve_max_seq, max_retries=max_retries, initial_delay=retry_delay)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError("GCS sequence resolution failed") from exc
 
         steer_seq = max_seq + 1
         envelope = MailboxEnvelope(
@@ -550,8 +569,22 @@ class StorageMessenger:
 
         obj_path = self._inbox_steer_path(task_index, steer_seq)
         blob = self.bucket.blob(obj_path)
+
+        def _upload_blob():
+            try:
+                blob.upload_from_string(
+                    envelope.to_json(),
+                    content_type="application/json",
+                    if_generation_match=0,
+                )
+            except TypeError:
+                blob.upload_from_string(
+                    envelope.to_json(),
+                    content_type="application/json",
+                )
+
         retry_gcs_operation(
-            lambda: blob.upload_from_string(envelope.to_json(), content_type="application/json"),
+            _upload_blob,
             max_retries=max_retries,
             initial_delay=retry_delay,
         )
