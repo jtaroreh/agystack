@@ -41,6 +41,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY cloud_worker.py /app/cloud_worker.py
 COPY storage_uploader.py /app/storage_uploader.py
 COPY storage_messenger.py /app/storage_messenger.py
+COPY worker /app/worker
 
 COPY skills /home/worker/.gemini/config/plugins/agystack/skills
 COPY rules /home/worker/.gemini/config/plugins/agystack/rules
