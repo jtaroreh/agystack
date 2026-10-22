@@ -34,10 +34,10 @@ def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     print(msg, flush=True)
 
 
-def emit_thought(task_index_or_thought: Any, thought: Optional[str] = None) -> None:
+def emit_thought(task_index_or_thought: Any, thought: Optional[str] = None, *args: Any, **kwargs: Any) -> None:
     cw = sys.modules.get("cloud_worker")
     if cw and hasattr(cw, "emit_thought") and cw.emit_thought is not emit_thought:
-        return cw.emit_thought(task_index_or_thought, thought)
+        return cw.emit_thought(task_index_or_thought, thought, *args, **kwargs)
     if thought is None and isinstance(task_index_or_thought, str):
         task_idx = 0
         th = task_index_or_thought
@@ -50,10 +50,10 @@ def emit_thought(task_index_or_thought: Any, thought: Optional[str] = None) -> N
     print(f"[THOUGHT] [TASK {task_idx}] {th}", flush=True)
 
 
-def emit_tool_invocation(task_index: int, tool_name: str, tool_input: Any) -> None:
+def emit_tool_invocation(task_index: int, tool_name: str, tool_input: Any = None, *args: Any, **kwargs: Any) -> None:
     cw = sys.modules.get("cloud_worker")
     if cw and hasattr(cw, "emit_tool_invocation") and cw.emit_tool_invocation is not emit_tool_invocation:
-        return cw.emit_tool_invocation(task_index, tool_name, tool_input)
+        return cw.emit_tool_invocation(task_index, tool_name, tool_input, *args, **kwargs)
     if isinstance(tool_input, dict):
         args_summary = ", ".join(f"{k}={v!r}" for k, v in tool_input.items())
     else:
@@ -62,10 +62,10 @@ def emit_tool_invocation(task_index: int, tool_name: str, tool_input: Any) -> No
     emit_milestone(task_index, "TOOL_START", f"{tool_name}: {args_summary[:60]}")
 
 
-def emit_tool_result(task_index: int, tool_name: str, result: Any) -> None:
+def emit_tool_result(task_index: int, tool_name: str, result: Any = "", *args: Any, **kwargs: Any) -> None:
     cw = sys.modules.get("cloud_worker")
     if cw and hasattr(cw, "emit_tool_result") and cw.emit_tool_result is not emit_tool_result:
-        return cw.emit_tool_result(task_index, tool_name, result)
+        return cw.emit_tool_result(task_index, tool_name, result, *args, **kwargs)
     res_str = str(result)
     summary = res_str[:200] if len(res_str) > 200 else res_str
     print(f"[TOOL_RESULT] [TASK {task_index}] [{tool_name}] {summary}", flush=True)

@@ -364,6 +364,47 @@ def parse_worker_logs(log_output: str) -> List[Dict[str, Any]]:
     return results
 
 
+try:
+    from transcript_projector import (
+        TELEMETRY_REGEX,
+        ShadowTranscriptProjector,
+        cleanup_session,
+        format_conversation_url,
+        get_task_brain_dir,
+        get_task_conversation_id,
+        initialize_shadow_transcript,
+        is_telemetry_line,
+        parse_telemetry_line,
+        resolve_app_data_dir,
+    )
+except ImportError:
+    from skills.swarm.scripts.transcript_projector import (
+        TELEMETRY_REGEX,
+        ShadowTranscriptProjector,
+        cleanup_session,
+        format_conversation_url,
+        get_task_brain_dir,
+        get_task_conversation_id,
+        initialize_shadow_transcript,
+        is_telemetry_line,
+        parse_telemetry_line,
+        resolve_app_data_dir,
+    )
+
+__all__ = [
+    "TELEMETRY_REGEX",
+    "ShadowTranscriptProjector",
+    "cleanup_session",
+    "format_conversation_url",
+    "get_task_brain_dir",
+    "get_task_conversation_id",
+    "initialize_shadow_transcript",
+    "is_telemetry_line",
+    "parse_telemetry_line",
+    "resolve_app_data_dir",
+]
+
+
 MILESTONE_REGEX = re.compile(
     r"\[MILESTONE\]\s+\[TASK\s+(\d+)\]\s+\[PHASE:\s*([^\]]+)\](?:\s+(.*))?"
 )
@@ -512,6 +553,8 @@ def monitor_execution(
     task_count: int,
     poll_interval: float = 4,
     timeout: float = 2700.0,
+    projector: Optional[Any] = None,
+    session_id: Optional[str] = None,
 ) -> MonitorResult:
     seen_log_entries = set()
     last_counts = None
@@ -553,7 +596,7 @@ def monitor_execution(
             desc_data = json.loads(res.stdout)
             status = desc_data.get("status", {}) if isinstance(desc_data, dict) else {}
 
-            log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[MILESTONE]" OR textPayload:"[STATUS:" OR textPayload:"[ALARM]")'
+            log_filter = f'labels."run.googleapis.com/execution_name"="{execution_name}" AND (textPayload:"[MILESTONE]" OR textPayload:"[STATUS:" OR textPayload:"[ALARM]" OR textPayload:"[TELEMETRY]")'
             log_cmd = [
                 "gcloud",
                 "logging",
@@ -579,7 +622,11 @@ def monitor_execution(
                         if not line_str or line_str in seen_log_entries:
                             continue
                         seen_log_entries.add(line_str)
-                        print(format_monitored_line(line_str), flush=True)
+                        if is_telemetry_line(line_str):
+                            if projector:
+                                projector.process_log_line(line_str)
+                        else:
+                            print(format_monitored_line(line_str), flush=True)
             except Exception:
                 pass
 
@@ -1470,6 +1517,19 @@ def main() -> None:
             print(f"Error updating job secrets: {exc.stderr.strip()}", file=sys.stderr)
             sys.exit(exc.returncode)
 
+    projector = ShadowTranscriptProjector(session_id=session_id, task_count=task_count)
+    for t_idx in range(task_count):
+        brief_text = ""
+        if tasks_list and t_idx < len(tasks_list):
+            item = tasks_list[t_idx]
+            if isinstance(item, dict):
+                brief_text = item.get("brief") or item.get("task_brief") or item.get("command") or ""
+            elif isinstance(item, str):
+                brief_text = item
+        projector.init_task(t_idx, task_brief=brief_text)
+        task_conv_url = format_conversation_url(session_id, t_idx)
+        print(f"[Cloud Swarm] Task {t_idx} shadow session: {task_conv_url}", flush=True)
+
     print(f"Launching Cloud Run Job '{job_name}' with {task_count} tasks (parallelism: {parallelism})...")
     try:
         proc = subprocess.run(
@@ -1511,6 +1571,8 @@ def main() -> None:
                 project=project,
                 region=region,
                 task_count=task_count,
+                projector=projector,
+                session_id=session_id,
             )
             if not exec_succeeded:
                 print(f"Error: Cloud Run execution '{execution_name}' failed: {exec_failure_msg}", file=sys.stderr)
@@ -1552,6 +1614,7 @@ def main() -> None:
                     time.sleep(5)
                 except Exception as exc:
                     print(f"Warning: Failed to fetch container logs: {exc}", file=sys.stderr)
+
 
         harvest_target = args.harvest_gcs or (gcs_prefix if gcs_bucket else None)
         harvested_patches = []
@@ -1627,6 +1690,8 @@ def main() -> None:
             print(f"\n[STATUS: EXECUTION_FAILED] ({failed_tasks_count}/{len(report_items) or task_count} tasks failed; patches harvested with quarantine)")
         else:
             print(f"\n[STATUS: EXECUTION_SUCCESS] (All {len(report_items) or task_count} tasks succeeded)")
+
+        cleanup_session(session_id=session_id)
 
         if not exec_succeeded:
             sys.exit(1)

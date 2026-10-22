@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,6 +43,234 @@ def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     if detail:
         msg += f" {detail}"
     print(msg, flush=True)
+
+
+def emit_telemetry(
+    task_index: int,
+    event_type: str,
+    data: Optional[Dict[str, Any]] = None,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    ts = timestamp if timestamp is not None else time.time()
+    payload = {
+        "timestamp": ts,
+        "event": event_type,
+        "task_index": task_index,
+    }
+    if data:
+        payload.update(data)
+    line = f"[TELEMETRY] [TASK {task_index}] {json.dumps(payload, default=str)}"
+    target = stream if stream is not None else sys.stderr
+    try:
+        print(line, file=target, flush=True)
+    except Exception:
+        pass
+
+
+def emit_thought(
+    task_index_or_thought: Any,
+    thought: Optional[str] = None,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    if thought is None and isinstance(task_index_or_thought, str):
+        task_idx = 0
+        th = task_index_or_thought
+    elif isinstance(task_index_or_thought, int):
+        task_idx = task_index_or_thought
+        th = thought or ""
+    else:
+        task_idx = 0
+        th = str(task_index_or_thought)
+    emit_telemetry(
+        task_idx,
+        "thought",
+        {"thought": th},
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+def emit_tool_invocation(
+    task_index: int,
+    tool_name: str,
+    args: Any = None,
+    call_id: Optional[str] = None,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    tool_args = args if isinstance(args, dict) else ({"args": str(args)} if args is not None else {})
+    emit_telemetry(
+        task_index,
+        "tool_call",
+        {
+            "tool_name": tool_name,
+            "args": tool_args,
+            "call_id": call_id or "",
+        },
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+def emit_tool_result(
+    task_index: int,
+    tool_name: str,
+    output: Any = "",
+    success: bool = True,
+    call_id: Optional[str] = None,
+    duration_s: float = 0.0,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    emit_telemetry(
+        task_index,
+        "tool_result",
+        {
+            "tool_name": tool_name,
+            "output": output,
+            "success": success,
+            "call_id": call_id or "",
+            "duration_s": duration_s,
+        },
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+def emit_user_input(
+    task_index: int,
+    content: str,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    emit_telemetry(
+        task_index,
+        "user_input",
+        {"content": content},
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+def emit_agent_response(
+    task_index: int,
+    content: str,
+    timestamp: Optional[float] = None,
+    stream: Optional[Any] = None,
+) -> None:
+    emit_telemetry(
+        task_index,
+        "agent_response",
+        {"content": content},
+        timestamp=timestamp,
+        stream=stream,
+    )
+
+
+CREDENTIAL_PATTERNS = [
+    re.compile(r"ghp_[A-Za-z0-9_]{36,}"),
+    re.compile(r"AIza[0-9A-Za-z-_]{35}"),
+    re.compile(r"ya29\.[0-9A-Za-z-_]+"),
+    re.compile(r"Bearer [A-Za-z0-9_\-\.]+"),
+]
+
+
+def scrub_credentials(text: str) -> str:
+    if not text:
+        return text
+    for pattern in CREDENTIAL_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
+
+class TokenShield:
+    def __init__(
+        self,
+        task_index: int = 0,
+        target_stream: Optional[Any] = None,
+        telemetry_stream: Optional[Any] = None,
+    ):
+        self.task_index = task_index
+        self.target_stream = target_stream
+        self.telemetry_stream = telemetry_stream or sys.stderr
+        self.captured_thoughts: List[str] = []
+        self._orig_stdout: Optional[Any] = None
+        self._buffer = ""
+
+    def __enter__(self) -> "TokenShield":
+        self._orig_stdout = sys.stdout
+        self.target_stream = self.target_stream or self._orig_stdout
+        sys.stdout = self
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        try:
+            if self._buffer.strip():
+                self._handle_non_milestone(self._buffer)
+                self._buffer = ""
+        finally:
+            if self._orig_stdout is not None:
+                sys.stdout = self._orig_stdout
+
+    def write(self, s: str) -> int:
+        if not s:
+            return 0
+        self._buffer += s
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._process_line(line)
+        return len(s)
+
+    def _process_line(self, line: str) -> None:
+        stripped = line.strip()
+        if not stripped:
+            return
+        if stripped.startswith("[MILESTONE]"):
+            out = self.target_stream or self._orig_stdout or sys.__stdout__
+            out.write(line + "\n")
+            if hasattr(out, "flush"):
+                out.flush()
+        else:
+            self._handle_non_milestone(stripped)
+
+    def _handle_non_milestone(self, text: str) -> None:
+        scrubbed = scrub_credentials(text)
+        self.captured_thoughts.append(scrubbed)
+        emit_thought(self.task_index, scrubbed, stream=self.telemetry_stream)
+
+    def flush(self) -> None:
+        out = self.target_stream or self._orig_stdout or sys.__stdout__
+        if hasattr(out, "flush"):
+            out.flush()
+
+    def emit_milestone(self, phase: str, detail: str = "") -> None:
+        emit_milestone(self.task_index, phase, detail)
+
+    def emit_thought(self, thought: str) -> None:
+        scrubbed = scrub_credentials(thought)
+        self.captured_thoughts.append(scrubbed)
+        emit_thought(self.task_index, scrubbed, stream=self.telemetry_stream)
+
+    def emit_tool_invocation(
+        self,
+        tool_name: str,
+        args: Any = None,
+        call_id: Optional[str] = None,
+    ) -> None:
+        emit_tool_invocation(self.task_index, tool_name, args, call_id=call_id, stream=self.telemetry_stream)
+
+    def emit_tool_result(
+        self,
+        tool_name: str,
+        output: Any = "",
+        success: bool = True,
+        call_id: Optional[str] = None,
+        duration_s: float = 0.0,
+    ) -> None:
+        emit_tool_result(self.task_index, tool_name, output, success=success, call_id=call_id, duration_s=duration_s, stream=self.telemetry_stream)
+
 
 
 try:
@@ -487,9 +716,6 @@ try:
         PARTNER_MODEL_ALIASES as PARTNER_MODEL_ALIASES,
         PARTNER_MODELS as PARTNER_MODELS,
         WORKSPACE_TOOLS as WORKSPACE_TOOLS,
-        emit_thought as emit_thought,
-        emit_tool_invocation as emit_tool_invocation,
-        emit_tool_result as emit_tool_result,
         execute_claude_model_agent as execute_claude_model_agent,
         execute_fable_model_agent as execute_fable_model_agent,
         execute_partner_model_agent as execute_partner_model_agent,
@@ -503,9 +729,6 @@ except ImportError:
         PARTNER_MODEL_ALIASES as PARTNER_MODEL_ALIASES,
         PARTNER_MODELS as PARTNER_MODELS,
         WORKSPACE_TOOLS as WORKSPACE_TOOLS,
-        emit_thought as emit_thought,
-        emit_tool_invocation as emit_tool_invocation,
-        emit_tool_result as emit_tool_result,
         execute_claude_model_agent as execute_claude_model_agent,
         execute_fable_model_agent as execute_fable_model_agent,
         execute_partner_model_agent as execute_partner_model_agent,
@@ -586,6 +809,8 @@ def execute_task(
         if not cmd_str:
             cmd_str = task_brief
 
+        emit_user_input(task_index, cmd_str)
+        emit_tool_invocation(task_index, "run_command", {"command": cmd_str})
         emit_milestone(task_index, "RUNNING_COMMAND", cmd_str)
         print(f"Executing command task: {cmd_str}", flush=True)
         timeout = int(os.environ.get("COMMAND_TIMEOUT", "900"))
@@ -599,11 +824,14 @@ def execute_task(
                 timeout=timeout,
             )
             if res.returncode == 0:
+                emit_tool_result(task_index, "run_command", res.stdout, success=True)
                 return "PASS", res.stdout
             else:
                 err_msg = res.stderr if res.stderr else res.stdout
+                emit_tool_result(task_index, "run_command", err_msg, success=False)
                 return "ISSUES", err_msg
         except subprocess.TimeoutExpired:
+            emit_tool_result(task_index, "run_command", f"Command timed out after {timeout} seconds", success=False)
             return "ISSUES", f"Command timed out after {timeout} seconds: {cmd_str}"
 
     resolved_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
@@ -706,12 +934,25 @@ def execute_task(
             config_kwargs.pop("hooks", None)
             config = LocalAgentConfig(**config_kwargs)
 
+        emit_user_input(task_index, task_brief)
+
         async def _run_agent_turn() -> str:
             async with Agent(config=config) as agent:
                 resp = await agent.chat(task_brief)
-                return await resp.text()
+                if hasattr(resp, "thinking") and resp.thinking:
+                    emit_thought(task_index, str(resp.thinking))
+                elif hasattr(resp, "thoughts") and resp.thoughts:
+                    emit_thought(task_index, str(resp.thoughts))
+                if hasattr(resp, "text"):
+                    res = resp.text() if callable(resp.text) else resp.text
+                    text = await res if asyncio.iscoroutine(res) else str(res)
+                else:
+                    text = str(resp)
+                emit_agent_response(task_index, text)
+                return text
 
-        agent_text = asyncio.run(_run_agent_turn())
+        with TokenShield(task_index=task_index):
+            agent_text = asyncio.run(_run_agent_turn())
         return evaluate_agent_status(agent_text)
     except ImportError:
         return "BLOCKED", "Missing dependency: google.antigravity Python package is not installed."

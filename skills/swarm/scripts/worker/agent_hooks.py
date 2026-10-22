@@ -21,6 +21,49 @@ def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     print(msg, flush=True)
 
 
+def emit_thought(task_index_or_thought: Any, thought: Optional[str] = None, *args: Any, **kwargs: Any) -> None:
+    cw = sys.modules.get("cloud_worker")
+    if cw and hasattr(cw, "emit_thought"):
+        return cw.emit_thought(task_index_or_thought, thought, *args, **kwargs)
+
+
+def emit_tool_invocation(
+    task_index: int,
+    tool_name: str,
+    args: Any = None,
+    call_id: Optional[str] = None,
+    *extra_args: Any,
+    **kwargs: Any,
+) -> None:
+    cw = sys.modules.get("cloud_worker")
+    if cw and hasattr(cw, "emit_tool_invocation"):
+        return cw.emit_tool_invocation(task_index, tool_name, args, call_id=call_id, *extra_args, **kwargs)
+
+
+def emit_tool_result(
+    task_index: int,
+    tool_name: str,
+    output: Any = "",
+    success: bool = True,
+    call_id: Optional[str] = None,
+    duration_s: float = 0.0,
+    *extra_args: Any,
+    **kwargs: Any,
+) -> None:
+    cw = sys.modules.get("cloud_worker")
+    if cw and hasattr(cw, "emit_tool_result"):
+        return cw.emit_tool_result(
+            task_index,
+            tool_name,
+            output,
+            success=success,
+            call_id=call_id,
+            duration_s=duration_s,
+            *extra_args,
+            **kwargs,
+        )
+
+
 @dataclass
 class ToolInvocationRecord:
     tool_name: str
@@ -182,6 +225,7 @@ def create_agent_hooks(
         })
 
         emit_milestone(task_index, "TOOL_START", f"{tool_name}: {record.args_summary[:60]}")
+        emit_tool_invocation(task_index, tool_name, tool_args, call_id=str(record.args_hash))
 
         if is_stagnant:
             emit_milestone(task_index, "POTENTIAL_LOOP", f"{tool_name} (repeated {count}x)")
@@ -244,6 +288,14 @@ def create_agent_hooks(
 
         tracker.record_result(tool_name, args_hash, output, success, duration_s)
         emit_milestone(task_index, "TOOL_END", f"{tool_name} in {duration_s:.1f}s")
+        emit_tool_result(
+            task_index,
+            tool_name,
+            output,
+            success=success,
+            call_id=str(matched.get("id", "")) if matched else "",
+            duration_s=duration_s,
+        )
 
     hooks_to_register = [pre_tool_call_decide, post_tool_call]
     if hasattr(h, "on_tool_error"):
@@ -261,10 +313,30 @@ def create_agent_hooks(
                     duration_s,
                 )
                 emit_milestone(task_index, "TOOL_ERROR", f"{matched['tool_name']}: {str(error)[:60]}")
+                emit_tool_result(
+                    task_index,
+                    matched["tool_name"],
+                    str(error),
+                    success=False,
+                    call_id=str(matched.get("id", "")),
+                    duration_s=duration_s,
+                )
             else:
                 emit_milestone(task_index, "TOOL_ERROR", str(error)[:80])
+                emit_tool_result(task_index, "tool", str(error), success=False)
             return None
         hooks_to_register.append(on_tool_error)
+
+    if hasattr(h, "on_thought"):
+        @h.on_thought
+        async def on_thought(thought_content: Any) -> None:
+            emit_thought(task_index, str(thought_content))
+        hooks_to_register.append(on_thought)
+    elif hasattr(h, "on_model_thought"):
+        @h.on_model_thought
+        async def on_model_thought(thought_content: Any) -> None:
+            emit_thought(task_index, str(thought_content))
+        hooks_to_register.append(on_model_thought)
 
     return hooks_to_register
 
