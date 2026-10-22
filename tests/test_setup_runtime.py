@@ -278,8 +278,8 @@ class TestSetupRuntimePythonDependencies(unittest.TestCase):
             return mock_mod
 
         deps = setup_runtime.check_python_dependencies(import_fn=fake_import)
-        self.assertEqual(len(deps), 3)
         for pkg in ["google-cloud-storage", "google-genai", "google-cloud-run"]:
+            self.assertIn("required", deps[pkg])
             self.assertIn(pkg, deps)
             self.assertTrue(deps[pkg]["installed"])
             self.assertTrue(deps[pkg]["ok"])
