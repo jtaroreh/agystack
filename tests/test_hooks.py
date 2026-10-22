@@ -322,7 +322,7 @@ class TestPreToolSafetyHook(unittest.TestCase):
                     parsed = json.loads(result.stdout.strip())
                     self.assertEqual(
                         parsed.get("decision"),
-                        "reject",
+                        "deny",
                         f"Failed rejection in {env} for {cmd}",
                     )
                     self.assertEqual(

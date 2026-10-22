@@ -159,6 +159,7 @@ class ShadowTranscriptProjector:
         self.app_data_dir = resolve_app_data_dir(app_data_dir)
         self.task_count = task_count
         self.projection_latencies: List[float] = []
+        self._last_entries: Dict[int, Dict[str, Any]] = {}
         self._states: Dict[int, Dict[str, Any]] = {}
         self._task_locks: Dict[int, threading.Lock] = {}
         self._lock = threading.Lock()
@@ -224,6 +225,7 @@ class ShadowTranscriptProjector:
             with self._get_task_lock(task_index):
                 return self._write_entry(task_index, entry, acquire_lock=False)
 
+        self._last_entries[task_index] = entry
         primary, system = self.get_transcript_files(task_index)
         line = json.dumps(entry) + "\n"
         for p in (primary, system):
@@ -237,6 +239,7 @@ class ShadowTranscriptProjector:
             with self._get_task_lock(task_index):
                 return self._update_last_entry(task_index, entry, acquire_lock=False)
 
+        self._last_entries[task_index] = entry
         primary, system = self.get_transcript_files(task_index)
         for p in (primary, system):
             if not p.exists():
@@ -267,6 +270,9 @@ class ShadowTranscriptProjector:
         if acquire_lock:
             with self._get_task_lock(task_index):
                 return self._read_last_entry(task_index, acquire_lock=False)
+
+        if task_index in self._last_entries:
+            return self._last_entries[task_index]
 
         primary, _ = self.get_transcript_files(task_index)
         if not primary.exists():
