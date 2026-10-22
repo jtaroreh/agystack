@@ -28,6 +28,7 @@ Remaining triggers:
 - Completed and verified work in state-changing playbooks → create or update the `walkthrough.md` artifact (`<appDataDir>/brain/<conversation-id>/walkthrough.md`) recording changes made, verification commands, and pass receipts before closing.
 - Autonomous runs, hillclimbs, and loops (`Autonomous run`, `Hillclimb`, `Swarm`, `/goal`, `/loop`) → unattended throughput invariant. Use `RequestFeedback: false`. Dedicated domain deliverables (`decision_trail.md`, `score.json`, `receipts/`) take precedence without interactive confirmation prompts.
 - Read-only investigations, architecture packages, benchmarks, or forensic sweeps (`Investigation`, `How`, `Why`, `Runtime Forensics`) → write findings to a dedicated deliverable artifact (`investigation_report.md`, `architecture_design.md`, `perf_report.md`, `forensics_report.md`) with `RequestFeedback: false` and point to it in the reply.
+- Performance numbers, benchmarks, or perf reports → apply the **benchmark-checklist** skill and **principle-explain-the-number** before claiming speedups or publishing numbers.
 - Embedded media in artifacts → copy screenshots and recordings to `<appDataDir>/brain/<conversation-id>/` first, then embed with `![caption](/absolute/path)`.
 - Any prose surface → the **unslop** skill (`/unslop`). Your reply is a prose surface; write it per **Writing the reply**.
 - Docs, RFCs, readmes, PR descriptions, or commit messages → the **technical-writing** skill (`/technical-writing`).
@@ -72,6 +73,7 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 - **Fix Root Causes** (**principle-fix-root-causes**). Debugging. Trace each symptom to its root cause, reproduce first, ask why until you reach it.
 - **Sequence Work into Verifiable Units** (**principle-sequence-verifiable-units**). Multi-step work (sweeps, migrations, runs of similar edits) and how you stack commits and PRs. Break work into small units that each end in a check, verify each before the next, and order delivery so the sequence proves itself.
 - **Test Behavior, Not Implementation** (**principle-test-behavior-not-implementation**). Writing or reviewing tests. Assert on observable outcomes and contracts, not internal methods or mock wiring.
+- **Explain the Number** (**principle-explain-the-number**). Reporting performance numbers, benchmarks, or latency comparisons. Name the physical bottleneck and hardware/kernel root cause rather than guessing from code.
 
 **Delegation**
 

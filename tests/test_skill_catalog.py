@@ -11,7 +11,7 @@ def get_principle_skills():
 
 def test_principle_count():
     skills = get_principle_skills()
-    assert len(skills) == 23, f"Expected 23 principle skills, found {len(skills)}"
+    assert len(skills) == 24, f"Expected 24 principle skills, found {len(skills)}"
 
 
 def test_principle_frontmatter():
