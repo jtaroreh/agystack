@@ -767,6 +767,18 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
         "pro": "gemini-3.1-pro",
         "flash_lite": "gemini-3.1-flash-lite",
         "flash-lite": "gemini-3.1-flash-lite",
+        "argon": "gemini-4-argon",
+        "gemini-argon": "gemini-4-argon",
+        "gemini-4": "gemini-4-argon",
+        "gemini": "gemini-3.8-flash",
+        "deepseek": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-v4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-4.1-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-v4.1-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-v4.1-flash-maas": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-v4.1-flash-maas@001": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
         "auto": default_model,
         "inherit": default_model,
         "inherit-parent": default_model,
@@ -912,6 +924,8 @@ def execute_task(
                 or os.environ.get("REGION")
                 or "us-central1"
             )
+            if "deepseek" in resolved_model.lower() and (not location or location == "us-central1" or not os.environ.get("VERTEXAI_LOCATION")):
+                resolved_location = "global"
             config_kwargs["vertex"] = True
             config_kwargs["project"] = resolved_project
             config_kwargs["location"] = resolved_location
@@ -989,6 +1003,7 @@ def main() -> None:
         or bool(os.environ.get("VERTEXAI_PROJECT"))
         or bool(os.environ.get("GCP_PROJECT"))
         or is_partner_model(os.environ.get("MODEL_OVERRIDE", ""))
+        or "deepseek" in os.environ.get("MODEL_OVERRIDE", "").lower()
     )
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not use_vertex and not gemini_api_key:
@@ -1018,7 +1033,7 @@ def main() -> None:
         sys.exit(1)
 
     task_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
-    if is_partner_model(task_model):
+    if is_partner_model(task_model) or "deepseek" in task_model.lower():
         use_vertex = True
 
     branch_name = resolve_worker_branch(task_item, task_index)

@@ -73,6 +73,8 @@ class TestVertexPartnerModelResolution(unittest.TestCase):
             "gemini-3.8-flash",
             "gemini-3.1-pro",
             "gemini-3.1-flash-lite",
+            "gemini-4-argon",
+            "argon",
             "flash",
             "pro",
         ]
@@ -462,16 +464,42 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("No active GCP project", result["error"])
 
-    def test_missing_anthropic_fails(self):
+    def test_missing_anthropic_succeeds_with_note(self):
         def fake_import(name):
             if name == "anthropic":
                 raise ImportError("No module named 'anthropic'")
             return MagicMock()
 
-        result = check_model_garden(project_id="test-project", import_fn=fake_import)
-        self.assertFalse(result["ok"])
+        mock_run_cmd = MagicMock(return_value=MagicMock(returncode=0, stdout="Listed 0 items.", stderr=""))
+        result = check_model_garden(project_id="test-project", run_cmd_fn=mock_run_cmd, import_fn=fake_import)
+        self.assertTrue(result["ok"])
         self.assertFalse(result["anthropic_installed"])
-        self.assertIn("anthropic[vertex]", result["error"])
+        self.assertEqual(
+            result["partner_models_note"],
+            "Optional package 'anthropic[vertex]' not installed for Claude partner models.",
+        )
+        self.assertTrue(result["model_garden_verified"])
+
+    def test_worker_task_manifest_deepseek_enables_vertex_and_global_location(self):
+        # 1. Alias resolution
+        resolved = resolve_worker_model("deepseek")
+        self.assertEqual(resolved, "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas")
+
+        # 2. Per-task manifest with deepseek overrides
+        task_item = {"brief": "optimize", "model": "deepseek-v4.1-flash"}
+        task_model = resolve_worker_model(task_item=task_item)
+        self.assertEqual(task_model, "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas")
+
+        use_vertex = False
+        if is_partner_model(task_model) or "deepseek" in task_model.lower():
+            use_vertex = True
+        self.assertTrue(use_vertex)
+
+        location = "us-central1"
+        resolved_location = location
+        if "deepseek" in task_model.lower() and (not location or location == "us-central1" or not os.environ.get("VERTEXAI_LOCATION")):
+            resolved_location = "global"
+        self.assertEqual(resolved_location, "global")
 
     def test_successful_probe(self):
         mock_mod = MagicMock()
@@ -489,6 +517,8 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         self.assertTrue(result["model_garden_verified"])
         self.assertEqual(result["project_id"], "test-project")
         self.assertEqual(result["region"], "us-central1")
+        self.assertIn("gemini-4-argon", result["serverless_models"])
+        self.assertIn("deepseek-v4.1-flash-maas", result["serverless_models"])
         self.assertIn("claude-3-5-sonnet-v2@20241022", result["partner_models"])
         self.assertIn("claude-3-opus@20240229", result["partner_models"])
         self.assertIn("fable-5-1", result["partner_models"])
@@ -652,20 +682,3 @@ class TestStartupLatencyProbe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-    def test_workspace_tool_run_command_destructive_blocked_by_safety(self):
-        destructive_commands = [
-            "rm -rf /",
-            "git push origin main -f",
-            "git push --force origin main",
-            "drop database testdb",
-        ]
-        for cmd in destructive_commands:
-            with self.subTest(cmd=cmd):
-                res = execute_workspace_tool("run_command", {"command": cmd}, self.repo_dir)
-                self.assertIn("Error: Command blocked by safety policy", res)
-                self.assertIn("deny", res.lower())
-
-    def test_workspace_tool_run_command_safe_allowed(self):
-        res = execute_workspace_tool("run_command", {"command": "echo safe_test_output"}, self.repo_dir)
-        self.assertIn("safe_test_output", res)

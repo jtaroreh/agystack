@@ -42,6 +42,16 @@ Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"
 
 Cloud Run swarms enable parallel execution across dozens or hundreds of container tasks.
 
+**Model Selection & Friction Tiers:**
+
+Before launching cloud swarms, match the model to the project's Model Garden enablement status:
+
+| Tier | Models | Endpoint Type | Friction | Setup Required |
+|---|---|---|---|---|
+| **Tier 1: Native MaaS** | `gemini-4-argon`, `gemini-3.8-flash`, `deepseek-v4.1-flash` | Global Serverless | **Zero** | Instant via existing ADC / project IAM |
+| **Tier 2: Gated Partner MaaS** | `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-opus` | Regional Serverless | **Low / One-Time** | Console agreement click-through required |
+| **Tier 3: Dedicated GPU** | `glm-5-3-flash`, `llama-3.3-70b` | Dedicated Endpoint | **High** | Dedicated 8x H100/B200 GPU instance provisioning |
+
 **Quota & Auth Prerequisites:**
 - **Paid Tier API Key or Vertex AI:** Cloud Run swarms require either a paid Google AI Studio tier (Pay-as-you-go / Tier 1+) or verified Vertex AI permissions (`roles/aiplatform.user` on the target project). Free-tier API keys (5 RPM) are prohibited as parallel container workers will immediately exhaust quota and fail.
 - **Git Authentication:** A valid GitHub token (`gh auth token` or `GH_TOKEN` / `GITHUB_TOKEN`) with repository clone access. Under the zero-push architecture, cloud containers do not require git push access.

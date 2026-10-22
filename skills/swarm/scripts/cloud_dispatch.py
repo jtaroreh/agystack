@@ -23,6 +23,26 @@ try:
 except ImportError:
     StorageMessenger = None
 
+try:
+    from worker.partner_engine import PARTNER_MODEL_ALIASES, is_partner_model
+except ImportError:
+    try:
+        from skills.swarm.scripts.worker.partner_engine import PARTNER_MODEL_ALIASES, is_partner_model
+    except ImportError:
+        is_partner_model = None
+        PARTNER_MODEL_ALIASES = {}
+
+TIER3_DEDICATED_MODELS = {"glm-5-3-flash", "llama-3.3-70b"}
+DEEPSEEK_CANONICAL_ALIASES = {
+    "deepseek",
+    "deepseek-flash",
+    "deepseek-4.1",
+    "deepseek-v4.1",
+    "deepseek-4.1-flash",
+    "deepseek-v4.1-flash",
+    "deepseek-v4.1-flash-maas",
+}
+
 
 def find_runtime_config() -> Optional[Dict[str, Any]]:
     paths_to_check = [
@@ -800,6 +820,14 @@ def run_preflight(
 ) -> None:
     print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, repository access, and GCS bucket...", flush=True)
 
+    # Tier 3 Dedicated Model Interception
+    if model and model.lower().strip() in TIER3_DEDICATED_MODELS:
+        raise RuntimeError(
+            f"Model '{model}' is a Tier 3 open-weights model requiring a dedicated GPU cluster endpoint.\n"
+            "Serverless Cloud Run swarms cannot dispatch directly to deploy-only models without an active dedicated endpoint.\n"
+            "Recommended Tier 1 zero-friction alternatives: gemini-4-argon, gemini-3.8-flash, deepseek-v4.1-flash."
+        )
+
     if not dry_run and runtime == "cloud-run" and not gcs_bucket:
         raise RuntimeError(
             "Cloud Run swarms require a GCS bucket to store and deliver candidate patches under the zero-push architecture.\n"
@@ -807,7 +835,7 @@ def run_preflight(
         )
 
     if not vertex_location:
-        vertex_location = "global" if model.startswith(("gemini-2.5", "gemini-3")) else region
+        vertex_location = "global" if (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower()) else region
 
     # 1. Git Authentication & Repository Accessibility Check
     if not repo_url:
@@ -853,7 +881,10 @@ def run_preflight(
     except Exception as exc:
         raise RuntimeError(f"Git remote accessibility error: {exc}") from exc
 
-    # 2. Model & Quota Tier Check
+    # 2. Model & Quota Tier Check: Auto-promote Vertex for Partner models and DeepSeek
+    if (is_partner_model and is_partner_model(model)) or ("deepseek" in model.lower()):
+        use_vertex = True
+
     if use_vertex:
         token_cmd = subprocess.run(
             ["gcloud", "auth", "print-access-token"],
@@ -875,14 +906,43 @@ def run_preflight(
                 "GCP project ID is required for Vertex AI mode (--project or agystack-runtime.json)."
             )
 
-        if vertex_location == "global":
+        target_loc = vertex_location or "global"
+        resolved_model = model
+
+        if is_partner_model and is_partner_model(model) and "fable" not in model.lower():
+            resolved_model = PARTNER_MODEL_ALIASES.get(model.lower(), model)
+            target_loc = vertex_location if vertex_location and vertex_location != "global" else (region if region and region != "global" else "us-east5")
+            probe_url = f"https://{target_loc}-aiplatform.googleapis.com/v1/projects/{project}/locations/{target_loc}/publishers/anthropic/models/{resolved_model}:rawPredict"
+            req_data = json.dumps({
+                "anthropic_version": "vertex-2023-10-16",
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }).encode("utf-8")
+        elif "deepseek" in model.lower():
+            target_loc = vertex_location or "global"
+            if model.startswith("publishers/"):
+                resolved_model = model.split("/")[-1]
+                probe_url = f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{target_loc}/{model}:generateContent"
+            else:
+                # Canonicalize aliases like 'deepseek', 'deepseek-flash', 'deepseek-4.1', 'deepseek-v4.1', 'deepseek-v4.1-flash'
+                resolved_model = "deepseek-v4.1-flash-maas"
+                probe_url = f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{target_loc}/publishers/deepseek-ai/models/{resolved_model}:generateContent"
+            req_data = json.dumps({
+                "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+                "generationConfig": {"maxOutputTokens": 1},
+            }).encode("utf-8")
+        elif target_loc == "global":
             probe_url = f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/google/models/{model}:generateContent"
+            req_data = json.dumps({
+                "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+                "generationConfig": {"maxOutputTokens": 1},
+            }).encode("utf-8")
         else:
-            probe_url = f"https://{vertex_location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{vertex_location}/publishers/google/models/{model}:generateContent"
-        req_data = json.dumps({
-            "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
-            "generationConfig": {"maxOutputTokens": 1},
-        }).encode("utf-8")
+            probe_url = f"https://{target_loc}-aiplatform.googleapis.com/v1/projects/{project}/locations/{target_loc}/publishers/google/models/{model}:generateContent"
+            req_data = json.dumps({
+                "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+                "generationConfig": {"maxOutputTokens": 1},
+            }).encode("utf-8")
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -896,14 +956,29 @@ def run_preflight(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 pass
-            print(f"  [PASS] Vertex AI credentials and publisher model '{model}' verified in {vertex_location} (project: {project}).")
+            if is_partner_model and is_partner_model(model) and "fable" not in model.lower():
+                print(f"  [PASS] Vertex AI credentials and Model Garden partner model '{model}' ({resolved_model}) verified in {target_loc} (project: {project}).")
+            elif "deepseek" in model.lower():
+                print(f"  [PASS] Vertex AI credentials and DeepSeek MaaS model '{resolved_model}' verified in {target_loc} (project: {project}).")
+            else:
+                print(f"  [PASS] Vertex AI credentials and publisher model '{model}' verified in {target_loc} (project: {project}).")
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
-            if exc.code == 403:
+            if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and exc.code == 404:
                 raise RuntimeError(
-                    f"Vertex AI probe returned 403 Forbidden for project '{project}' in location '{vertex_location}'.\n"
+                    f"Vertex AI Model Garden partner model '{model}' (resolved to '{resolved_model}') not found or not enabled in location '{target_loc}' (404 Not Found).\n"
+                    f"Server Response:\n{err_body}\n"
+                    "Guidance to enable partner models in Vertex AI:\n"
+                    "1. Open Google Cloud Console -> Vertex AI -> Model Garden.\n"
+                    f"2. Search for the model ('{model}' or '{resolved_model}').\n"
+                    "3. Click 'Enable' to accept the Model Garden terms for this project.\n"
+                    f"4. Verify availability in region/location '{target_loc}'."
+                ) from exc
+            elif exc.code == 403:
+                raise RuntimeError(
+                    f"Vertex AI probe returned 403 Forbidden for project '{project}' in location '{target_loc}'.\n"
                     f"Server Response:\n{err_body}\n"
                     "Required Permissions:\n"
                     "- Ensure active principal has the 'Vertex AI User' role (roles/aiplatform.user).\n"
@@ -911,13 +986,13 @@ def run_preflight(
                 ) from exc
             elif exc.code == 404:
                 raise RuntimeError(
-                    f"Vertex AI publisher model '{model}' not found in location '{vertex_location}' (404 Not Found).\n"
+                    f"Vertex AI publisher model '{model}' (resolved to '{resolved_model}') not found in location '{target_loc}' (404 Not Found).\n"
                     f"Server Response:\n{err_body}\n"
-                    f"Verify that model '{model}' is supported and published in location '{vertex_location}'."
+                    f"Verify that model '{model}' is supported and published in location '{target_loc}'."
                 ) from exc
             else:
                 raise RuntimeError(
-                    f"Vertex AI probe failed with HTTP {exc.code} for project '{project}' in location '{vertex_location}':\n{err_body}"
+                    f"Vertex AI probe failed with HTTP {exc.code} for project '{project}' in location '{target_loc}':\n{err_body}"
                 ) from exc
         except Exception as exc:
             if isinstance(exc, RuntimeError):
@@ -1045,6 +1120,16 @@ def resolve_swarm_model(
         "pro": "gemini-3.1-pro",
         "flash_lite": "gemini-3.1-flash-lite",
         "flash-lite": "gemini-3.1-flash-lite",
+        "argon": "gemini-4-argon",
+        "gemini-argon": "gemini-4-argon",
+        "gemini-4": "gemini-4-argon",
+        "gemini": "gemini-3.8-flash",
+        "deepseek": "deepseek-v4.1-flash",
+        "deepseek-flash": "deepseek-v4.1-flash",
+        "deepseek-4.1": "deepseek-v4.1-flash",
+        "deepseek-v4.1": "deepseek-v4.1-flash",
+        "deepseek-4.1-flash": "deepseek-v4.1-flash",
+        "deepseek-v4.1-flash-maas": "deepseek-v4.1-flash",
         "inherit": default_model,
         "auto": default_model,
         "inherit-parent": default_model,
@@ -1179,6 +1264,7 @@ def main() -> None:
     parser.add_argument("--base-branch", type=str, default=None, help="Base branch for workers to checkout (default: remote default branch).")
     parser.add_argument("--conversation-id", type=str, default=None, help="Coordinator conversation ID for swarm dashboard artifact.")
     parser.add_argument("--ignore-partial-failures", action="store_true", help="Allow promotion of candidate patches from partially-failed swarm executions.")
+    parser.add_argument("--list-models", action="store_true", help="List supported cloud swarm models and their Model Garden friction tiers.")
     parser.set_defaults(wait=True)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
@@ -1214,6 +1300,28 @@ def main() -> None:
     steer_p.add_argument("--task-count", "--max-tasks", dest="max_tasks", type=int, default=None, help="Total task count")
 
     args = parser.parse_args()
+
+    if getattr(args, "list_models", False):
+        print("""
+Vertex AI Model Garden Tiers for Cloud Swarms:
+-----------------------------------------------------------------------------------------
+Tier 1: Native MaaS (Instant Serverless, Zero Forms)
+  - gemini-4-argon              Global Vertex AI endpoint, deep reasoning
+  - gemini-3.8-flash            Global Vertex AI endpoint, balanced speed
+  - gemini-3.1-pro              Global Vertex AI endpoint, high capability
+  - deepseek-v4.1-flash         Global Vertex AI endpoint (deepseek-ai namespace)
+
+Tier 2: Gated Partner MaaS (One-Time Console Agreement Form Required)
+  - claude-3-7-sonnet           Regional endpoint (us-east5/us-central1)
+  - claude-3-5-sonnet           Regional endpoint (us-east5/us-central1)
+  - claude-3-opus               Regional endpoint (us-east5/us-central1)
+
+Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
+  - glm-5-3-flash               Requires dedicated 8x H100/B200 GPU cluster
+  - llama-3.3-70b               Requires dedicated multi-GPU cluster
+-----------------------------------------------------------------------------------------
+""".strip())
+        return
 
     if args.subcommand == "steer":
         runtime_cfg = find_runtime_config() or {}
@@ -1259,7 +1367,26 @@ def main() -> None:
         runtime_model=runtime_cfg.get("model"),
         parent_model=getattr(args, "parent_model", None),
     )
-    vertex_location = args.vertex_location or runtime_cfg.get("vertex_location") or ("global" if model.startswith(("gemini-2.5", "gemini-3")) else region)
+    explicit_vertex_loc = args.vertex_location or runtime_cfg.get("vertex_location")
+    if explicit_vertex_loc:
+        vertex_location = explicit_vertex_loc
+    elif model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower():
+        vertex_location = "global"
+    else:
+        vertex_location = region
+
+    if is_partner_model and is_partner_model(model):
+        use_vertex = True
+        if not explicit_vertex_loc and vertex_location == "global":
+            vertex_location = region if region and region != "global" else "us-east5"
+    elif "deepseek" in model.lower():
+        use_vertex = True
+        if not explicit_vertex_loc:
+            vertex_location = "global"
+
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not gemini_api_key and (project or (is_partner_model and is_partner_model(model)) or "deepseek" in model.lower()):
+        use_vertex = True
     gcs_bucket = args.gcs_bucket if args.gcs_bucket is not None else runtime_cfg.get("gcs_bucket", "")
 
     if args.harvest_session:
@@ -1505,7 +1632,10 @@ def main() -> None:
         env_vars["TASK_MANIFEST"] = manifest_serialized
 
     if model:
-        env_vars["MODEL_OVERRIDE"] = model
+        if model.lower().strip() in DEEPSEEK_CANONICAL_ALIASES:
+            env_vars["MODEL_OVERRIDE"] = "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas"
+        else:
+            env_vars["MODEL_OVERRIDE"] = model
 
     dispatch_cmd = build_gcloud_command(
         job_name=job_name,

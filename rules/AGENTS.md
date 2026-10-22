@@ -31,6 +31,10 @@ Mirroring pstack in Cursor, enforce strict separation between coordination and c
    - **Interactive State-Changing Playbooks (`Feature`, `Refactoring`, `Multi-phase`):** Mandatory `implementation_plan.md` with `RequestFeedback: true` before coding; mandatory `walkthrough.md` with pass receipts upon completion.
    - **Autonomous & Hillclimb Playbooks (`Autonomous run`, `Hillclimb`, `Swarm`, `/goal`, `/loop`):** Unattended throughput invariant. Use `RequestFeedback: false`. Domain deliverables (`decision_trail.md`, `score.json`, `receipts/`) take precedence without interactive blocking.
    - **Read-Only Investigation Playbooks (`Investigation`, `How`, `Why`, `Runtime Forensics`):** Produces `investigation_report.md` with `RequestFeedback: false`.
+6. **Cloud Swarm Model Selection & Zero-Friction Fallback:**
+   - **Prefer Tier 1 Serverless Models:** Default to frictionless serverless models that require zero console forms: `gemini-3.8-flash`, `gemini-4-argon`, or `deepseek-v4.1-flash` (MaaS).
+   - **Gated Partner Gating Detection:** If a user requests an Anthropic partner model (`claude-3-opus`, `claude-3-5-sonnet`) that is not yet enabled in Vertex AI Model Garden, explain that Google enforces a one-time console form click-through that agents cannot accept programmatically, and immediately offer the Tier 1 zero-friction alternative.
+   - **Open-Weights vs. MaaS Distinction:** Models like `GLM 5.3` or `Llama 3.3` on Model Garden are deployable open-weights requiring dedicated GPU endpoints (8x H100/B200 instances), not on-demand serverless APIs. Never attempt to dispatch Cloud Run tasks against deploy-only models without an active dedicated endpoint.
 
 ## Surface Precedence Hierarchy
 

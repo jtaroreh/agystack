@@ -115,6 +115,12 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
         "project_id": project,
         "region": region,
         "anthropic_installed": False,
+        "serverless_models": [
+            "gemini-4-argon",
+            "gemini-3.8-flash",
+            "gemini-3.1-pro",
+            "deepseek-v4.1-flash-maas",
+        ],
         "partner_models": [
             "claude-3-7-sonnet@20250219",
             "claude-3-5-sonnet-v2@20241022",
@@ -140,9 +146,8 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
                 result["error"] = f"Failed to initialize AnthropicVertex client: {init_exc}"
                 return result
     except ImportError:
-        result["ok"] = False
-        result["error"] = "Package 'anthropic[vertex]' is not installed (run: pip install anthropic[vertex])"
-        return result
+        result["anthropic_installed"] = False
+        result["partner_models_note"] = "Optional package 'anthropic[vertex]' not installed for Claude partner models."
     except Exception as exc:
         result["ok"] = False
         result["error"] = f"Error importing 'anthropic': {exc}"
@@ -711,7 +716,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
                             ignored.add(item)
                             continue
                         resolved_item = (dir_p / item).resolve()
-                        if resolved_item == dst_resolved or resolved_item == scripts_path:
+                        if resolved_item == dst_resolved or resolved_item == scripts_path or scripts_path in resolved_item.parents:
                             ignored.add(item)
                     return ignored
 
