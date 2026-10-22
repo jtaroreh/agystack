@@ -86,6 +86,9 @@ def cleanup_session(
     app_data_dir: Optional[Union[str, Path]] = None,
     preserve_transcripts: bool = True,
     temp_dir: Optional[Union[str, Path]] = None,
+    bucket_name: Optional[str] = None,
+    messenger: Optional[Any] = None,
+    clean_mailboxes: bool = True,
 ) -> Dict[str, Any]:
     app_dir = resolve_app_data_dir(app_data_dir)
     brain_dir = app_dir / "brain"
@@ -100,10 +103,31 @@ def cleanup_session(
             shutil.rmtree(temp_dir)
         except Exception:
             pass
+
+    mailboxes_cleaned = 0
+    if clean_mailboxes:
+        if messenger is not None and hasattr(messenger, "cleanup_mailboxes"):
+            try:
+                mailboxes_cleaned = messenger.cleanup_mailboxes()
+            except Exception:
+                pass
+        elif bucket_name:
+            try:
+                from storage_messenger import StorageMessenger
+                msg = StorageMessenger(
+                    bucket_name=bucket_name,
+                    session_id=session_id,
+                    is_worker=False,
+                )
+                mailboxes_cleaned = msg.cleanup_mailboxes()
+            except Exception:
+                pass
+
     return {
         "session_id": session_id,
         "transcripts_preserved": preserve_transcripts,
         "preserved_directories": preserved_dirs,
+        "mailboxes_cleaned": mailboxes_cleaned,
     }
 
 

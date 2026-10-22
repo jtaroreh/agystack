@@ -1058,84 +1058,28 @@ def resolve_swarm_model(
     return chosen
 
 
-def handle_mailbox_list(
-    session_id: str,
-    bucket_name: Optional[str] = None,
-    messenger: Optional[Any] = None,
-) -> List[Any]:
-    if messenger is None:
-        if not bucket_name:
-            runtime_cfg = find_runtime_config() or {}
-            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
-        if not bucket_name:
-            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
-            sys.exit(1)
-        if StorageMessenger is None:
-            print("Error: StorageMessenger is not available", file=sys.stderr)
-            sys.exit(1)
-        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
-
-    pending = messenger.list_pending_questions()
-    if not pending:
-        print(f"No pending questions for session '{session_id}'.")
-    else:
-        print(f"\nPending questions for session '{session_id}':")
-        print(f"{'TASK':<6} | {'SEQ':<5} | {'TIMESTAMP':<20} | {'QUESTION'}")
-        print("-" * 75)
-        for q in pending:
-            q_text = q.payload.get("question", "")
-            ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(q.timestamp))
-            print(f"{q.task_index:<6} | {q.seq:<5} | {ts_str:<20} | {q_text}")
-    return pending
-
-
-def handle_mailbox_reply(
-    task_index: int,
-    seq: int,
-    text: str,
-    session_id: str,
-    bucket_name: Optional[str] = None,
-    messenger: Optional[Any] = None,
-) -> Any:
-    if messenger is None:
-        if not bucket_name:
-            runtime_cfg = find_runtime_config() or {}
-            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
-        if not bucket_name:
-            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
-            sys.exit(1)
-        if StorageMessenger is None:
-            print("Error: StorageMessenger is not available", file=sys.stderr)
-            sys.exit(1)
-        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
-
-    reply_env = messenger.send_reply(task_index=task_index, seq=seq, reply_text=text)
-    print(f"Reply sent to task {task_index} (seq {seq}): {text}")
-    return reply_env
-
-
-def handle_mailbox_steer(
-    task_index: int,
-    text: str,
-    session_id: str,
-    bucket_name: Optional[str] = None,
-    messenger: Optional[Any] = None,
-) -> Any:
-    if messenger is None:
-        if not bucket_name:
-            runtime_cfg = find_runtime_config() or {}
-            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
-        if not bucket_name:
-            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
-            sys.exit(1)
-        if StorageMessenger is None:
-            print("Error: StorageMessenger is not available", file=sys.stderr)
-            sys.exit(1)
-        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
-
-    steer_env = messenger.send_steer(task_index=task_index, instruction=text)
-    print(f"Steer instruction sent to task {task_index} (seq {steer_env.seq}): {text}")
-    return steer_env
+try:
+    from dispatch.mailbox_controller import (
+        handle_mailbox_list,
+        handle_mailbox_reply,
+        handle_mailbox_steer,
+    )
+except ImportError:
+    try:
+        from skills.swarm.scripts.dispatch.mailbox_controller import (
+            handle_mailbox_list,
+            handle_mailbox_reply,
+            handle_mailbox_steer,
+        )
+    except ImportError:
+        _disp_dir = Path(__file__).resolve().parent / "dispatch"
+        if str(_disp_dir) not in sys.path:
+            sys.path.insert(0, str(_disp_dir))
+        from mailbox_controller import (  # type: ignore
+            handle_mailbox_list,
+            handle_mailbox_reply,
+            handle_mailbox_steer,
+        )
 
 
 def print_candidate_patches_table(
@@ -1238,6 +1182,13 @@ def main() -> None:
     parser.set_defaults(wait=True)
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Optional subcommand")
+    steer_sub = subparsers.add_parser("steer", help="Send a steering instruction to worker(s)")
+    steer_sub.add_argument("--task", type=str, required=True, help="Task index or 'all' for broadcast")
+    steer_sub.add_argument("--instruction", "--text", dest="instruction", type=str, required=True, help="Steering instruction text")
+    steer_sub.add_argument("--session", "--session-id", dest="session", type=str, help="Session ID")
+    steer_sub.add_argument("--gcs-bucket", type=str, help="GCS bucket name")
+    steer_sub.add_argument("--task-count", "--max-tasks", dest="max_tasks", type=int, default=None, help="Total task count")
+
     mailbox_parser = subparsers.add_parser("mailbox", help="Interact with worker mailboxes")
     mailbox_subparsers = mailbox_parser.add_subparsers(dest="mailbox_action", help="Mailbox action")
 
@@ -1256,12 +1207,26 @@ def main() -> None:
 
     # mailbox steer
     steer_p = mailbox_subparsers.add_parser("steer", help="Send a steering instruction to a worker")
-    steer_p.add_argument("--task", type=int, required=True, help="Task index")
-    steer_p.add_argument("--text", type=str, required=True, help="Steering instruction text")
-    steer_p.add_argument("--session", type=str, help="Session ID")
+    steer_p.add_argument("--task", type=str, required=True, help="Task index or 'all' for broadcast")
+    steer_p.add_argument("--instruction", "--text", dest="instruction", type=str, required=True, help="Steering instruction text")
+    steer_p.add_argument("--session", "--session-id", dest="session", type=str, help="Session ID")
     steer_p.add_argument("--gcs-bucket", type=str, help="GCS bucket name")
+    steer_p.add_argument("--task-count", "--max-tasks", dest="max_tasks", type=int, default=None, help="Total task count")
 
     args = parser.parse_args()
+
+    if args.subcommand == "steer":
+        runtime_cfg = find_runtime_config() or {}
+        session_id = args.session or os.environ.get("SWARM_SESSION_ID") or os.environ.get("SESSION_ID") or "default"
+        bkt = args.gcs_bucket or runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
+        handle_mailbox_steer(
+            task_index=args.task,
+            text=args.instruction,
+            session_id=session_id,
+            bucket_name=bkt,
+            max_tasks=getattr(args, "max_tasks", None),
+        )
+        return
 
     if args.subcommand == "mailbox":
         runtime_cfg = find_runtime_config() or {}
@@ -1272,7 +1237,13 @@ def main() -> None:
         elif args.mailbox_action == "reply":
             handle_mailbox_reply(task_index=args.task, seq=args.seq, text=args.text, session_id=session_id, bucket_name=bkt)
         elif args.mailbox_action == "steer":
-            handle_mailbox_steer(task_index=args.task, text=args.text, session_id=session_id, bucket_name=bkt)
+            handle_mailbox_steer(
+                task_index=args.task,
+                text=args.instruction,
+                session_id=session_id,
+                bucket_name=bkt,
+                max_tasks=getattr(args, "max_tasks", None),
+            )
         else:
             mailbox_parser.print_help()
         return
@@ -1791,7 +1762,7 @@ def main() -> None:
         else:
             print(f"\n[STATUS: EXECUTION_SUCCESS] (All {len(report_items) or task_count} tasks succeeded)")
 
-        cleanup_session(session_id=session_id)
+        cleanup_session(session_id=session_id, bucket_name=gcs_bucket)
 
         if not exec_succeeded:
             sys.exit(1)
