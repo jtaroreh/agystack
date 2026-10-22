@@ -552,3 +552,88 @@ class TestConversationalSteeringTool(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_16_concurrent_send_steer_collision_retry(self):
+        """Simulate two simultaneous send_steer() calls colliding on sequence number,
+        verifying both succeed with distinct sequence numbers."""
+        import concurrent.futures
+        import threading
+        from unittest.mock import patch
+
+        orch = self._create_messenger(is_worker=False)
+        worker = self._create_messenger(task_index=0, is_worker=True)
+
+        orig_list_blobs = orch.bucket.list_blobs
+        barrier = threading.Barrier(2)
+        barrier_passed = threading.Event()
+
+        def sync_list_blobs(*args, **kwargs):
+            res = orig_list_blobs(*args, **kwargs)
+            if not barrier_passed.is_set():
+                try:
+                    barrier.wait(timeout=3.0)
+                    barrier_passed.set()
+                except Exception:
+                    pass
+            return res
+
+        with patch.object(orch.bucket, "list_blobs", side_effect=sync_list_blobs):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                f1 = executor.submit(orch.send_steer, 0, "Concurrent directive A")
+                f2 = executor.submit(orch.send_steer, 0, "Concurrent directive B")
+                env1 = f1.result(timeout=5.0)
+                env2 = f2.result(timeout=5.0)
+
+        self.assertIsNotNone(env1)
+        self.assertIsNotNone(env2)
+        self.assertNotEqual(env1.seq, env2.seq)
+        self.assertEqual({env1.seq, env2.seq}, {1, 2})
+
+        steers = worker.check_steer_instructions()
+        self.assertEqual(len(steers), 2)
+        steer_seqs = {s.seq for s in steers}
+        self.assertEqual(steer_seqs, {1, 2})
+        instructions = {s.payload.get("instruction") for s in steers}
+        self.assertEqual(instructions, {"Concurrent directive A", "Concurrent directive B"})
+
+    def test_17_send_steer_retries_on_precondition_failed_collision(self):
+        """Verify send_steer retries when PreconditionFailed (HTTP 412) is raised during upload."""
+        from storage_messenger import PreconditionFailed
+        from unittest.mock import patch
+
+        orch = self._create_messenger(is_worker=False)
+        call_count = 0
+        real_blob_factory = orch.bucket.blob
+
+        def mock_blob(name: str):
+            blob = real_blob_factory(name)
+            orig_upload = blob.upload_from_string
+
+            def mock_upload(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    orch.bucket.blob(name).upload_from_string("{}", content_type="application/json")
+                    raise PreconditionFailed("Simulated HTTP 412 Precondition Failed")
+                return orig_upload(*args, **kwargs)
+
+            blob.upload_from_string = mock_upload
+            return blob
+
+        with patch.object(orch.bucket, "blob", side_effect=mock_blob):
+            env = orch.send_steer(task_index=0, instruction="Retry on 412 test")
+
+        self.assertIsNotNone(env)
+        self.assertEqual(env.seq, 2)
+        self.assertEqual(call_count, 2)
+
+    def test_18_mailbox_controller_modular_import(self):
+        """Verify mailbox CLI handlers are modularly importable from dispatch.mailbox_controller."""
+        from dispatch.mailbox_controller import (
+            handle_mailbox_list as mc_list,
+            handle_mailbox_reply as mc_reply,
+            handle_mailbox_steer as mc_steer,
+        )
+        self.assertTrue(callable(mc_list))
+        self.assertTrue(callable(mc_reply))
+        self.assertTrue(callable(mc_steer))

@@ -18,6 +18,32 @@ import urllib.parse
 import urllib.request
 
 
+
+try:
+    from google.api_core.exceptions import PreconditionFailed
+except ImportError:
+    class PreconditionFailed(Exception):
+        """Fallback PreconditionFailed exception matching Google Cloud storage exceptions."""
+        pass
+
+
+def _is_precondition_or_collision_error(exc: Exception) -> bool:
+    """Checks whether an exception indicates a GCS generation precondition failure or file collision."""
+    if isinstance(exc, (FileExistsError, PreconditionFailed)):
+        return True
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 412:
+        return True
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 412:
+        return True
+    exc_type_name = type(exc).__name__
+    if exc_type_name in ("PreconditionFailed", "Conflict", "FileExistsError"):
+        return True
+    exc_str = str(exc).lower()
+    if "precondition" in exc_str or "412" in exc_str or "already exists" in exc_str:
+        return True
+    return False
+
 class MessageType(str, Enum):
     QUESTION = "question"
     REPLY = "reply"
@@ -100,12 +126,16 @@ def retry_gcs_operation(
         try:
             return func()
         except (TimeoutError, urllib.error.URLError, ConnectionError, OSError) as exc:
+            if _is_precondition_or_collision_error(exc):
+                raise
             last_exc = exc
             if attempt >= max_retries:
                 raise
             time.sleep(delay)
             delay *= backoff_factor
         except Exception as exc:
+            if _is_precondition_or_collision_error(exc):
+                raise
             exc_str = str(exc).lower()
             if "timeout" in exc_str or "timed out" in exc_str or "connection" in exc_str:
                 last_exc = exc

@@ -1058,105 +1058,28 @@ def resolve_swarm_model(
     return chosen
 
 
-def handle_mailbox_list(
-    session_id: str,
-    bucket_name: Optional[str] = None,
-    messenger: Optional[Any] = None,
-) -> List[Any]:
-    if messenger is None:
-        if not bucket_name:
-            runtime_cfg = find_runtime_config() or {}
-            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
-        if not bucket_name:
-            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
-            sys.exit(1)
-        if StorageMessenger is None:
-            print("Error: StorageMessenger is not available", file=sys.stderr)
-            sys.exit(1)
-        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
-
-    pending = messenger.list_pending_questions()
-    if not pending:
-        print(f"No pending questions for session '{session_id}'.")
-    else:
-        print(f"\nPending questions for session '{session_id}':")
-        print(f"{'TASK':<6} | {'SEQ':<5} | {'TIMESTAMP':<20} | {'QUESTION'}")
-        print("-" * 75)
-        for q in pending:
-            q_text = q.payload.get("question", "")
-            ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(q.timestamp))
-            print(f"{q.task_index:<6} | {q.seq:<5} | {ts_str:<20} | {q_text}")
-    return pending
-
-
-def handle_mailbox_reply(
-    task_index: int,
-    seq: int,
-    text: str,
-    session_id: str,
-    bucket_name: Optional[str] = None,
-    messenger: Optional[Any] = None,
-) -> Any:
-    if messenger is None:
-        if not bucket_name:
-            runtime_cfg = find_runtime_config() or {}
-            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
-        if not bucket_name:
-            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
-            sys.exit(1)
-        if StorageMessenger is None:
-            print("Error: StorageMessenger is not available", file=sys.stderr)
-            sys.exit(1)
-        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
-
-    reply_env = messenger.send_reply(task_index=task_index, seq=seq, reply_text=text)
-    print(f"Reply sent to task {task_index} (seq {seq}): {text}")
-    return reply_env
-
-
-def handle_mailbox_steer(
-    task_index: Union[int, str],
-    text: str,
-    session_id: str,
-    bucket_name: Optional[str] = None,
-    messenger: Optional[Any] = None,
-    dashboard_writer: Optional[Any] = None,
-    max_tasks: Optional[int] = None,
-) -> Any:
-    if messenger is None:
-        if not bucket_name:
-            runtime_cfg = find_runtime_config() or {}
-            bucket_name = runtime_cfg.get("gcs_bucket") or os.environ.get("GCS_BUCKET") or os.environ.get("GCS_RESULTS_BUCKET")
-        if not bucket_name:
-            print("Error: GCS bucket name must be specified via --gcs-bucket, GCS_BUCKET, or agystack-runtime.json", file=sys.stderr)
-            sys.exit(1)
-        if StorageMessenger is None:
-            print("Error: StorageMessenger is not available", file=sys.stderr)
-            sys.exit(1)
-        messenger = StorageMessenger(bucket_name=bucket_name, session_id=session_id, is_worker=False)
-
+try:
+    from dispatch.mailbox_controller import (
+        handle_mailbox_list,
+        handle_mailbox_reply,
+        handle_mailbox_steer,
+    )
+except ImportError:
     try:
-        from steer_cloud_task import steer_task
-        envs = steer_task(
-            task=task_index,
-            instruction=text,
-            session_id=session_id,
-            bucket_name=bucket_name,
-            messenger=messenger,
-            max_tasks=max_tasks,
-            dashboard_writer=dashboard_writer,
+        from skills.swarm.scripts.dispatch.mailbox_controller import (
+            handle_mailbox_list,
+            handle_mailbox_reply,
+            handle_mailbox_steer,
         )
-        for env in envs:
-            print(f"Steer instruction sent to task {env.task_index} (seq {env.seq}): {text}")
-        if isinstance(task_index, str) and task_index.strip().lower() == "all":
-            return envs
-        return envs[0] if envs else None
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as exc:
-        print(f"Error delivering steering instruction: {exc}", file=sys.stderr)
-        sys.exit(1)
+    except ImportError:
+        _disp_dir = Path(__file__).resolve().parent / "dispatch"
+        if str(_disp_dir) not in sys.path:
+            sys.path.insert(0, str(_disp_dir))
+        from mailbox_controller import (  # type: ignore
+            handle_mailbox_list,
+            handle_mailbox_reply,
+            handle_mailbox_steer,
+        )
 
 
 def print_candidate_patches_table(
