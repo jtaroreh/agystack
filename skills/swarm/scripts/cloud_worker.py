@@ -171,6 +171,22 @@ def emit_agent_response(
     )
 
 
+CREDENTIAL_PATTERNS = [
+    re.compile(r"ghp_[A-Za-z0-9_]{36,}"),
+    re.compile(r"AIza[0-9A-Za-z-_]{35}"),
+    re.compile(r"ya29\.[0-9A-Za-z-_]+"),
+    re.compile(r"Bearer [A-Za-z0-9_\-\.]+"),
+]
+
+
+def scrub_credentials(text: str) -> str:
+    if not text:
+        return text
+    for pattern in CREDENTIAL_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
+
 class TokenShield:
     def __init__(
         self,
@@ -192,11 +208,13 @@ class TokenShield:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        if self._buffer.strip():
-            self._handle_non_milestone(self._buffer)
-            self._buffer = ""
-        if self._orig_stdout is not None:
-            sys.stdout = self._orig_stdout
+        try:
+            if self._buffer.strip():
+                self._handle_non_milestone(self._buffer)
+                self._buffer = ""
+        finally:
+            if self._orig_stdout is not None:
+                sys.stdout = self._orig_stdout
 
     def write(self, s: str) -> int:
         if not s:
@@ -220,8 +238,9 @@ class TokenShield:
             self._handle_non_milestone(stripped)
 
     def _handle_non_milestone(self, text: str) -> None:
-        self.captured_thoughts.append(text)
-        emit_thought(self.task_index, text, stream=self.telemetry_stream)
+        scrubbed = scrub_credentials(text)
+        self.captured_thoughts.append(scrubbed)
+        emit_thought(self.task_index, scrubbed, stream=self.telemetry_stream)
 
     def flush(self) -> None:
         out = self.target_stream or self._orig_stdout or sys.__stdout__
@@ -232,8 +251,9 @@ class TokenShield:
         emit_milestone(self.task_index, phase, detail)
 
     def emit_thought(self, thought: str) -> None:
-        self.captured_thoughts.append(thought)
-        emit_thought(self.task_index, thought, stream=self.telemetry_stream)
+        scrubbed = scrub_credentials(thought)
+        self.captured_thoughts.append(scrubbed)
+        emit_thought(self.task_index, scrubbed, stream=self.telemetry_stream)
 
     def emit_tool_invocation(
         self,

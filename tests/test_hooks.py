@@ -33,6 +33,7 @@ def run_safety_hook(
     run_env.pop("NON_INTERACTIVE", None)
     run_env.pop("CI", None)
     run_env.pop("CLOUD_RUN_TASK_INDEX", None)
+    run_env.setdefault("GIT_BRANCH", "main")
     if env:
         run_env.update(env)
     return subprocess.run(
@@ -204,6 +205,24 @@ class TestPreToolSafetyHook(unittest.TestCase):
                     }
                 }
                 result = run_safety_hook(json.dumps(payload))
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout.strip()), {})
+
+    def test_safety_hook_feature_branch_force_push_allowed(self):
+        feature_cmds = [
+            "git push --force",
+            "git push -f origin",
+            "git push origin -f",
+        ]
+        for cmd in feature_cmds:
+            with self.subTest(cmd=cmd):
+                payload = {
+                    "toolCall": {
+                        "name": "run_command",
+                        "args": {"command": cmd},
+                    }
+                }
+                result = run_safety_hook(json.dumps(payload), env={"GIT_BRANCH": "feature/refactor"})
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(json.loads(result.stdout.strip()), {})
 

@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime, timezone
@@ -23,6 +24,17 @@ from cloud_dispatch import (
     is_telemetry_line,
     parse_telemetry_line,
     resolve_app_data_dir,
+)
+from transcript_projector import (
+    ShadowTranscriptProjector as ShadowTranscriptProjectorDirect,
+    cleanup_session as cleanup_session_direct,
+    format_conversation_url as format_conversation_url_direct,
+    get_task_brain_dir as get_task_brain_dir_direct,
+    get_task_conversation_id as get_task_conversation_id_direct,
+    initialize_shadow_transcript as initialize_shadow_transcript_direct,
+    is_telemetry_line as is_telemetry_line_direct,
+    parse_telemetry_line as parse_telemetry_line_direct,
+    resolve_app_data_dir as resolve_app_data_dir_direct,
 )
 from cloud_worker import (
     TokenShield,
@@ -407,6 +419,183 @@ class TestShadowTranscriptProjection(unittest.TestCase):
         iso_latency = projector.measure_projection_latency(iso_line)
         self.assertIsNotNone(iso_latency)
         self.assertLessEqual(iso_latency, 3.5)
+
+    def test_backwards_compatible_module_exports(self):
+        self.assertIs(ShadowTranscriptProjector, ShadowTranscriptProjectorDirect)
+        self.assertIs(initialize_shadow_transcript, initialize_shadow_transcript_direct)
+        self.assertIs(cleanup_session, cleanup_session_direct)
+        self.assertIs(format_conversation_url, format_conversation_url_direct)
+        self.assertIs(get_task_brain_dir, get_task_brain_dir_direct)
+        self.assertIs(get_task_conversation_id, get_task_conversation_id_direct)
+        self.assertIs(is_telemetry_line, is_telemetry_line_direct)
+        self.assertIs(parse_telemetry_line, parse_telemetry_line_direct)
+        self.assertIs(resolve_app_data_dir, resolve_app_data_dir_direct)
+
+    def test_atomic_file_replacement_in_update_last_entry(self):
+        projector = ShadowTranscriptProjector(
+            session_id=self.session_id,
+            app_data_dir=self.app_data_dir,
+            task_count=1,
+        )
+        projector.init_task(0, task_brief="Atomic file replacement test")
+        primary, system = projector.get_transcript_files(0)
+
+        t0 = time.time()
+        projector.process_log_line(
+            f'[TELEMETRY] [TASK 0] {{"timestamp": {t0}, "event": "thought", "thought": "Original thought"}}'
+        )
+
+        updated_entry = {
+            "step_index": 1,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "thinking": "Atomically replaced thought content",
+            "tool_calls": [],
+            "content": "Updated content",
+        }
+
+        with patch("os.replace", wraps=os.replace) as mock_replace:
+            projector._update_last_entry(0, updated_entry)
+            self.assertEqual(mock_replace.call_count, 2)
+
+        temp_files_primary = list(primary.parent.glob("tmp*"))
+        temp_files_system = list(system.parent.glob("tmp*"))
+        self.assertEqual(len(temp_files_primary), 0)
+        self.assertEqual(len(temp_files_system), 0)
+
+        primary_lines = [json.loads(line) for line in primary.read_text(encoding="utf-8").splitlines() if line.strip()]
+        system_lines = [json.loads(line) for line in system.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertEqual(len(primary_lines), 2)
+        self.assertEqual(len(system_lines), 2)
+        self.assertEqual(primary_lines[1]["thinking"], "Atomically replaced thought content")
+        self.assertEqual(system_lines[1]["thinking"], "Atomically replaced thought content")
+
+    def test_per_task_lock_concurrency(self):
+        projector = ShadowTranscriptProjector(
+            session_id=self.session_id,
+            app_data_dir=self.app_data_dir,
+            task_count=2,
+        )
+        lock_0 = projector._get_task_lock(0)
+        lock_1 = projector._get_task_lock(1)
+
+        self.assertIsInstance(lock_0, type(threading.Lock()))
+        self.assertIsInstance(lock_1, type(threading.Lock()))
+        self.assertIsNot(lock_0, lock_1)
+
+        acquired_0 = lock_0.acquire(blocking=False)
+        self.assertTrue(acquired_0)
+
+        task_1_completed = threading.Event()
+
+        def run_task_1():
+            projector.init_task(1, task_brief="Task 1 independent progress")
+            task_1_completed.set()
+
+        t = threading.Thread(target=run_task_1)
+        t.start()
+        t.join(timeout=2.0)
+        self.assertTrue(task_1_completed.is_set())
+
+        lock_0.release()
+
+    def test_tokenshield_credential_regex_redaction(self):
+        mock_telemetry_out = io.StringIO()
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            shield = TokenShield(task_index=0, telemetry_stream=mock_telemetry_out)
+            with shield:
+                shield.emit_milestone("START", "Container booted")
+                print("Leaking GitHub token ghp_1234567890abcdefghijklmnopqrstuvwxyzAB in terminal")
+                print("Leaking Google AIza key AIzaSyD-1234567890abcdefABCDEF123456789 in terminal")
+                print("Leaking OAuth token ya29.a0AfH6SMCxyz123_456-789 in terminal")
+                print("Leaking auth header Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xyz in terminal")
+                shield.emit_thought("Internal thought with ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+        stdout_content = mock_stdout.getvalue()
+        telemetry_content = mock_telemetry_out.getvalue()
+
+        self.assertIn("[MILESTONE]", stdout_content)
+        self.assertNotIn("ghp_", stdout_content)
+        self.assertNotIn("AIza", stdout_content)
+        self.assertNotIn("ya29", stdout_content)
+        self.assertNotIn("Bearer", stdout_content)
+
+        for thought in shield.captured_thoughts:
+            self.assertNotIn("ghp_1234567890", thought)
+            self.assertNotIn("AIzaSyD", thought)
+            self.assertNotIn("ya29.a0Af", thought)
+            self.assertNotIn("Bearer eyJhbGciOi", thought)
+            self.assertIn("[REDACTED]", thought)
+
+        self.assertNotIn("ghp_1234567890", telemetry_content)
+        self.assertNotIn("AIzaSyD", telemetry_content)
+        self.assertNotIn("ya29.a0Af", telemetry_content)
+        self.assertNotIn("Bearer eyJhbGciOi", telemetry_content)
+        self.assertIn("[REDACTED]", telemetry_content)
+
+    def test_tokenshield_stdout_restoration_on_exception(self):
+        orig_stdout = sys.stdout
+        try:
+            with TokenShield(task_index=0):
+                self.assertIsInstance(sys.stdout, TokenShield)
+                raise RuntimeError("Forced exception inside TokenShield context")
+        except RuntimeError:
+            pass
+        self.assertIs(sys.stdout, orig_stdout)
+
+        try:
+            with TokenShield(task_index=0) as shield:
+                with patch.object(shield, "_handle_non_milestone", side_effect=ValueError("Flush crash")):
+                    print("Unflushed message before crash")
+        except ValueError:
+            pass
+        self.assertIs(sys.stdout, orig_stdout)
+
+    def test_deduplication_of_identical_telemetry_events(self):
+        projector = ShadowTranscriptProjector(
+            session_id=self.session_id,
+            app_data_dir=self.app_data_dir,
+            task_count=1,
+        )
+        projector.init_task(0, task_brief="Deduplication test")
+
+        fixed_ts = 1700000000.123
+        thought_line = (
+            f'[TELEMETRY] [TASK 0] {{"timestamp": {fixed_ts}, "event": "thought", '
+            f'"thought": "Dedup test thinking statement"}}'
+        )
+
+        res1 = projector.process_log_line(thought_line)
+        self.assertIsNotNone(res1)
+        self.assertEqual(res1["type"], "PLANNER_RESPONSE")
+
+        res2 = projector.process_log_line(thought_line)
+        self.assertIsNone(res2)
+
+        expected_event_key = (0, "thought", "", fixed_ts)
+        self.assertIn(expected_event_key, projector._seen_events)
+
+        primary, _ = projector.get_transcript_files(0)
+        lines = [json.loads(line) for line in primary.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[1]["thinking"].count("Dedup test thinking statement"), 1)
+
+        call_line = (
+            f'[TELEMETRY] [TASK 0] {{"timestamp": {fixed_ts + 1}, "event": "tool_call", '
+            f'"tool_name": "test_tool", "call_id": "c_dedup_1", "args": {{"p": 1}}}}'
+        )
+        c1 = projector.process_log_line(call_line)
+        self.assertIsNotNone(c1)
+        c2 = projector.process_log_line(call_line)
+        self.assertIsNone(c2)
+
+        expected_call_key = (0, "tool_call", "c_dedup_1", fixed_ts + 1)
+        self.assertIn(expected_call_key, projector._seen_events)
+
+        lines_after_call = [json.loads(line) for line in primary.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertEqual(len(lines_after_call[1]["tool_calls"]), 1)
 
 
 if __name__ == "__main__":
