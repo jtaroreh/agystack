@@ -785,7 +785,7 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
         self.assertEqual(req_body.get("generationConfig", {}).get("maxOutputTokens"), 1)
 
     def test_tier3_dedicated_models_interception(self):
-        for model in ("glm-5-3-flash", "llama-3.3-70b", "GLM-5-3-FLASH", "Llama-3.3-70b"):
+        for model in ("glm-5-3-flash", "llama-3.3-70b", "GLM-5-3-FLASH", "Llama-3.3-70b", "glm-5.3", "llama-3.3", "glm-5.3-flash", "llama-3.3-70b-instruct"):
             with self.subTest(model=model):
                 with self.assertRaises(RuntimeError) as ctx:
                     run_preflight(
@@ -1091,6 +1091,9 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
             check=True,
         )
         self.assertEqual(branch_res.stdout.strip(), "worker-7")
+
+    def test_zero_push_architecture_omits_git_push(self):
+        self.assertFalse(hasattr(cloud_worker, "push_candidate_branch"))
 
     def test_build_gcloud_command_supports_set_secrets_and_vertex_mode(self):
         # 1. Supports --set-secrets with dict mapping

@@ -77,7 +77,6 @@ class TestVertexPartnerModelResolution(unittest.TestCase):
             "deepseek-4.1",
             "deepseek-v4.1",
             "deepseek-4.1-flash",
-            "deepseek-v4.1-flash",
             "deepseek-v4.1-flash-maas",
             "deepseek-v4.1-flash-maas@001",
             "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
@@ -86,7 +85,8 @@ class TestVertexPartnerModelResolution(unittest.TestCase):
         for alias in aliases:
             resolved = resolve_worker_model(alias)
             self.assertEqual(resolved, canonical)
-            self.assertTrue(is_partner_model(resolved))
+            self.assertTrue(is_deepseek_model(resolved))
+            self.assertFalse(is_partner_model(resolved))
 
     def test_gemini_models_are_not_partner_models(self):
         gemini_models = [
@@ -373,9 +373,22 @@ class TestVertexPartnerExecution(unittest.TestCase):
             )
             self.assertIn("solution.py", git_res.stdout)
 
+            mock_thought.assert_called_once_with(1, "I need to write solution.py")
+            self.assertEqual(mock_inv.call_count, 2)
+            mock_inv.assert_any_call(1, "write_file", {"path": "solution.py", "content": "def solve(): return 42\n"})
+            mock_inv.assert_any_call(1, "run_command", {"command": "python3 -c 'import solution; assert solution.solve() == 42'"})
+            self.assertEqual(mock_res.call_count, 2)
+
     def test_autonomous_tool_calling_loop_deepseek(self):
         mock_genai = MagicMock()
         mock_client = MagicMock()
+
+        def fake_content(role=None, parts=None):
+            c = MagicMock()
+            c.role = role
+            c.parts = parts
+            return c
+        mock_genai.types.Content.side_effect = fake_content
 
         # Turn 0: DeepSeek emits a thought and calls write_file
         fc1 = MagicMock()
@@ -443,6 +456,10 @@ class TestVertexPartnerExecution(unittest.TestCase):
                 {"path": "deepseek_solution.py", "content": "def deepseek_fn(): return 100\n"},
             )
             self.assertEqual(mock_res.call_count, 1)
+
+            # Verify that the turn sent to generate_content used role="model" (not "assistant")
+            second_call_contents = mock_client.models.generate_content.call_args_list[1][1]["contents"]
+            self.assertEqual(second_call_contents[1].role, "model")
 
     def test_autonomous_tool_calling_loop_edit_and_read_file(self):
         readme = self.repo_dir / "README.md"
@@ -621,25 +638,33 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         self.assertTrue(result["model_garden_verified"])
 
     def test_worker_task_manifest_deepseek_enables_vertex_and_global_location(self):
-        # 1. Alias resolution
-        resolved = resolve_worker_model("deepseek")
-        self.assertEqual(resolved, "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas")
+        mock_genai = MagicMock()
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.text = "[STATUS: PASS] DeepSeek task done"
+        mock_resp.function_calls = []
+        mock_resp.candidates = []
+        mock_client.models.generate_content.return_value = mock_resp
+        mock_genai.Client.return_value = mock_client
 
-        # 2. Per-task manifest with deepseek overrides
-        task_item = {"brief": "optimize", "model": "deepseek-v4.1-flash"}
-        task_model = resolve_worker_model(task_item=task_item)
-        self.assertEqual(task_model, "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas")
-
-        use_vertex = False
-        if is_partner_model(task_model) or "deepseek" in task_model.lower():
-            use_vertex = True
-        self.assertTrue(use_vertex)
-
-        location = "us-central1"
-        resolved_location = location
-        if "deepseek" in task_model.lower() and (not location or location == "us-central1" or not os.environ.get("VERTEXAI_LOCATION")):
-            resolved_location = "global"
-        self.assertEqual(resolved_location, "global")
+        with tempfile.TemporaryDirectory() as tmp_dir, patch.dict(sys.modules, {"google.genai": mock_genai}):
+            repo_dir = Path(tmp_dir)
+            task_item = {"brief": "optimize", "model": "deepseek-v4.1-flash"}
+            status, summary = execute_task(
+                task_item=task_item,
+                task_brief="optimize",
+                repo_dir=repo_dir,
+                model_override="",
+                api_key="",
+                use_vertex=True,
+                location="us-central1",
+                task_index=0,
+            )
+            self.assertEqual(status, "PASS")
+            mock_genai.Client.assert_called_once()
+            call_kwargs = mock_genai.Client.call_args[1]
+            self.assertTrue(call_kwargs.get("vertexai"))
+            self.assertEqual(call_kwargs.get("location"), "global")
 
     def test_successful_probe(self):
         mock_mod = MagicMock()
@@ -818,6 +843,61 @@ class TestStartupLatencyProbe(unittest.TestCase):
                 region="us-central1",
             )
             self.assertLessEqual(duration_s, 2.0)
+
+
+class TestWorkspaceTools(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_dir = Path(self.temp_dir.name)
+        subprocess.run(["git", "init"], cwd=self.repo_dir, check=True, capture_output=True)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_workspace_tool_run_command_destructive_blocked_by_safety(self):
+        destructive_commands = [
+            "rm -rf /",
+            "git push origin main -f",
+            "git push --force origin main",
+            "drop database testdb",
+        ]
+        for cmd in destructive_commands:
+            with self.subTest(cmd=cmd):
+                res = execute_workspace_tool("run_command", {"command": cmd}, self.repo_dir)
+                self.assertIn("Error: Command blocked by safety policy", res)
+                self.assertIn("deny", res.lower())
+
+    def test_workspace_tool_run_command_safe_allowed(self):
+        res = execute_workspace_tool("run_command", {"command": "echo safe_test_output"}, self.repo_dir)
+        self.assertIn("safe_test_output", res)
+
+
+class TestCloudWorkerManifestAuth(unittest.TestCase):
+    def test_main_deepseek_manifest_enables_vertex_under_adc(self):
+        import cloud_worker
+        env = {
+            "REPO_URL": "https://github.com/example/repo.git",
+            "MODEL_OVERRIDE": "",
+            "TASK_MANIFEST": json.dumps([{"model": "deepseek", "brief": "solve"}]),
+            "GEMINI_API_KEY": "",
+            "USE_VERTEX_AI": "",
+            "CLOUD_RUN_TASK_INDEX": "0",
+        }
+        orig_cwd = os.getcwd()
+        try:
+            with patch.dict(os.environ, env, clear=False), \
+                 patch("cloud_worker.clone_and_checkout_task"), \
+                 patch("cloud_worker.execute_task", return_value=("PASS", "done")) as mock_exec, \
+                 patch("cloud_worker.run_command") as mock_run_cmd, \
+                 patch("cloud_worker.parse_score_metrics", return_value=(None, None, None)), \
+                 patch("os.chdir"):
+                mock_run_cmd.return_value = MagicMock(returncode=0, stdout="")
+                with patch("sys.exit"):
+                    cloud_worker.main()
+                mock_exec.assert_called_once()
+                self.assertTrue(mock_exec.call_args[1].get("use_vertex"))
+        finally:
+            os.chdir(orig_cwd)
 
 
 if __name__ == "__main__":

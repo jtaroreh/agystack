@@ -727,7 +727,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
                             ignored.add(item)
                             continue
                         resolved_item = (dir_p / item).resolve()
-                        if resolved_item == dst_resolved or resolved_item == scripts_path or scripts_path in resolved_item.parents:
+                        if resolved_item == dst_resolved or resolved_item == scripts_path or scripts_path in resolved_item.parents or resolved_item in scripts_path.parents:
                             ignored.add(item)
                     return ignored
 

@@ -32,15 +32,22 @@ except ImportError:
         is_partner_model = None
         PARTNER_MODEL_ALIASES = {}
 
-TIER3_DEDICATED_MODELS = {"glm-5-3-flash", "llama-3.3-70b"}
+TIER3_DEDICATED_MODELS = {
+    "glm-5-3-flash",
+    "glm-5.3-flash",
+    "glm-5.3",
+    "llama-3.3-70b",
+    "llama-3.3-70b-instruct",
+    "llama-3.3",
+}
 DEEPSEEK_CANONICAL_ALIASES = {
     "deepseek",
     "deepseek-flash",
     "deepseek-4.1",
     "deepseek-v4.1",
     "deepseek-4.1-flash",
-    "deepseek-v4.1-flash",
     "deepseek-v4.1-flash-maas",
+    "deepseek-v4.1-flash-maas@001",
 }
 
 
@@ -821,7 +828,7 @@ def run_preflight(
     print("[PRE-FLIGHT] Verifying cloud swarm credentials, quota tiers, repository access, and GCS bucket...", flush=True)
 
     # Tier 3 Dedicated Model Interception
-    if model and model.lower().strip() in TIER3_DEDICATED_MODELS:
+    if model and (model.lower().strip() in TIER3_DEDICATED_MODELS or model.lower().strip().replace(".", "-").replace("-instruct", "") in TIER3_DEDICATED_MODELS):
         raise RuntimeError(
             f"Model '{model}' is a Tier 3 open-weights model requiring a dedicated GPU cluster endpoint.\n"
             "Serverless Cloud Run swarms cannot dispatch directly to deploy-only models without an active dedicated endpoint.\n"
@@ -835,7 +842,7 @@ def run_preflight(
         )
 
     if not vertex_location:
-        vertex_location = "global" if (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower()) else region
+        vertex_location = "global" if (model and (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower())) else region
 
     # 1. Git Authentication & Repository Accessibility Check
     if not repo_url:
@@ -882,7 +889,7 @@ def run_preflight(
         raise RuntimeError(f"Git remote accessibility error: {exc}") from exc
 
     # 2. Model & Quota Tier Check: Auto-promote Vertex for Partner models and DeepSeek
-    if (is_partner_model and is_partner_model(model)) or ("deepseek" in model.lower()):
+    if (is_partner_model and is_partner_model(model)) or (model and "deepseek" in model.lower()):
         use_vertex = True
 
     if use_vertex:
@@ -909,7 +916,7 @@ def run_preflight(
         target_loc = vertex_location or "global"
         resolved_model = model
 
-        if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and "deepseek" not in model.lower():
+        if is_partner_model and is_partner_model(model) and "fable" not in model.lower():
             resolved_model = PARTNER_MODEL_ALIASES.get(model.lower(), model)
             target_loc = vertex_location if vertex_location and vertex_location != "global" else (region if region and region != "global" else "us-east5")
             probe_url = f"https://{target_loc}-aiplatform.googleapis.com/v1/projects/{project}/locations/{target_loc}/publishers/anthropic/models/{resolved_model}:rawPredict"
@@ -918,7 +925,7 @@ def run_preflight(
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": 1,
             }).encode("utf-8")
-        elif "deepseek" in model.lower():
+        elif model and "deepseek" in model.lower():
             target_loc = vertex_location or "global"
             if model.startswith("publishers/"):
                 resolved_model = model.split("/")[-1]
@@ -958,15 +965,15 @@ def run_preflight(
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 pass
-            if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and "deepseek" not in model.lower():
+            if is_partner_model and is_partner_model(model) and "fable" not in model.lower():
                 print(f"  [PASS] Vertex AI credentials and Model Garden partner model '{model}' ({resolved_model}) verified in {target_loc} (project: {project}).")
-            elif "deepseek" in model.lower():
+            elif model and "deepseek" in model.lower():
                 print(f"  [PASS] Vertex AI credentials and DeepSeek MaaS model '{resolved_model}' verified in {target_loc} (project: {project}).")
             else:
                 print(f"  [PASS] Vertex AI credentials and publisher model '{model}' verified in {target_loc} (project: {project}).")
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
-            if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and "deepseek" not in model.lower() and exc.code == 404:
+            if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and exc.code == 404:
                 raise RuntimeError(
                     f"Vertex AI Model Garden partner model '{model}' (resolved to '{resolved_model}') not found or not enabled in location '{target_loc}' (404 Not Found).\n"
                     f"Server Response:\n{err_body}\n"
@@ -1370,22 +1377,22 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
     explicit_vertex_loc = args.vertex_location or runtime_cfg.get("vertex_location")
     if explicit_vertex_loc:
         vertex_location = explicit_vertex_loc
-    elif model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower():
+    elif model and (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower()):
         vertex_location = "global"
     else:
         vertex_location = region
 
-    if is_partner_model and is_partner_model(model) and "deepseek" not in model.lower():
+    if is_partner_model and is_partner_model(model):
         use_vertex = True
         if not explicit_vertex_loc and vertex_location == "global":
             vertex_location = region if region and region != "global" else "us-east5"
-    elif "deepseek" in model.lower():
+    elif model and "deepseek" in model.lower():
         use_vertex = True
         if not explicit_vertex_loc:
             vertex_location = "global"
 
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not gemini_api_key and (project or (is_partner_model and is_partner_model(model)) or "deepseek" in model.lower()):
+    if not gemini_api_key and (project or (is_partner_model and is_partner_model(model)) or (model and "deepseek" in model.lower())):
         use_vertex = True
     gcs_bucket = args.gcs_bucket if args.gcs_bucket is not None else runtime_cfg.get("gcs_bucket", "")
 

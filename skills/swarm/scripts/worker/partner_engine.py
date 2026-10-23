@@ -147,7 +147,6 @@ PARTNER_MODEL_ALIASES = {
     "deepseek-4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
     "deepseek-v4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
     "deepseek-4.1-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
-    "deepseek-v4.1-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
     "deepseek-v4.1-flash-maas": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
     "deepseek-v4.1-flash-maas@001": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
     "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
@@ -160,9 +159,6 @@ PARTNER_MODELS = {
     "claude-3-opus@20240229",
     "fable-5-1",
     "fable",
-    "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
-    "deepseek-v4.1-flash",
-    "deepseek-v4.1-flash-maas",
 }
 
 
@@ -177,13 +173,12 @@ def is_partner_model(model: str) -> bool:
         return False
     m = model.lower().strip()
     if is_deepseek_model(m):
-        return True
+        return False
     if m in PARTNER_MODELS or m in PARTNER_MODEL_ALIASES:
         return True
     if (
         m.startswith("publishers/anthropic/")
         or m.startswith("publishers/fable/")
-        or m.startswith("publishers/deepseek-ai/")
     ):
         return True
     if (
@@ -782,10 +777,7 @@ def execute_deepseek_model_agent(
         or os.environ.get("PROJECT_ID")
         or None
     )
-    if location and location != "us-central1":
-        resolved_location = location
-    else:
-        resolved_location = os.environ.get("VERTEXAI_LOCATION") or "global"
+    resolved_location = os.environ.get("VERTEXAI_LOCATION") or "global"
 
     if not model.startswith("publishers/"):
         model = PARTNER_MODEL_ALIASES.get(model.lower()) or "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas"
@@ -913,19 +905,24 @@ def execute_deepseek_model_agent(
 
                 if not last_text and turn < max_turns - 1:
                     contents.append(genai.types.Content(
+                        role="model",
+                        parts=[genai.types.Part.from_text(text="")]
+                    ))
+                    contents.append(genai.types.Content(
                         role="user",
                         parts=[genai.types.Part.from_text(text="Please state your final summary and conclusion status: [STATUS: PASS] or [STATUS: ISSUES].")]
                     ))
                     continue
 
-                return _evaluate_agent_status(last_text)
+                cleaned_text = re.sub(r"<think>.*?</think>", "", last_text, flags=re.DOTALL).strip()
+                return _evaluate_agent_status(cleaned_text or last_text)
 
             # Filter out empty text parts so DeepSeek does not echo empty text on next turn
             clean_parts = [
                 p for p in candidate_parts
                 if not (getattr(p, "text", None) == "" and not getattr(p, "function_call", None))
             ]
-            contents.append(genai.types.Content(role="assistant", parts=clean_parts))
+            contents.append(genai.types.Content(role="model", parts=clean_parts))
 
             # Execute workspace tools and append user response parts
             response_parts = []
@@ -949,7 +946,8 @@ def execute_deepseek_model_agent(
 
             contents.append(genai.types.Content(role="user", parts=response_parts))
 
-        return _evaluate_agent_status(last_text)
+        cleaned_text = re.sub(r"<think>.*?</think>", "", last_text, flags=re.DOTALL).strip()
+        return _evaluate_agent_status(cleaned_text or last_text)
     except Exception as exc:
         return "ISSUES", f"DeepSeek model execution exception: {exc}"
 
