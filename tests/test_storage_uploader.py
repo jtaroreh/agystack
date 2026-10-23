@@ -27,11 +27,6 @@ class TestForkUrlResolution(unittest.TestCase):
         url = cloud_worker.build_authenticated_git_url("my-org/my-repo", "test_tok")
         self.assertEqual(url, "https://x-access-token:test_tok@github.com/my-org/my-repo.git")
 
-    def test_fork_repo_override_logic(self):
-        with patch.dict(os.environ, {"FORK_REPO_URL": "https://github.com/myfork/matrices-fast.git"}):
-            fork_url = os.environ.get("FORK_REPO_URL", "").strip()
-            self.assertEqual(fork_url, "https://github.com/myfork/matrices-fast.git")
-
 
 class TestArtifactDiscovery(unittest.TestCase):
     def setUp(self):
@@ -201,9 +196,6 @@ class TestScoreParsing(unittest.TestCase):
         self.assertIsNone(score)
         self.assertIsNone(accuracy)
         self.assertIsNone(latency_ms)
-
-
-TestStructuredOutputParsing = TestScoreParsing
 
 
 if __name__ == "__main__":

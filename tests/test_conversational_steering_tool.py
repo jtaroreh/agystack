@@ -549,10 +549,6 @@ class TestConversationalSteeringTool(unittest.TestCase):
         self.assertIn(steer_text, res.custom_context)
         self.assertIn("consecutive times with identical arguments", res.custom_context)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_16_concurrent_send_steer_collision_retry(self):
         """Simulate two simultaneous send_steer() calls colliding on sequence number,
         verifying both succeed with distinct sequence numbers."""
@@ -613,7 +609,7 @@ if __name__ == "__main__":
                 nonlocal call_count
                 call_count += 1
                 if call_count == 1:
-                    orch.bucket.blob(name).upload_from_string("{}", content_type="application/json")
+                    real_blob_factory(name).upload_from_string("{}", content_type="application/json")
                     raise PreconditionFailed("Simulated HTTP 412 Precondition Failed")
                 return orig_upload(*args, **kwargs)
 
@@ -637,3 +633,8 @@ if __name__ == "__main__":
         self.assertTrue(callable(mc_list))
         self.assertTrue(callable(mc_reply))
         self.assertTrue(callable(mc_steer))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
