@@ -581,6 +581,17 @@ def create_project(project_id):
     run_cmd(["gcloud", "projects", "create", project_id])
     print("Setting active project...")
     run_cmd(["gcloud", "config", "set", "project", project_id])
+    try:
+        res = run_cmd(["gcloud", "billing", "accounts", "list", "--format=json"], check=False)
+        if getattr(res, "returncode", 1) == 0:
+            accounts = json.loads(getattr(res, "stdout", "[]"))
+            open_accounts = [a for a in accounts if a.get("open", False)]
+            if open_accounts:
+                billing_id = open_accounts[0].get("name", "").split("/")[-1]
+                print(f"Linking billing account {billing_id} to project {project_id}...")
+                run_cmd(["gcloud", "billing", "projects", "link", project_id, f"--billing-account={billing_id}"], check=False)
+    except Exception:
+        pass
 
 def enable_apis(project_id):
     print(f"Enabling APIs for {project_id}...")
@@ -728,7 +739,8 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
             "gcloud", "builds", "submit",
             f"--tag={image_tag}",
             scripts_dir,
-            f"--project={project_id}"
+            f"--project={project_id}",
+            f"--region={region}"
         ], capture_output=False)
     finally:
         for staged in staged_dirs:
