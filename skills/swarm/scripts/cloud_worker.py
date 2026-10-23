@@ -717,9 +717,11 @@ try:
         PARTNER_MODELS as PARTNER_MODELS,
         WORKSPACE_TOOLS as WORKSPACE_TOOLS,
         execute_claude_model_agent as execute_claude_model_agent,
+        execute_deepseek_model_agent as execute_deepseek_model_agent,
         execute_fable_model_agent as execute_fable_model_agent,
         execute_partner_model_agent as execute_partner_model_agent,
         execute_workspace_tool as execute_workspace_tool,
+        is_deepseek_model as is_deepseek_model,
         is_fable_model as is_fable_model,
         is_partner_model as is_partner_model,
         measure_partner_client_startup as measure_partner_client_startup,
@@ -730,9 +732,11 @@ except ImportError:
         PARTNER_MODELS as PARTNER_MODELS,
         WORKSPACE_TOOLS as WORKSPACE_TOOLS,
         execute_claude_model_agent as execute_claude_model_agent,
+        execute_deepseek_model_agent as execute_deepseek_model_agent,
         execute_fable_model_agent as execute_fable_model_agent,
         execute_partner_model_agent as execute_partner_model_agent,
         execute_workspace_tool as execute_workspace_tool,
+        is_deepseek_model as is_deepseek_model,
         is_fable_model as is_fable_model,
         is_partner_model as is_partner_model,
         measure_partner_client_startup as measure_partner_client_startup,
@@ -767,6 +771,17 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
         "pro": "gemini-3.1-pro",
         "flash_lite": "gemini-3.1-flash-lite",
         "flash-lite": "gemini-3.1-flash-lite",
+        "argon": "gemini-4-argon",
+        "gemini-argon": "gemini-4-argon",
+        "gemini-4": "gemini-4-argon",
+        "gemini": "gemini-3.8-flash",
+        "deepseek": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-v4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-4.1-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-v4.1-flash-maas": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        "deepseek-v4.1-flash-maas@001": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
         "auto": default_model,
         "inherit": default_model,
         "inherit-parent": default_model,
@@ -835,6 +850,20 @@ def execute_task(
             return "ISSUES", f"Command timed out after {timeout} seconds: {cmd_str}"
 
     resolved_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
+    if is_deepseek_model(resolved_model):
+        location_override = "global" if (not location or location == "us-central1" or not os.environ.get("VERTEXAI_LOCATION")) else location
+        emit_milestone(task_index, "RUNNING_AGENT", f"Vertex Model Garden agent ({resolved_model})")
+        return execute_deepseek_model_agent(
+            model=resolved_model,
+            task_brief=task_brief,
+            repo_dir=repo_dir,
+            task_item=task_item,
+            task_index=task_index,
+            project=project,
+            location=location_override,
+            messenger=messenger,
+        )
+
     if is_partner_model(resolved_model):
         emit_milestone(task_index, "RUNNING_AGENT", f"Vertex Model Garden agent ({resolved_model})")
         return execute_partner_model_agent(
@@ -984,21 +1013,6 @@ def main() -> None:
     if not gh_token:
         print("Warning: Missing GH_TOKEN. Proceeding with unauthenticated git operations.", file=sys.stderr)
 
-    use_vertex = (
-        os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
-        or bool(os.environ.get("VERTEXAI_PROJECT"))
-        or bool(os.environ.get("GCP_PROJECT"))
-        or is_partner_model(os.environ.get("MODEL_OVERRIDE", ""))
-    )
-    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not use_vertex and not gemini_api_key:
-        emit_milestone(task_index, "COMPLETE", "BLOCKED")
-        print(
-            "[STATUS: BLOCKED]\nEvidence: Missing authentication. Neither USE_VERTEX_AI nor GEMINI_API_KEY is provided.\nSummary: Authentication configuration error.",
-            flush=True,
-        )
-        sys.exit(1)
-
     project = os.environ.get("VERTEXAI_PROJECT") or os.environ.get("GCP_PROJECT") or os.environ.get("PROJECT_ID")
     location = os.environ.get("VERTEXAI_LOCATION") or os.environ.get("GCP_REGION") or os.environ.get("REGION")
     model_override = os.environ.get("MODEL_OVERRIDE", "")
@@ -1018,8 +1032,21 @@ def main() -> None:
         sys.exit(1)
 
     task_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
-    if is_partner_model(task_model):
-        use_vertex = True
+    use_vertex = (
+        os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
+        or bool(os.environ.get("VERTEXAI_PROJECT"))
+        or bool(os.environ.get("GCP_PROJECT"))
+        or is_partner_model(task_model)
+        or is_deepseek_model(task_model)
+    )
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not use_vertex and not gemini_api_key:
+        emit_milestone(task_index, "COMPLETE", "BLOCKED")
+        print(
+            "[STATUS: BLOCKED]\nEvidence: Missing authentication. Neither USE_VERTEX_AI nor GEMINI_API_KEY is provided.\nSummary: Authentication configuration error.",
+            flush=True,
+        )
+        sys.exit(1)
 
     branch_name = resolve_worker_branch(task_item, task_index)
 

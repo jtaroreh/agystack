@@ -143,6 +143,25 @@ workers run in isolated containers, never push to git directly, and upload `patc
 
 set it up with [`/setup-agystack`](./skills/setup-agystack/SKILL.md) with your Google Cloud auth and run [`/swarm`](./skills/swarm/SKILL.md) to dispatch.
 
+### summoning cloud agents (Gemini & DeepSeek)
+
+Cloud swarms run on Google Cloud Run with zero-friction serverless models:
+
+```bash
+# list supported cloud models and tiers
+python3 skills/swarm/scripts/cloud_dispatch.py --list-models
+
+# fan out 5 Gemini Argon agents
+python3 skills/swarm/scripts/cloud_dispatch.py --tasks 5 --model gemini-4-argon
+
+# fan out 5 DeepSeek Flash 4.1 agents
+python3 skills/swarm/scripts/cloud_dispatch.py --tasks 5 --model deepseek-v4.1-flash
+```
+
+Or trigger `/swarm` right in chat:
+- `/swarm 5 workers using Gemini Argon to test src/`
+- `/swarm 5 workers using DeepSeek Flash to explore hypotheses`
+
 ## skills
 
 [`/poteto-mode`](./skills/poteto-mode/SKILL.md) runs most of these for you when a step needs them (`how`, `why`, `architect`, `arena`, `swarm`, `interrogate`, `unslop`, `no-comments`, `technical-writing`, `tdd`, and the principles). the table below is for when you want one directly:

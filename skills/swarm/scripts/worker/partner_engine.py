@@ -23,6 +23,16 @@ except ImportError:
     except Exception:
         evaluate_safety = None
 
+DEFAULT_PARTNER_SYSTEM_PROMPT = """You are a specialized poteto coding delegate for agystack executing inside an isolated cloud worker container.
+You implement surgical code edits, run test suites, verify outputs, and keep code and diffs clean and unslopped.
+
+Guidelines:
+1. Implement the requested task directly and surgically in the workspace.
+2. Maintain high engineering rigor: run test suites and verification commands before completing.
+3. Keep diffs minimal and clean. Avoid narrating comments or speculative code.
+4. Conclude with a clear summary and status: you MUST include either [STATUS: PASS] or [STATUS: ISSUES] at the end of your final response.
+"""
+
 
 def emit_milestone(task_index: int, phase: str, detail: str = "") -> None:
     cw = sys.modules.get("cloud_worker")
@@ -130,6 +140,16 @@ PARTNER_MODEL_ALIASES = {
     "fable-5.1": "fable-5-1",
     "publishers/fable/models/fable-5-1": "fable-5-1",
     "publishers/fable/models/fable-5.1": "fable-5-1",
+
+    # DeepSeek Model Garden
+    "deepseek": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+    "deepseek-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+    "deepseek-4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+    "deepseek-v4.1": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+    "deepseek-4.1-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+    "deepseek-v4.1-flash-maas": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+    "deepseek-v4.1-flash-maas@001": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+    "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
 }
 
 PARTNER_MODELS = {
@@ -142,13 +162,24 @@ PARTNER_MODELS = {
 }
 
 
+def is_deepseek_model(model: str) -> bool:
+    if not model:
+        return False
+    return "deepseek" in model.lower().strip()
+
+
 def is_partner_model(model: str) -> bool:
     if not model:
         return False
     m = model.lower().strip()
+    if is_deepseek_model(m):
+        return False
     if m in PARTNER_MODELS or m in PARTNER_MODEL_ALIASES:
         return True
-    if m.startswith("publishers/anthropic/") or m.startswith("publishers/fable/"):
+    if (
+        m.startswith("publishers/anthropic/")
+        or m.startswith("publishers/fable/")
+    ):
         return True
     if (
         m.startswith("claude-")
@@ -437,6 +468,24 @@ def _get_aiplatform():
         return None
 
 
+def _get_genai():
+    if "google.genai" in sys.modules:
+        mod = sys.modules["google.genai"]
+        if mod is not None:
+            return mod
+        return None
+    try:
+        from google import genai
+        return genai
+    except (ImportError, AttributeError):
+        pass
+    try:
+        import google.genai as genai
+        return genai
+    except (ImportError, AttributeError):
+        return None
+
+
 def execute_claude_model_agent(
     model: str,
     task_brief: str,
@@ -473,7 +522,7 @@ def execute_claude_model_agent(
         )
         system_prompt = (
             os.environ.get("AGYSTACK_WORKER_SYSTEM_PROMPT")
-            or "You are a specialized poteto coding delegate for agystack."
+            or DEFAULT_PARTNER_SYSTEM_PROMPT
         )
         messages: List[Dict[str, Any]] = [
             {"role": "user", "content": task_brief}
@@ -601,7 +650,7 @@ def execute_fable_model_agent(
 
         system_prompt = (
             os.environ.get("AGYSTACK_WORKER_SYSTEM_PROMPT")
-            or "You are a specialized poteto coding delegate for agystack."
+            or DEFAULT_PARTNER_SYSTEM_PROMPT
         )
         messages: List[Dict[str, Any]] = [
             {"role": "user", "content": task_brief}
@@ -707,6 +756,202 @@ def execute_fable_model_agent(
         return "ISSUES", f"Vertex Model Garden Fable execution exception: {exc}"
 
 
+def execute_deepseek_model_agent(
+    model: str,
+    task_brief: str,
+    repo_dir: Path,
+    task_item: Any = None,
+    task_index: int = 0,
+    project: Optional[str] = None,
+    location: Optional[str] = None,
+    messenger: Optional[Any] = None,
+) -> Tuple[str, str]:
+    genai = _get_genai()
+    if genai is None:
+        return "BLOCKED", "Missing dependency: google-genai Python package is not installed."
+
+    resolved_project = (
+        project
+        or os.environ.get("VERTEXAI_PROJECT")
+        or os.environ.get("GCP_PROJECT")
+        or os.environ.get("PROJECT_ID")
+        or None
+    )
+    resolved_location = os.environ.get("VERTEXAI_LOCATION") or "global"
+
+    if not model.startswith("publishers/"):
+        model = PARTNER_MODEL_ALIASES.get(model.lower()) or "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas"
+
+    try:
+        import re
+
+        client_kwargs = {
+            "vertexai": True,
+            "project": resolved_project,
+            "location": resolved_location,
+        }
+        if hasattr(genai.types, "HttpOptions"):
+            client_kwargs["http_options"] = genai.types.HttpOptions(timeout=120000)
+
+        client = genai.Client(**client_kwargs)
+
+        function_declarations = [
+            genai.types.FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters=t["input_schema"],
+            )
+            for t in WORKSPACE_TOOLS
+        ]
+        tool = genai.types.Tool(function_declarations=function_declarations)
+
+        system_prompt = (
+            os.environ.get("AGYSTACK_WORKER_SYSTEM_PROMPT")
+            or DEFAULT_PARTNER_SYSTEM_PROMPT
+        )
+        config = genai.types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            tools=[tool],
+            temperature=0.0,
+        )
+
+        contents: List[Any] = [
+            genai.types.Content(
+                role="user",
+                parts=[genai.types.Part.from_text(text=task_brief)],
+            )
+        ]
+        max_turns = 30
+        last_text = ""
+
+        for turn in range(max_turns):
+            response = None
+            for attempt in range(5):
+                try:
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=contents,
+                        config=config,
+                    )
+                    break
+                except Exception as call_exc:
+                    err_str = str(call_exc).lower()
+                    if (
+                        "503" in err_str
+                        or "unavailable" in err_str
+                        or "429" in err_str
+                        or "resource_exhausted" in err_str
+                        or "deadline" in err_str
+                        or "connection" in err_str
+                    ) and attempt < 4:
+                        backoff = (2 ** attempt) * 2
+                        emit_milestone(task_index, "RETRY", f"Transient {call_exc}; retrying in {backoff}s (attempt {attempt + 1}/5)...")
+                        time.sleep(backoff)
+                    else:
+                        raise
+
+            candidate_parts = []
+            if hasattr(response, "candidates") and response.candidates:
+                c0 = response.candidates[0]
+                if hasattr(c0, "content") and c0.content:
+                    candidate_parts = getattr(c0.content, "parts", []) or []
+
+            # Handle thoughts: check part.thought or <think>...</think> in text
+            for part in candidate_parts:
+                th = getattr(part, "thought", None)
+                if th:
+                    if isinstance(th, str) and th.strip():
+                        emit_thought(task_index, th.strip())
+                    elif isinstance(th, bool) and getattr(part, "text", None):
+                        emit_thought(task_index, str(part.text).strip())
+
+                ptxt = getattr(part, "text", None)
+                if ptxt and isinstance(ptxt, str) and not th:
+                    for m in re.finditer(r"<think>(.*?)</think>", ptxt, re.DOTALL):
+                        val = m.group(1).strip()
+                        if val:
+                            emit_thought(task_index, val)
+
+            # Check function calls
+            func_calls = []
+            if hasattr(response, "function_calls") and response.function_calls:
+                func_calls = response.function_calls
+            else:
+                for part in candidate_parts:
+                    fc = getattr(part, "function_call", None)
+                    if fc:
+                        func_calls.append(fc)
+
+            if not func_calls:
+                resp_text = None
+                try:
+                    resp_text = getattr(response, "text", None)
+                except Exception:
+                    pass
+
+                if resp_text and isinstance(resp_text, str) and not candidate_parts:
+                    for m in re.finditer(r"<think>(.*?)</think>", resp_text, re.DOTALL):
+                        val = m.group(1).strip()
+                        if val:
+                            emit_thought(task_index, val)
+
+                if resp_text and isinstance(resp_text, str) and resp_text.strip():
+                    last_text = resp_text
+                elif candidate_parts:
+                    text_pieces = [
+                        getattr(p, "text", "") for p in candidate_parts if getattr(p, "text", None)
+                    ]
+                    last_text = "\n".join(text_pieces).strip()
+
+                if not last_text and turn < max_turns - 1:
+                    contents.append(genai.types.Content(
+                        role="model",
+                        parts=[genai.types.Part.from_text(text="")]
+                    ))
+                    contents.append(genai.types.Content(
+                        role="user",
+                        parts=[genai.types.Part.from_text(text="Please state your final summary and conclusion status: [STATUS: PASS] or [STATUS: ISSUES].")]
+                    ))
+                    continue
+
+                cleaned_text = re.sub(r"<think>.*?</think>", "", last_text, flags=re.DOTALL).strip()
+                return _evaluate_agent_status(cleaned_text or last_text)
+
+            # Filter out empty text parts so DeepSeek does not echo empty text on next turn
+            clean_parts = [
+                p for p in candidate_parts
+                if not (getattr(p, "text", None) == "" and not getattr(p, "function_call", None))
+            ]
+            contents.append(genai.types.Content(role="model", parts=clean_parts))
+
+            # Execute workspace tools and append user response parts
+            response_parts = []
+            for fc in func_calls:
+                tool_name = getattr(fc, "name", "")
+                tool_input = getattr(fc, "args", {})
+                if not isinstance(tool_input, dict):
+                    try:
+                        tool_input = dict(tool_input)
+                    except Exception:
+                        tool_input = {}
+                emit_tool_invocation(task_index, tool_name, tool_input)
+                result_str = execute_workspace_tool(tool_name, tool_input, repo_dir)
+                emit_tool_result(task_index, tool_name, result_str)
+                response_parts.append(
+                    genai.types.Part.from_function_response(
+                        name=tool_name,
+                        response={"result": result_str},
+                    )
+                )
+
+            contents.append(genai.types.Content(role="user", parts=response_parts))
+
+        cleaned_text = re.sub(r"<think>.*?</think>", "", last_text, flags=re.DOTALL).strip()
+        return _evaluate_agent_status(cleaned_text or last_text)
+    except Exception as exc:
+        return "ISSUES", f"DeepSeek model execution exception: {exc}"
+
+
 def execute_partner_model_agent(
     model: str,
     task_brief: str,
@@ -717,6 +962,17 @@ def execute_partner_model_agent(
     location: Optional[str] = None,
     messenger: Optional[Any] = None,
 ) -> Tuple[str, str]:
+    if is_deepseek_model(model):
+        return execute_deepseek_model_agent(
+            model=model,
+            task_brief=task_brief,
+            repo_dir=repo_dir,
+            task_item=task_item,
+            task_index=task_index,
+            project=project,
+            location=location,
+            messenger=messenger,
+        )
     if is_fable_model(model):
         return execute_fable_model_agent(
             model=model,

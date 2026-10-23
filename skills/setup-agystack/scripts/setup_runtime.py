@@ -115,6 +115,12 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
         "project_id": project,
         "region": region,
         "anthropic_installed": False,
+        "serverless_models": [
+            "gemini-4-argon",
+            "gemini-3.8-flash",
+            "gemini-3.1-pro",
+            "deepseek-v4.1-flash-maas",
+        ],
         "partner_models": [
             "claude-3-7-sonnet@20250219",
             "claude-3-5-sonnet-v2@20241022",
@@ -140,9 +146,8 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
                 result["error"] = f"Failed to initialize AnthropicVertex client: {init_exc}"
                 return result
     except ImportError:
-        result["ok"] = False
-        result["error"] = "Package 'anthropic[vertex]' is not installed (run: pip install anthropic[vertex])"
-        return result
+        result["anthropic_installed"] = False
+        result["partner_models_note"] = "Optional package 'anthropic[vertex]' not installed for Claude partner models."
     except Exception as exc:
         result["ok"] = False
         result["error"] = f"Error importing 'anthropic': {exc}"
@@ -576,6 +581,17 @@ def create_project(project_id):
     run_cmd(["gcloud", "projects", "create", project_id])
     print("Setting active project...")
     run_cmd(["gcloud", "config", "set", "project", project_id])
+    try:
+        res = run_cmd(["gcloud", "billing", "accounts", "list", "--format=json"], check=False)
+        if getattr(res, "returncode", 1) == 0:
+            accounts = json.loads(getattr(res, "stdout", "[]"))
+            open_accounts = [a for a in accounts if a.get("open", False)]
+            if open_accounts:
+                billing_id = open_accounts[0].get("name", "").split("/")[-1]
+                print(f"Linking billing account {billing_id} to project {project_id}...")
+                run_cmd(["gcloud", "billing", "projects", "link", project_id, f"--billing-account={billing_id}"], check=False)
+    except Exception:
+        pass
 
 def enable_apis(project_id):
     print(f"Enabling APIs for {project_id}...")
@@ -711,7 +727,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
                             ignored.add(item)
                             continue
                         resolved_item = (dir_p / item).resolve()
-                        if resolved_item == dst_resolved or resolved_item == scripts_path:
+                        if resolved_item == dst_resolved or resolved_item == scripts_path or scripts_path in resolved_item.parents or resolved_item in scripts_path.parents:
                             ignored.add(item)
                     return ignored
 
@@ -723,7 +739,8 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
             "gcloud", "builds", "submit",
             f"--tag={image_tag}",
             scripts_dir,
-            f"--project={project_id}"
+            f"--project={project_id}",
+            f"--region={region}"
         ], capture_output=False)
     finally:
         for staged in staged_dirs:

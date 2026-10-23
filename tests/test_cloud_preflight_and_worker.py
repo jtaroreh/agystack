@@ -5,6 +5,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib
+import urllib.error
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -555,6 +557,8 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
         )
         self.assertEqual(req.get_header("X-goog-user-project"), "my-gcp-project")
         self.assertEqual(req.get_header("Authorization"), "Bearer token-xyz")
+        req_body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(req_body.get("generationConfig", {}).get("maxOutputTokens"), 1)
 
     @patch("urllib.request.urlopen")
     @patch("subprocess.run")
@@ -592,6 +596,224 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
             "https://europe-west4-aiplatform.googleapis.com/v1/projects/my-gcp-project/locations/europe-west4/publishers/google/models/gemini-1.5-flash:generateContent",
         )
         self.assertEqual(req.get_header("X-goog-user-project"), "my-gcp-project")
+
+    @patch("urllib.request.urlopen")
+    @patch("subprocess.run")
+    def test_preflight_vertex_partner_model_url_and_guidance(self, mock_subproc, mock_urlopen):
+        def fake_run(cmd, *args, **kwargs):
+            m = MagicMock()
+            m.returncode = 0
+            if "print-access-token" in cmd:
+                m.stdout = "token-xyz\n"
+            else:
+                m.stdout = "HEAD\n"
+            return m
+        mock_subproc.side_effect = fake_run
+
+        # 1. Success case: verifies rawPredict endpoint and resolution to claude-3-opus@20240229 in us-east5
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        run_preflight(
+            repo_url="https://github.com/test/repo.git",
+            gh_token="gh-token",
+            use_vertex=True,
+            gemini_api_key="",
+            project="my-gcp-project",
+            region="global",
+            model="opus-5.5",
+            dry_run=False,
+            gcs_bucket="test-bucket",
+        )
+
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            req.full_url,
+            "https://us-east5-aiplatform.googleapis.com/v1/projects/my-gcp-project/locations/us-east5/publishers/anthropic/models/claude-3-opus@20240229:rawPredict",
+        )
+        self.assertEqual(req.get_header("X-goog-user-project"), "my-gcp-project")
+        self.assertEqual(req.get_header("Authorization"), "Bearer token-xyz")
+        req_body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(req_body.get("anthropic_version"), "vertex-2023-10-16")
+        self.assertEqual(req_body.get("messages"), [{"role": "user", "content": "ping"}])
+        self.assertEqual(req_body.get("max_tokens"), 1)
+
+        # 2. HTTP 404 error case: raises RuntimeError with Model Garden instructions
+        mock_urlopen.reset_mock()
+        http_404 = urllib.error.HTTPError(
+            url=req.full_url,
+            code=404,
+            msg="Not Found",
+            hdrs={},
+            fp=io.BytesIO(b'{"error": {"code": 404, "message": "Publisher model not found"}}'),
+        )
+        mock_urlopen.side_effect = http_404
+
+        with self.assertRaises(RuntimeError) as ctx:
+            run_preflight(
+                repo_url="https://github.com/test/repo.git",
+                gh_token="gh-token",
+                use_vertex=True,
+                gemini_api_key="",
+                project="my-gcp-project",
+                region="global",
+                model="opus-5.5",
+                dry_run=False,
+                gcs_bucket="test-bucket",
+            )
+        err_msg = str(ctx.exception)
+        self.assertIn("opus-5.5", err_msg)
+        self.assertIn("claude-3-opus@20240229", err_msg)
+        self.assertIn("us-east5", err_msg)
+        self.assertIn("404 Not Found", err_msg)
+        self.assertIn("Model Garden", err_msg)
+        self.assertIn("Enable", err_msg)
+
+    @patch("urllib.request.urlopen")
+    @patch("subprocess.run")
+    def test_preflight_vertex_deepseek_model_url(self, mock_subproc, mock_urlopen):
+        def fake_run(cmd, *args, **kwargs):
+            m = MagicMock()
+            m.returncode = 0
+            if "print-access-token" in cmd:
+                m.stdout = "token-xyz\n"
+            else:
+                m.stdout = "HEAD\n"
+            return m
+        mock_subproc.side_effect = fake_run
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        run_preflight(
+            repo_url="https://github.com/test/repo.git",
+            gh_token="gh-token",
+            use_vertex=True,
+            gemini_api_key="",
+            project="my-gcp-project",
+            region="global",
+            model="deepseek-v4.1-flash",
+            dry_run=False,
+            gcs_bucket="test-bucket",
+        )
+
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            req.full_url,
+            "https://aiplatform.googleapis.com/v1/projects/my-gcp-project/locations/global/publishers/deepseek-ai/models/deepseek-v4.1-flash-maas:generateContent",
+        )
+        self.assertEqual(req.get_header("X-goog-user-project"), "my-gcp-project")
+        self.assertEqual(req.get_header("Authorization"), "Bearer token-xyz")
+        req_body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(req_body.get("generationConfig", {}).get("maxOutputTokens"), 1)
+
+    @patch("urllib.request.urlopen")
+    @patch("subprocess.run")
+    def test_preflight_deepseek_auto_vertex_and_canonical_alias(self, mock_subproc, mock_urlopen):
+        def fake_run(cmd, *args, **kwargs):
+            m = MagicMock()
+            m.returncode = 0
+            if "print-access-token" in cmd:
+                m.stdout = "token-xyz\n"
+            else:
+                m.stdout = "HEAD\n"
+            return m
+        mock_subproc.side_effect = fake_run
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        run_preflight(
+            repo_url="https://github.com/test/repo.git",
+            gh_token="gh-token",
+            use_vertex=False,
+            gemini_api_key="",
+            project="my-gcp-project",
+            region="global",
+            model="deepseek",
+            dry_run=False,
+            gcs_bucket="test-bucket",
+        )
+
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            req.full_url,
+            "https://aiplatform.googleapis.com/v1/projects/my-gcp-project/locations/global/publishers/deepseek-ai/models/deepseek-v4.1-flash-maas:generateContent",
+        )
+        self.assertEqual(req.get_header("Authorization"), "Bearer token-xyz")
+        req_body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(req_body.get("generationConfig", {}).get("maxOutputTokens"), 1)
+
+    @patch("urllib.request.urlopen")
+    @patch("subprocess.run")
+    def test_preflight_vertex_gemini_generation_config_max_output_tokens(self, mock_subproc, mock_urlopen):
+        def fake_run(cmd, *args, **kwargs):
+            m = MagicMock()
+            m.returncode = 0
+            if "print-access-token" in cmd:
+                m.stdout = "token-xyz\n"
+            else:
+                m.stdout = "HEAD\n"
+            return m
+        mock_subproc.side_effect = fake_run
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        run_preflight(
+            repo_url="https://github.com/test/repo.git",
+            gh_token="gh-token",
+            use_vertex=True,
+            gemini_api_key="",
+            project="my-gcp-project",
+            region="us-central1",
+            model="gemini-4-argon",
+            dry_run=False,
+            gcs_bucket="test-bucket",
+        )
+
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        req_body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(req_body.get("generationConfig", {}).get("maxOutputTokens"), 1)
+
+    def test_tier3_dedicated_models_interception(self):
+        for model in ("glm-5-3-flash", "llama-3.3-70b", "GLM-5-3-FLASH", "Llama-3.3-70b", "glm-5.3", "llama-3.3", "glm-5.3-flash", "llama-3.3-70b-instruct"):
+            with self.subTest(model=model):
+                with self.assertRaises(RuntimeError) as ctx:
+                    run_preflight(
+                        repo_url="https://github.com/org/repo.git",
+                        gh_token="test-token",
+                        use_vertex=True,
+                        gemini_api_key="",
+                        project="test-proj",
+                        region="us-central1",
+                        model=model,
+                        dry_run=False,
+                    )
+                self.assertIn("Tier 3 open-weights model requiring a dedicated GPU cluster endpoint", str(ctx.exception))
+                self.assertIn("gemini-4-argon, gemini-3.8-flash, deepseek-v4.1-flash", str(ctx.exception))
+
+    def test_cloud_dispatch_list_models_flag(self):
+        import cloud_dispatch
+        with patch("sys.argv", ["cloud_dispatch.py", "--list-models"]), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            cloud_dispatch.main()
+            out = mock_out.getvalue()
+            self.assertIn("Vertex AI Model Garden Tiers for Cloud Swarms:", out)
+            self.assertIn("Tier 1: Native MaaS", out)
+            self.assertIn("Tier 2: Gated Partner MaaS", out)
+            self.assertIn("Tier 3: Dedicated GPU Cluster Endpoints", out)
+            self.assertIn("glm-5-3-flash", out)
+            self.assertIn("llama-3.3-70b", out)
+            self.assertIn("gemini-4-argon", out)
+            self.assertIn("deepseek-v4.1-flash", out)
 
     @patch("urllib.request.urlopen")
     @patch("subprocess.run")
@@ -633,6 +855,14 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
         self.assertEqual(resolve_swarm_model(cli_model="auto"), "gemini-3.8-flash")
         self.assertEqual(resolve_swarm_model(cli_model="inherit-parent"), "gemini-3.8-flash")
         self.assertEqual(resolve_swarm_model(cli_model="inherit_parent"), "gemini-3.8-flash")
+        self.assertEqual(resolve_swarm_model(cli_model="argon"), "gemini-4-argon")
+        self.assertEqual(resolve_swarm_model(cli_model="gemini-argon"), "gemini-4-argon")
+        self.assertEqual(resolve_swarm_model(cli_model="gemini"), "gemini-3.8-flash")
+        self.assertEqual(resolve_swarm_model(cli_model="deepseek"), "deepseek-v4.1-flash")
+        self.assertEqual(resolve_swarm_model(cli_model="deepseek-flash"), "deepseek-v4.1-flash")
+        self.assertEqual(cloud_worker.resolve_worker_model("argon"), "gemini-4-argon")
+        self.assertEqual(cloud_worker.resolve_worker_model("deepseek"), "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas")
+        self.assertEqual(cloud_worker.resolve_worker_model("deepseek-flash"), "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas")
 
     def test_resolve_swarm_model_parent_model_inheritance(self):
         # Explicit parent_model argument

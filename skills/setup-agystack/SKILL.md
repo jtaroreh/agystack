@@ -54,11 +54,18 @@ Do not leave the user to do the work. Complete the deployment end-to-end for the
 
 ### 2. Detect available models
 
-Enumerate the model tiers you can pass to `invoke_subagent`:
+Enumerate the model tiers you can pass to `invoke_subagent` (local) and `cloud_dispatch.py` (Cloud Run):
+
+**Local subagent tiers (`invoke_subagent`):**
 - `pro`: High-capability tier (maximum reasoning budget for complex code, architecture, and hard tasks)
 - `flash`: Balanced fast tier (fast execution for exploration and standard generation)
 - `flash_lite`: Lightweight tier (minimal latency for quick lookups)
 - `inherit` (or `auto`): Inherit parent chat model
+
+**Cloud Run swarm model tiers (`cloud_dispatch.py`):**
+- **Tier 1 (Zero-Friction MaaS):** `gemini-4-argon`, `gemini-3.8-flash`, `deepseek-v4.1-flash` (Instant on global Vertex endpoint, zero forms).
+- **Tier 2 (Gated Partner MaaS):** `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-opus` (Requires one-time Console agreement).
+- **Tier 3 (Dedicated GPU Endpoint):** Open-weights models like `glm-5-3-flash` requiring dedicated 8x H100/B200 GPU instances.
 
 ### 3. Load current state
 
