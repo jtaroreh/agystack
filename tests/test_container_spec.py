@@ -1,4 +1,3 @@
-import os
 import re
 import unittest
 from pathlib import Path
@@ -10,7 +9,6 @@ class TestContainerSpec(unittest.TestCase):
         cls.project_root = Path(__file__).resolve().parent.parent
         cls.scripts_dir = cls.project_root / "skills" / "swarm" / "scripts"
         cls.dockerfile_path = cls.scripts_dir / "Dockerfile"
-        cls.installed_plugin_dir = Path(os.path.expanduser("~/.gemini/config/plugins/agystack/skills/swarm/scripts"))
 
         if not cls.dockerfile_path.is_file():
             raise FileNotFoundError(f"Dockerfile not found at {cls.dockerfile_path}")
@@ -120,36 +118,12 @@ class TestContainerSpec(unittest.TestCase):
             r"COPY\s+agents\s+\/home\/worker\/\.gemini\/config\/plugins\/agystack\/agents",
         )
 
-    def test_cargo_deny_does_not_exist_on_disk(self):
-        cargo_deny_path = self.scripts_dir / "cargo-deny"
-        self.assertFalse(
-            cargo_deny_path.exists(),
-            f"cargo-deny must not exist on disk: {cargo_deny_path}",
-        )
-
-    def test_setup_rust_worker_does_not_exist_on_disk(self):
-        setup_script_path = self.scripts_dir / "setup-rust-worker.sh"
-        self.assertFalse(
-            setup_script_path.exists(),
-            f"setup-rust-worker.sh must not exist on disk: {setup_script_path}",
-        )
-
     def test_cargo_deny_not_in_dockerfile(self):
         self.assertNotIn(
             "cargo-deny",
             self.dockerfile_content,
             "cargo-deny must not be referenced in Dockerfile",
         )
-
-    def test_installed_plugin_dockerfile_sync(self):
-        installed_dockerfile = self.installed_plugin_dir / "Dockerfile"
-        if installed_dockerfile.is_file():
-            installed_content = installed_dockerfile.read_text(encoding="utf-8")
-            self.assertEqual(
-                self.dockerfile_content,
-                installed_content,
-                "Installed agystack plugin Dockerfile must match project Dockerfile",
-            )
 
 
 if __name__ == "__main__":

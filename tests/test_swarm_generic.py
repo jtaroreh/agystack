@@ -125,8 +125,5 @@ class TestParetoFrontier(unittest.TestCase):
         self.assertEqual(extract_pareto_frontier(single_min, maximize=False), single_min)
 
 
-TestSwarmGenericHarvester = TestParetoFrontier
-
-
 if __name__ == "__main__":
     unittest.main()

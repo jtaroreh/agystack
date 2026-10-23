@@ -268,10 +268,17 @@ class _LocalBlob:
         if_generation_match: Optional[int] = None,
         **kwargs: Any,
     ) -> None:
-        if if_generation_match == 0 and self.path.exists():
-            raise FileExistsError(f"Target object already exists: {self.path}")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(data, encoding="utf-8")
+        if if_generation_match == 0:
+            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+            try:
+                fd = os.open(str(self.path), flags, 0o666)
+            except FileExistsError:
+                raise FileExistsError(f"Target object already exists: {self.path}")
+            with open(fd, "w", encoding="utf-8") as f:
+                f.write(data)
+        else:
+            self.path.write_text(data, encoding="utf-8")
 
     def download_as_text(self) -> str:
         return self.path.read_text(encoding="utf-8")
@@ -563,62 +570,74 @@ class StorageMessenger:
         retry_delay: float = 0.05,
     ) -> MailboxEnvelope:
         prefix = f"{self._session_prefix()}/tasks/task-{task_index}/inbox/"
-        max_seq = 0
+        delay = retry_delay
 
-        def _resolve_max_seq():
-            nonlocal max_seq
-            blobs = self.bucket.list_blobs(prefix=prefix)
-            for b in blobs:
-                name = getattr(b, "name", "")
-                if "_steer.json" in name:
-                    base = name.split("/")[-1]
-                    try:
-                        seq_val = int(base.split("_")[0])
-                        if seq_val > max_seq:
-                            max_seq = seq_val
-                    except ValueError:
-                        pass
+        for attempt in range(max_retries + 1):
+            max_seq = 0
 
-        try:
-            retry_gcs_operation(_resolve_max_seq, max_retries=max_retries, initial_delay=retry_delay)
-        except Exception as exc:
-            raise RuntimeError("GCS sequence resolution failed") from exc
+            def _resolve_max_seq():
+                nonlocal max_seq
+                blobs = self.bucket.list_blobs(prefix=prefix)
+                for b in blobs:
+                    name = getattr(b, "name", "")
+                    if "_steer.json" in name:
+                        base = name.split("/")[-1]
+                        try:
+                            seq_val = int(base.split("_")[0])
+                            if seq_val > max_seq:
+                                max_seq = seq_val
+                        except ValueError:
+                            pass
 
-        steer_seq = max_seq + 1
-        envelope = MailboxEnvelope(
-            session_id=self.session_id,
-            task_index=task_index,
-            seq=steer_seq,
-            msg_type=MessageType.STEER,
-            sender="orchestrator",
-            recipient=f"worker-{task_index}",
-            timestamp=time.time(),
-            payload={"instruction": instruction, "text": instruction},
-            status=MessageStatus.PENDING,
-        )
-
-        obj_path = self._inbox_steer_path(task_index, steer_seq)
-        blob = self.bucket.blob(obj_path)
-
-        def _upload_blob():
             try:
-                blob.upload_from_string(
-                    envelope.to_json(),
-                    content_type="application/json",
-                    if_generation_match=0,
-                )
-            except TypeError:
-                blob.upload_from_string(
-                    envelope.to_json(),
-                    content_type="application/json",
-                )
+                retry_gcs_operation(_resolve_max_seq, max_retries=max_retries, initial_delay=retry_delay)
+            except Exception as exc:
+                raise RuntimeError("GCS sequence resolution failed") from exc
 
-        retry_gcs_operation(
-            _upload_blob,
-            max_retries=max_retries,
-            initial_delay=retry_delay,
-        )
-        return envelope
+            steer_seq = max_seq + 1
+            envelope = MailboxEnvelope(
+                session_id=self.session_id,
+                task_index=task_index,
+                seq=steer_seq,
+                msg_type=MessageType.STEER,
+                sender="orchestrator",
+                recipient=f"worker-{task_index}",
+                timestamp=time.time(),
+                payload={"instruction": instruction, "text": instruction},
+                status=MessageStatus.PENDING,
+            )
+
+            obj_path = self._inbox_steer_path(task_index, steer_seq)
+            blob = self.bucket.blob(obj_path)
+
+            def _upload_blob():
+                try:
+                    blob.upload_from_string(
+                        envelope.to_json(),
+                        content_type="application/json",
+                        if_generation_match=0,
+                    )
+                except TypeError:
+                    blob.upload_from_string(
+                        envelope.to_json(),
+                        content_type="application/json",
+                    )
+
+            try:
+                retry_gcs_operation(
+                    _upload_blob,
+                    max_retries=max_retries,
+                    initial_delay=retry_delay,
+                )
+                return envelope
+            except Exception as exc:
+                if _is_precondition_or_collision_error(exc):
+                    if attempt >= max_retries:
+                        raise
+                    time.sleep(delay)
+                    delay *= 1.5
+                    continue
+                raise
 
     def discover_tasks(self) -> List[int]:
         """Discovers active or existing task indices for this session from storage."""
