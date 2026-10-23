@@ -874,7 +874,6 @@ class TestWorkspaceTools(unittest.TestCase):
 
 class TestCloudWorkerManifestAuth(unittest.TestCase):
     def test_main_deepseek_manifest_enables_vertex_under_adc(self):
-        import cloud_worker
         env = {
             "REPO_URL": "https://github.com/example/repo.git",
             "MODEL_OVERRIDE": "",
