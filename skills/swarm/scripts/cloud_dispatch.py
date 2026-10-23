@@ -909,7 +909,7 @@ def run_preflight(
         target_loc = vertex_location or "global"
         resolved_model = model
 
-        if is_partner_model and is_partner_model(model) and "fable" not in model.lower():
+        if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and "deepseek" not in model.lower():
             resolved_model = PARTNER_MODEL_ALIASES.get(model.lower(), model)
             target_loc = vertex_location if vertex_location and vertex_location != "global" else (region if region and region != "global" else "us-east5")
             probe_url = f"https://{target_loc}-aiplatform.googleapis.com/v1/projects/{project}/locations/{target_loc}/publishers/anthropic/models/{resolved_model}:rawPredict"
@@ -958,7 +958,7 @@ def run_preflight(
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 pass
-            if is_partner_model and is_partner_model(model) and "fable" not in model.lower():
+            if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and "deepseek" not in model.lower():
                 print(f"  [PASS] Vertex AI credentials and Model Garden partner model '{model}' ({resolved_model}) verified in {target_loc} (project: {project}).")
             elif "deepseek" in model.lower():
                 print(f"  [PASS] Vertex AI credentials and DeepSeek MaaS model '{resolved_model}' verified in {target_loc} (project: {project}).")
@@ -966,7 +966,7 @@ def run_preflight(
                 print(f"  [PASS] Vertex AI credentials and publisher model '{model}' verified in {target_loc} (project: {project}).")
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
-            if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and exc.code == 404:
+            if is_partner_model and is_partner_model(model) and "fable" not in model.lower() and "deepseek" not in model.lower() and exc.code == 404:
                 raise RuntimeError(
                     f"Vertex AI Model Garden partner model '{model}' (resolved to '{resolved_model}') not found or not enabled in location '{target_loc}' (404 Not Found).\n"
                     f"Server Response:\n{err_body}\n"
@@ -1375,7 +1375,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
     else:
         vertex_location = region
 
-    if is_partner_model and is_partner_model(model):
+    if is_partner_model and is_partner_model(model) and "deepseek" not in model.lower():
         use_vertex = True
         if not explicit_vertex_loc and vertex_location == "global":
             vertex_location = region if region and region != "global" else "us-east5"

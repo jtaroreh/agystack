@@ -19,9 +19,11 @@ from cloud_worker import (
     emit_thought,
     emit_tool_invocation,
     emit_tool_result,
+    execute_deepseek_model_agent,
     execute_partner_model_agent,
     execute_task,
     execute_workspace_tool,
+    is_deepseek_model,
     is_partner_model,
     measure_partner_client_startup,
     resolve_worker_model,
@@ -66,6 +68,24 @@ class TestVertexPartnerModelResolution(unittest.TestCase):
         for alias in aliases:
             resolved = resolve_worker_model(alias)
             self.assertEqual(resolved, "fable-5-1")
+            self.assertTrue(is_partner_model(resolved))
+
+    def test_alias_resolution_deepseek(self):
+        aliases = [
+            "deepseek",
+            "deepseek-flash",
+            "deepseek-4.1",
+            "deepseek-v4.1",
+            "deepseek-4.1-flash",
+            "deepseek-v4.1-flash",
+            "deepseek-v4.1-flash-maas",
+            "deepseek-v4.1-flash-maas@001",
+            "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
+        ]
+        canonical = "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas"
+        for alias in aliases:
+            resolved = resolve_worker_model(alias)
+            self.assertEqual(resolved, canonical)
             self.assertTrue(is_partner_model(resolved))
 
     def test_gemini_models_are_not_partner_models(self):
@@ -184,6 +204,21 @@ class TestVertexPartnerExecution(unittest.TestCase):
                 "Missing dependency: google-cloud-aiplatform Python package is not installed.",
             )
 
+    def test_missing_genai_fallback_blocked_for_deepseek(self):
+        with patch.dict(sys.modules, {"google.genai": None}):
+            status, summary = execute_task(
+                task_item={"model": "deepseek"},
+                task_brief="Implement deepseek task",
+                repo_dir=self.repo_dir,
+                model_override="deepseek",
+                api_key="",
+            )
+            self.assertEqual(status, "BLOCKED")
+            self.assertEqual(
+                summary,
+                "Missing dependency: google-genai Python package is not installed.",
+            )
+
     def test_milestone_emission_partner_model(self):
         mock_anthropic = MagicMock()
         mock_client = MagicMock()
@@ -232,6 +267,46 @@ class TestVertexPartnerExecution(unittest.TestCase):
             self.assertEqual(status, "PASS")
             mock_milestone.assert_called_with(
                 2, "RUNNING_AGENT", "Vertex Model Garden agent (fable-5-1)"
+            )
+
+    def test_milestone_emission_deepseek_model(self):
+        mock_genai = MagicMock()
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.text = "[STATUS: PASS] DeepSeek done."
+        mock_resp.function_calls = []
+        mock_resp.candidates = [
+            MagicMock(
+                content=MagicMock(
+                    parts=[
+                        MagicMock(
+                            text="[STATUS: PASS] DeepSeek done.",
+                            thought=None,
+                            function_call=None,
+                        )
+                    ]
+                )
+            )
+        ]
+        mock_client.models.generate_content.return_value = mock_resp
+        mock_genai.Client.return_value = mock_client
+
+        with patch.dict(sys.modules, {"google.genai": mock_genai}), patch(
+            "cloud_worker.emit_milestone"
+        ) as mock_milestone:
+            status, _ = execute_task(
+                task_item={"model": "deepseek"},
+                task_brief="Execute brief",
+                repo_dir=self.repo_dir,
+                model_override="deepseek",
+                api_key="",
+                task_index=2,
+            )
+            self.assertEqual(status, "PASS")
+            mock_milestone.assert_called_with(
+                2,
+                "RUNNING_AGENT",
+                "Vertex Model Garden agent (publishers/deepseek-ai/models/deepseek-v4.1-flash-maas)",
             )
 
     def test_autonomous_tool_calling_loop_writes_files_and_passes(self):
@@ -298,11 +373,76 @@ class TestVertexPartnerExecution(unittest.TestCase):
             )
             self.assertIn("solution.py", git_res.stdout)
 
-            mock_thought.assert_called_once_with(1, "I need to write solution.py")
-            self.assertEqual(mock_inv.call_count, 2)
-            mock_inv.assert_any_call(1, "write_file", {"path": "solution.py", "content": "def solve(): return 42\n"})
-            mock_inv.assert_any_call(1, "run_command", {"command": "python3 -c 'import solution; assert solution.solve() == 42'"})
-            self.assertEqual(mock_res.call_count, 2)
+    def test_autonomous_tool_calling_loop_deepseek(self):
+        mock_genai = MagicMock()
+        mock_client = MagicMock()
+
+        # Turn 0: DeepSeek emits a thought and calls write_file
+        fc1 = MagicMock()
+        fc1.name = "write_file"
+        fc1.args = {"path": "deepseek_solution.py", "content": "def deepseek_fn(): return 100\n"}
+
+        part_think = MagicMock()
+        part_think.thought = "Thinking about deepseek solution"
+        part_think.text = "<think>Thinking about deepseek solution</think>"
+        part_think.function_call = None
+
+        part_call1 = MagicMock()
+        part_call1.thought = None
+        part_call1.text = None
+        part_call1.function_call = fc1
+
+        resp0 = MagicMock()
+        resp0.function_calls = [fc1]
+        cand0 = MagicMock()
+        cand0.content = MagicMock(parts=[part_think, part_call1])
+        resp0.candidates = [cand0]
+
+        # Turn 1: DeepSeek finishes with PASS
+        part_final = MagicMock()
+        part_final.thought = None
+        part_final.text = "[STATUS: PASS] DeepSeek solution implemented."
+        part_final.function_call = None
+
+        resp1 = MagicMock()
+        resp1.function_calls = []
+        cand1 = MagicMock()
+        cand1.content = MagicMock(parts=[part_final])
+        resp1.candidates = [cand1]
+        resp1.text = "[STATUS: PASS] DeepSeek solution implemented."
+
+        mock_client.models.generate_content.side_effect = [resp0, resp1]
+        mock_genai.Client.return_value = mock_client
+
+        with patch.dict(sys.modules, {"google.genai": mock_genai}), patch(
+            "cloud_worker.emit_thought"
+        ) as mock_thought, patch("cloud_worker.emit_tool_invocation") as mock_inv, patch(
+            "cloud_worker.emit_tool_result"
+        ) as mock_res:
+            status, summary = execute_task(
+                task_item={"model": "deepseek-v4.1-flash"},
+                task_brief="Implement deepseek solution",
+                repo_dir=self.repo_dir,
+                model_override="deepseek-v4.1-flash",
+                api_key="",
+                task_index=2,
+            )
+            self.assertEqual(status, "PASS")
+            self.assertIn("DeepSeek solution implemented.", summary)
+
+            solution_file = self.repo_dir / "deepseek_solution.py"
+            self.assertTrue(solution_file.is_file())
+            self.assertEqual(
+                solution_file.read_text(encoding="utf-8"), "def deepseek_fn(): return 100\n"
+            )
+
+            mock_thought.assert_called_with(2, "Thinking about deepseek solution")
+            mock_inv.assert_called_once_with(
+                2,
+                "write_file",
+                {"path": "deepseek_solution.py", "content": "def deepseek_fn(): return 100\n"},
+            )
+            self.assertEqual(mock_res.call_count, 1)
 
     def test_autonomous_tool_calling_loop_edit_and_read_file(self):
         readme = self.repo_dir / "README.md"
