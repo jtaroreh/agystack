@@ -86,22 +86,22 @@ class TestArchitectureRemediation(unittest.TestCase):
 
     def test_strict_status_regex_parsing(self):
         # 1. Exact valid tokens
-        status, _ = cloud_worker.evaluate_agent_status("Finished work. [STATUS: PASS]")
+        status, _ = cloud_worker.evaluate_agent_status("Finished work.\n[STATUS: PASS]")
         self.assertEqual(status, "PASS")
 
         status, _ = cloud_worker.evaluate_agent_status("[STATUS: ISSUES]\nFound some edge cases")
         self.assertEqual(status, "ISSUES")
 
-        status, _ = cloud_worker.evaluate_agent_status("[STATUS:  BLOCKED ] Out of quota")
+        status, _ = cloud_worker.evaluate_agent_status("Out of quota\n[STATUS: BLOCKED]")
         self.assertEqual(status, "BLOCKED")
 
-        # Case-insensitive
+        # Malformed declarations fail closed.
         status, _ = cloud_worker.evaluate_agent_status("[status: pass]")
-        self.assertEqual(status, "PASS")
+        self.assertEqual(status, "ISSUES")
 
-        # Support DEV_IMPROVED mapped to PASS
+        # DEV_IMPROVED does not certify completion
         status, _ = cloud_worker.evaluate_agent_status("[STATUS: DEV_IMPROVED]\nCandidate improved score")
-        self.assertEqual(status, "PASS")
+        self.assertEqual(status, "ISSUES")
 
         # 2. False positives without strict token must fall back to ISSUES
         status, _ = cloud_worker.evaluate_agent_status("I hope this passes and does not fail password test.")
@@ -145,9 +145,11 @@ class TestArchitectureRemediation(unittest.TestCase):
         task1_dir.mkdir(parents=True, exist_ok=True)
 
         (task0_dir / "score.json").write_text(json.dumps({"score": 98.2, "status": "PASS"}), encoding="utf-8")
+        (task0_dir / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         (task0_dir / "patch.diff").write_text("--- a/foo\n+++ b/foo\n+pass", encoding="utf-8")
 
         (task1_dir / "score.json").write_text(json.dumps({"score": 45.0, "status": "ISSUES"}), encoding="utf-8")
+        (task1_dir / "status.json").write_text(json.dumps({"status": "ISSUES"}), encoding="utf-8")
         (task1_dir / "patch.diff").write_text("--- a/bar\n+++ b/bar\n+fail", encoding="utf-8")
 
         dest_dir = self.tmp_path / "downloaded_patches"
@@ -390,8 +392,11 @@ class TestArchitectureRemediation(unittest.TestCase):
             t.mkdir(parents=True, exist_ok=True)
 
         (t0 / "score.json").write_text(json.dumps({"score": 90.0, "status": "PASS"}), encoding="utf-8")
+        (t0 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         (t1 / "score.json").write_text(json.dumps({"score": 95.0, "status": "PASS"}), encoding="utf-8")
+        (t1 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         (t2 / "score.json").write_text(json.dumps({"score": 99.0, "status": "ISSUES"}), encoding="utf-8")
+        (t2 / "status.json").write_text(json.dumps({"status": "ISSUES"}), encoding="utf-8")
         (t3 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
 
         dest_dir = self.tmp_path / "harvest_delta_out"
@@ -432,12 +437,14 @@ class TestArchitectureRemediation(unittest.TestCase):
         task_dir = mock_storage / bucket / f"swarms/{session_id}" / "task-0"
         task_dir.mkdir(parents=True, exist_ok=True)
         (task_dir / "score.json").write_text(json.dumps({"score": 92.5, "status": "PASS"}), encoding="utf-8")
+        (task_dir / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         (task_dir / "patch.diff").write_text("--- a/f\n+++ b/f\n+ok", encoding="utf-8")
 
         cmd = [
             sys.executable,
             str(dispatch_script),
             "--harvest-session", session_id,
+            "--tasks", "1",
             "--gcs-bucket", bucket,
             "--baseline-score", "90.0",
         ]
@@ -543,12 +550,15 @@ class TestArchitectureRemediation(unittest.TestCase):
 
         # Task 0: string score "N/A"
         (t0 / "score.json").write_text(json.dumps({"score": "N/A", "status": "PASS"}), encoding="utf-8")
+        (t0 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         # Task 1: valid float score 95.0
         (t1 / "score.json").write_text(json.dumps({"score": 95.0, "status": "PASS"}), encoding="utf-8")
+        (t1 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         # Task 2: None score
         (t2 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         # Task 3: valid float score 99.0
         (t3 / "score.json").write_text(json.dumps({"score": 99.0, "status": "PASS"}), encoding="utf-8")
+        (t3 / "status.json").write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
 
         dest_dir = self.tmp_path / "harvest_nan_out"
         with patch.dict(os.environ, {"STORAGE_MESSENGER_LOCAL_DIR": str(mock_storage)}):
@@ -685,7 +695,9 @@ class TestArchitectureRemediation(unittest.TestCase):
                     with patch("cloud_worker.execute_task", side_effect=fake_execute):
                         import io
                         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-                            cloud_worker.main()
+                            with self.assertRaises(SystemExit) as exit_result:
+                                cloud_worker.main()
+                            self.assertEqual(exit_result.exception.code, 1)
                             out = mock_out.getvalue()
                             self.assertIn("[STATUS: ISSUES]", out)
                             self.assertIn("Fail-closed: No GCS bucket configured", out)

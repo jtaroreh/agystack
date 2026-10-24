@@ -256,6 +256,8 @@ def upload_run_artifacts(
     status: str = "UNKNOWN",
     candidate_files: Optional[List[str]] = None,
     commit_sha: Optional[str] = None,
+    *,
+    evidence_files: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     repo = Path(repo_dir)
     clean_prefix = prefix.strip().strip("/")
@@ -264,27 +266,56 @@ def upload_run_artifacts(
 
     uploaded: Dict[str, str] = {}
 
-    # ATOMIC PUBLICATION:
-    # Under zero-push architecture, if status == "PASS":
-    # Generate patch.diff and upload it to GCS FIRST (target_prefix/patch.diff).
+    delivery_errors = []
+    proposed_pass = status == "PASS"
+    evidence_paths = []
+    root = repo.resolve()
+    for relative in evidence_files or []:
+        path = (root / relative).resolve()
+        if root not in path.parents or ".git" in path.relative_to(root).parts:
+            delivery_errors.append(f"Evidence path outside allowed repository files: {relative}")
+            continue
+        if path.is_dir():
+            evidence_paths.extend(path.rglob("*"))
+        elif path.is_file():
+            evidence_paths.append(path)
+        else:
+            delivery_errors.append(f"Evidence file missing: {relative}")
+    diagnostics = root / ".agystack/diagnostics"
+    if diagnostics.is_dir():
+        evidence_paths.extend(diagnostics.glob("*.log"))
+    for path in sorted(set(evidence_paths)):
+        resolved = path.resolve()
+        if not resolved.is_file() or root not in resolved.parents or ".git" in resolved.relative_to(root).parts:
+            continue
+        name = f"evidence/{path.relative_to(root).as_posix()}"
+        dest = f"{target_prefix}/{name}"
+        if upload_to_gcs(bucket_name, dest, path):
+            uploaded[name] = f"gs://{bucket_name}/{dest}"
+        else:
+            delivery_errors.append(f"Evidence upload failed: {name}")
+    if delivery_errors and proposed_pass:
+        status = "ISSUES"
+
     patch_uploaded = False
-    if status == "PASS":
-        patch_path = repo / "patch.diff"
-        if not patch_path.is_file():
+    if candidate_files or (status == "PASS" and candidate_files is None):
+        patch_name = "patch.diff" if status == "PASS" else "partial.patch.diff"
+        patch_path = repo / patch_name
+        if candidate_files or not patch_path.is_file():
             patch_content = _generate_git_patch(repo, candidate_files=candidate_files, commit_sha=commit_sha)
             if patch_content:
                 patch_path.write_text(patch_content, encoding="utf-8")
 
         if patch_path.is_file() and patch_path.stat().st_size > 0:
-            dest = f"{target_prefix}/patch.diff"
+            dest = f"{target_prefix}/{patch_name}"
             if upload_to_gcs(bucket_name, dest, patch_path):
-                uploaded["patch.diff"] = f"gs://{bucket_name}/{dest}"
+                uploaded[patch_name] = f"gs://{bucket_name}/{dest}"
                 patch_uploaded = True
 
-        # If candidate_files were modified and patch.diff failed to upload or is missing/empty:
-        # Override status = "ISSUES"!
         if candidate_files and not patch_uploaded:
-            status = "ISSUES"
+            delivery_errors.append("Candidate patch failed to upload or is missing under zero-push delivery.")
+            if status == "PASS":
+                status = "ISSUES"
 
     # Upload score.json and results.tsv
     score_path = repo / "score.json"
@@ -309,8 +340,9 @@ def upload_run_artifacts(
             status_data = {}
     status_data["task_index"] = task_index
     status_data["status"] = status
-    if candidate_files and not patch_uploaded and status == "ISSUES":
-        status_data["evidence"] = "Candidate patch failed to upload or is missing under zero-push delivery."
+    status_data["artifacts"] = uploaded
+    if delivery_errors:
+        status_data["evidence"] = "\n".join(delivery_errors)
     status_path.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
 
     dest = f"{target_prefix}/status.json"

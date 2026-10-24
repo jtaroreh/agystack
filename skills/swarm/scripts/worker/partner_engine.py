@@ -6,11 +6,12 @@ interception, AnthropicVertex client integration, and autonomous turn loops.
 """
 
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from .execution import ExecutionLimits, evaluate_agent_status as _evaluate_agent_status, exhaustion_result, limits_for_task, run_bounded_shell
 
 try:
     from pre_tool_safety import evaluate_safety
@@ -30,7 +31,7 @@ Guidelines:
 1. Implement the requested task directly and surgically in the workspace.
 2. Maintain high engineering rigor: run test suites and verification commands before completing.
 3. Keep diffs minimal and clean. Avoid narrating comments or speculative code.
-4. Conclude with a clear summary and status: you MUST include either [STATUS: PASS] or [STATUS: ISSUES] at the end of your final response.
+4. End your final response with exactly one standalone unquoted line, outside code fences: [STATUS: PASS], [STATUS: ISSUES], or [STATUS: BLOCKED].
 """
 
 
@@ -288,7 +289,7 @@ def _safe_resolve_repo_path(repo_dir: Path, rel_path: str) -> Optional[Path]:
         return None
 
 
-def execute_workspace_tool(tool_name: str, tool_input: Dict[str, Any], repo_dir: Path) -> str:
+def execute_workspace_tool(tool_name: str, tool_input: Dict[str, Any], repo_dir: Path, *, limits: Optional[ExecutionLimits] = None) -> str:
     try:
         if tool_name == "read_file":
             path_str = str(tool_input.get("path", "")).strip()
@@ -352,27 +353,9 @@ def execute_workspace_tool(tool_name: str, tool_input: Dict[str, Any], repo_dir:
                     reason = safety_res.get("reason", "Destructive command rejected.")
                     return f"Error: Command blocked by safety policy ({safety_res.get('decision')}): {reason}"
 
-            timeout = int(os.environ.get("COMMAND_TIMEOUT", "300"))
-            try:
-                res = subprocess.run(
-                    cmd_str,
-                    shell=True,
-                    cwd=repo_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                output = res.stdout
-                if res.stderr:
-                    if output:
-                        output += "\n" + res.stderr
-                    else:
-                        output = res.stderr
-                return f"Exit code {res.returncode}:\n{output}"
-            except subprocess.TimeoutExpired:
-                return f"Error: command timed out after {timeout} seconds: {cmd_str}"
-            except Exception as e:
-                return f"Error executing command: {e}"
+            limits = limits or limits_for_task(None)
+            _, output = run_bounded_shell(cmd_str, repo_dir, limits.command_timeout_s)
+            return output
 
         else:
             return f"Error: unknown tool \x27{tool_name}\x27."
@@ -495,7 +478,10 @@ def execute_claude_model_agent(
     project: Optional[str] = None,
     location: Optional[str] = None,
     messenger: Optional[Any] = None,
+    *,
+    limits: Optional[ExecutionLimits] = None,
 ) -> Tuple[str, str]:
+    limits = limits or limits_for_task(task_item)
     anthropic = _get_anthropic()
     if anthropic is None:
         return "BLOCKED", "Missing dependency: anthropic[vertex] Python package is not installed."
@@ -527,10 +513,14 @@ def execute_claude_model_agent(
         messages: List[Dict[str, Any]] = [
             {"role": "user", "content": task_brief}
         ]
-        max_turns = 30
+        max_turns = limits.max_agent_turns
+        consumed = 0
+        last_tool = ""
         last_text = ""
 
         for turn in range(max_turns):
+            last_text = ""
+            consumed += 1
             response = client.messages.create(
                 model=model,
                 max_tokens=4096,
@@ -584,7 +574,8 @@ def execute_claude_model_agent(
             tool_results = []
             for tool_id, tool_name, tool_input in tool_uses:
                 emit_tool_invocation(task_index, tool_name, tool_input)
-                result_str = execute_workspace_tool(tool_name, tool_input, repo_dir)
+                last_tool = tool_name
+                result_str = execute_workspace_tool(tool_name, tool_input, repo_dir, limits=limits)
                 emit_tool_result(task_index, tool_name, result_str)
                 tool_results.append({
                     "type": "tool_result",
@@ -597,7 +588,7 @@ def execute_claude_model_agent(
                 "content": tool_results,
             })
 
-        return _evaluate_agent_status(last_text)
+        return exhaustion_result(repo_dir, max_turns, consumed, last_tool, last_text)
     except Exception as exc:
         return "ISSUES", f"Partner model execution exception: {exc}"
 
@@ -611,7 +602,10 @@ def execute_fable_model_agent(
     project: Optional[str] = None,
     location: Optional[str] = None,
     messenger: Optional[Any] = None,
+    *,
+    limits: Optional[ExecutionLimits] = None,
 ) -> Tuple[str, str]:
+    limits = limits or limits_for_task(task_item)
 
     aiplatform = _get_aiplatform()
     if aiplatform is None:
@@ -655,11 +649,15 @@ def execute_fable_model_agent(
         messages: List[Dict[str, Any]] = [
             {"role": "user", "content": task_brief}
         ]
-        max_turns = 30
+        max_turns = limits.max_agent_turns
+        consumed = 0
+        last_tool = ""
         last_text = ""
 
         for turn in range(max_turns):
+            last_text = ""
             response = None
+            consumed += 1
             if endpoint is not None and hasattr(endpoint, "predict"):
                 response = endpoint.predict(
                     instances=[{
@@ -738,7 +736,8 @@ def execute_fable_model_agent(
             tool_results = []
             for tool_id, tool_name, tool_input in tool_uses:
                 emit_tool_invocation(task_index, tool_name, tool_input)
-                result_str = execute_workspace_tool(tool_name, tool_input, repo_dir)
+                last_tool = tool_name
+                result_str = execute_workspace_tool(tool_name, tool_input, repo_dir, limits=limits)
                 emit_tool_result(task_index, tool_name, result_str)
                 tool_results.append({
                     "type": "tool_result",
@@ -751,7 +750,7 @@ def execute_fable_model_agent(
                 "content": tool_results,
             })
 
-        return _evaluate_agent_status(last_text)
+        return exhaustion_result(repo_dir, max_turns, consumed, last_tool, last_text)
     except Exception as exc:
         return "ISSUES", f"Vertex Model Garden Fable execution exception: {exc}"
 
@@ -765,7 +764,10 @@ def execute_deepseek_model_agent(
     project: Optional[str] = None,
     location: Optional[str] = None,
     messenger: Optional[Any] = None,
+    *,
+    limits: Optional[ExecutionLimits] = None,
 ) -> Tuple[str, str]:
+    limits = limits or limits_for_task(task_item)
     genai = _get_genai()
     if genai is None:
         return "BLOCKED", "Missing dependency: google-genai Python package is not installed."
@@ -821,13 +823,21 @@ def execute_deepseek_model_agent(
                 parts=[genai.types.Part.from_text(text=task_brief)],
             )
         ]
-        max_turns = 30
+        max_turns = limits.max_agent_turns
+        consumed = 0
+        last_tool = ""
         last_text = ""
 
         for turn in range(max_turns):
+            if consumed >= max_turns:
+                return exhaustion_result(repo_dir, max_turns, consumed, last_tool, last_text)
+            last_text = ""
             response = None
             for attempt in range(5):
+                if consumed >= max_turns:
+                    return exhaustion_result(repo_dir, max_turns, consumed, last_tool, last_text)
                 try:
+                    consumed += 1
                     response = client.models.generate_content(
                         model=model,
                         contents=contents,
@@ -843,10 +853,12 @@ def execute_deepseek_model_agent(
                         or "resource_exhausted" in err_str
                         or "deadline" in err_str
                         or "connection" in err_str
-                    ) and attempt < 4:
+                    ) and attempt < 4 and consumed < max_turns:
                         backoff = (2 ** attempt) * 2
                         emit_milestone(task_index, "RETRY", f"Transient {call_exc}; retrying in {backoff}s (attempt {attempt + 1}/5)...")
                         time.sleep(backoff)
+                    elif consumed >= max_turns:
+                        return exhaustion_result(repo_dir, max_turns, consumed, last_tool, str(call_exc))
                     else:
                         raise
 
@@ -882,6 +894,12 @@ def execute_deepseek_model_agent(
                     if fc:
                         func_calls.append(fc)
 
+            try:
+                response_text = getattr(response, "text", "")
+                last_text = response_text if isinstance(response_text, str) else ""
+            except Exception:
+                last_text = ""
+
             if not func_calls:
                 resp_text = None
                 try:
@@ -903,19 +921,21 @@ def execute_deepseek_model_agent(
                     ]
                     last_text = "\n".join(text_pieces).strip()
 
-                if not last_text and turn < max_turns - 1:
+                if not last_text and consumed >= max_turns:
+                    return exhaustion_result(repo_dir, max_turns, consumed, last_tool, last_text)
+                if not last_text:
                     contents.append(genai.types.Content(
                         role="model",
                         parts=[genai.types.Part.from_text(text="")]
                     ))
                     contents.append(genai.types.Content(
                         role="user",
-                        parts=[genai.types.Part.from_text(text="Please state your final summary and conclusion status: [STATUS: PASS] or [STATUS: ISSUES].")]
+                        parts=[genai.types.Part.from_text(text="Give your final summary. End with exactly one standalone unquoted status line outside code fences, [STATUS: PASS], [STATUS: ISSUES], or [STATUS: BLOCKED].")]
                     ))
                     continue
 
                 cleaned_text = re.sub(r"<think>.*?</think>", "", last_text, flags=re.DOTALL).strip()
-                return _evaluate_agent_status(cleaned_text or last_text)
+                return _evaluate_agent_status(cleaned_text)
 
             # Filter out empty text parts so DeepSeek does not echo empty text on next turn
             clean_parts = [
@@ -935,7 +955,8 @@ def execute_deepseek_model_agent(
                     except Exception:
                         tool_input = {}
                 emit_tool_invocation(task_index, tool_name, tool_input)
-                result_str = execute_workspace_tool(tool_name, tool_input, repo_dir)
+                last_tool = tool_name
+                result_str = execute_workspace_tool(tool_name, tool_input, repo_dir, limits=limits)
                 emit_tool_result(task_index, tool_name, result_str)
                 response_parts.append(
                     genai.types.Part.from_function_response(
@@ -946,8 +967,7 @@ def execute_deepseek_model_agent(
 
             contents.append(genai.types.Content(role="user", parts=response_parts))
 
-        cleaned_text = re.sub(r"<think>.*?</think>", "", last_text, flags=re.DOTALL).strip()
-        return _evaluate_agent_status(cleaned_text or last_text)
+        return exhaustion_result(repo_dir, max_turns, consumed, last_tool, last_text)
     except Exception as exc:
         return "ISSUES", f"DeepSeek model execution exception: {exc}"
 
@@ -961,7 +981,10 @@ def execute_partner_model_agent(
     project: Optional[str] = None,
     location: Optional[str] = None,
     messenger: Optional[Any] = None,
+    *,
+    limits: Optional[ExecutionLimits] = None,
 ) -> Tuple[str, str]:
+    limits = limits or limits_for_task(task_item)
     if is_deepseek_model(model):
         return execute_deepseek_model_agent(
             model=model,
@@ -972,6 +995,7 @@ def execute_partner_model_agent(
             project=project,
             location=location,
             messenger=messenger,
+            limits=limits,
         )
     if is_fable_model(model):
         return execute_fable_model_agent(
@@ -983,6 +1007,7 @@ def execute_partner_model_agent(
             project=project,
             location=location,
             messenger=messenger,
+            limits=limits,
         )
     return execute_claude_model_agent(
         model=model,
@@ -993,15 +1018,5 @@ def execute_partner_model_agent(
         project=project,
         location=location,
         messenger=messenger,
+        limits=limits,
     )
-
-
-def _evaluate_agent_status(agent_text: str) -> Tuple[str, str]:
-    import re
-    match = re.search(r"\[STATUS:\s*(PASS|ISSUES|BLOCKED|DEV_IMPROVED)\s*\]", agent_text, re.IGNORECASE)
-    if match:
-        st = match.group(1).upper()
-        if st == "DEV_IMPROVED":
-            return "PASS", agent_text
-        return st, agent_text
-    return "ISSUES", agent_text
