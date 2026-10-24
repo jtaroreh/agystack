@@ -1,4 +1,3 @@
-"""Execution boundaries shared by cloud workers and dispatch."""
 
 import os
 import re

@@ -95,11 +95,9 @@ class TestArchitectureRemediation(unittest.TestCase):
         status, _ = cloud_worker.evaluate_agent_status("Out of quota\n[STATUS: BLOCKED]")
         self.assertEqual(status, "BLOCKED")
 
-        # Malformed declarations fail closed.
         status, _ = cloud_worker.evaluate_agent_status("[status: pass]")
         self.assertEqual(status, "ISSUES")
 
-        # DEV_IMPROVED does not certify completion
         status, _ = cloud_worker.evaluate_agent_status("[STATUS: DEV_IMPROVED]\nCandidate improved score")
         self.assertEqual(status, "ISSUES")
 
