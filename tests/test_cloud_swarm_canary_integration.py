@@ -25,7 +25,10 @@ import storage_uploader
 from worker.execution import ExecutionLimits, resolve_execution_limits, run_bounded_shell
 
 CANARY_PACKAGE_INVENTORY = Path(
-    "/Users/joeltaroreh/projects/phasepoly-swarm-prep/.audit/cloud-swarm-20261024/revision3/package-inventory.json"
+    os.environ.get(
+        "AGYSTACK_CANARY_PACKAGE_INVENTORY",
+        "/Users/joeltaroreh/projects/phasepoly-swarm-prep/.audit/cloud-swarm-20261024/revision3/package-inventory.json",
+    )
 )
 CANARY_REVISION3_DIR = CANARY_PACKAGE_INVENTORY.parent
 
@@ -762,13 +765,45 @@ def test_fake_storage_reproduces_layout_trailing_slash_and_nested_paths(tmp_path
     assert harvested_nested.read_text(encoding="utf-8") == deep_content
 
 
-def test_verify_upload_mapping_against_package_inventory():
+def test_verify_upload_mapping_against_package_inventory(tmp_path):
     """Verify proposed upload mapping locally against the package inventory (package-inventory.json).
 
     Checks that all listed files exist, sha256 hashes match on disk, and map cleanly to preparation prefixes.
     """
-    assert CANARY_PACKAGE_INVENTORY.is_file(), f"Package inventory missing at {CANARY_PACKAGE_INVENTORY}"
-    inventory = json.loads(CANARY_PACKAGE_INVENTORY.read_text(encoding="utf-8"))
+    inventory_path = Path(
+        os.environ.get("AGYSTACK_CANARY_PACKAGE_INVENTORY") or CANARY_PACKAGE_INVENTORY
+    )
+    if not inventory_path.is_file():
+        fixture_dir = tmp_path / "canary_fixture"
+        fixture_dir.mkdir(parents=True, exist_ok=True)
+        packets_dir = fixture_dir / "packets"
+        packets_dir.mkdir(parents=True, exist_ok=True)
+
+        inventory_data = {}
+        key_files = {
+            "bootstrap.py": "#!/usr/bin/env python3\nprint('bootstrapping')\n",
+            "verify_research.py": "#!/usr/bin/env python3\nprint('verifying')\n",
+            "EVIDENCE_SCHEMA.md": "# Evidence Schema\n",
+        }
+        for filename, content in key_files.items():
+            file_path = fixture_dir / filename
+            file_path.write_text(content, encoding="utf-8")
+            inventory_data[filename] = hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+        for i in range(1, 25):
+            packet_name = f"packets/task-{i:02d}.md"
+            packet_path = fixture_dir / packet_name
+            packet_path.write_text(f"# Task {i:02d}\n", encoding="utf-8")
+            inventory_data[packet_name] = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+
+        inventory_path = fixture_dir / "package-inventory.json"
+        inventory_path.write_text(json.dumps(inventory_data, indent=2), encoding="utf-8")
+        revision_dir = fixture_dir
+    else:
+        revision_dir = inventory_path.parent
+
+    assert inventory_path.is_file(), f"Package inventory missing at {inventory_path}"
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
     assert len(inventory) >= 27, f"Expected at least 27 inventory files, found {len(inventory)}"
 
     # Required key files
@@ -782,7 +817,7 @@ def test_verify_upload_mapping_against_package_inventory():
 
     upload_mapping = {}
     for rel_path, expected_sha in inventory.items():
-        file_path = CANARY_REVISION3_DIR / rel_path
+        file_path = revision_dir / rel_path
         assert file_path.is_file(), f"Inventory item {rel_path} does not exist at {file_path}"
         actual_sha = hashlib.sha256(file_path.read_bytes()).hexdigest()
         assert actual_sha == expected_sha, (

@@ -1547,6 +1547,30 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
             sys.exit(1)
         return
 
+    tasks_list: List[Any] = []
+    sys.path.insert(0, str(Path(__file__).parent))
+
+    if args.seed_lottery:
+        from manifest_generator import generate_seed_lottery
+        tasks_list = generate_seed_lottery(seeds_count=args.seed_lottery)
+    elif args.manifest:
+        try:
+            tasks_list = load_manifest(args.manifest)
+        except Exception as exc:
+            print(f"Error: Failed to load manifest: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    try:
+        for task in tasks_list:
+            if isinstance(task, dict):
+                resolve_execution_limits(task.get("execution_limits", {}), environ={})
+    except ValueError as exc:
+        parser.error(str(exc))
+    task_count = args.tasks or (len(tasks_list) if tasks_list else 1)
+    if tasks_list and task_count != len(tasks_list):
+        parser.error("--tasks must match the manifest task count")
+    manifest_serialized = json.dumps(tasks_list) if tasks_list else ""
+
     repo_url = args.repo or get_git_remote_url()
     gh_token = get_gh_token()
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -1619,36 +1643,14 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
         sys.exit(1)
 
     if not gh_token and "GH_TOKEN" not in active_secret_keys and "gh_token" not in active_secret_keys:
-        print("Error: GH_TOKEN could not be resolved from environment or `gh auth token`", file=sys.stderr)
-        sys.exit(1)
+        if not args.dry_run:
+            print("Error: GH_TOKEN could not be resolved from environment or `gh auth token`", file=sys.stderr)
+            sys.exit(1)
+        gh_token = "DRY_RUN_GH_TOKEN"
 
     if not use_vertex and not gemini_api_key and not args.dry_run and "GEMINI_API_KEY" not in active_secret_keys and "gemini_api_key" not in active_secret_keys:
         print("Error: GEMINI_API_KEY environment variable is required when not in Vertex AI mode.", file=sys.stderr)
         sys.exit(1)
-
-    tasks_list: List[Any] = []
-    sys.path.insert(0, str(Path(__file__).parent))
-
-    if args.seed_lottery:
-        from manifest_generator import generate_seed_lottery
-        tasks_list = generate_seed_lottery(seeds_count=args.seed_lottery)
-    elif args.manifest:
-        try:
-            tasks_list = load_manifest(args.manifest)
-        except Exception as exc:
-            print(f"Error: Failed to load manifest: {exc}", file=sys.stderr)
-            sys.exit(1)
-
-    try:
-        for task in tasks_list:
-            if isinstance(task, dict):
-                resolve_execution_limits(task.get("execution_limits", {}), environ={})
-    except ValueError as exc:
-        parser.error(str(exc))
-    task_count = args.tasks or (len(tasks_list) if tasks_list else 1)
-    if tasks_list and task_count != len(tasks_list):
-        parser.error("--tasks must match the manifest task count")
-    manifest_serialized = json.dumps(tasks_list) if tasks_list else ""
 
     env_vars = {
         "REPO_URL": repo_url,
