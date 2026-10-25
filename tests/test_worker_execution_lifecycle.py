@@ -18,6 +18,28 @@ import cloud_worker
 import result_harvester
 import storage_uploader
 from worker import partner_engine
+from worker.execution import ExecutionLimits, resolve_execution_limits
+
+
+def mock_storage(blobs=()):
+    storage = MagicMock()
+    storage.Client.return_value.bucket.return_value.list_blobs.side_effect = lambda prefix="": [
+        Blob(k, v) for k, v in (blobs.items() if isinstance(blobs, dict) else blobs) if k.startswith(prefix)
+    ]
+    g, gc = types.ModuleType("google"), types.ModuleType("google.cloud")
+    g.cloud, gc.storage = gc, storage
+    return storage, {"google": g, "google.cloud": gc, "google.cloud.storage": storage}
+
+
+class Blob:
+    def __init__(self, name, payload):
+        self.name = name
+        self.payload = payload
+
+    def download_to_filename(self, filename):
+        path = Path(filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.payload, encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -49,7 +71,6 @@ def test_strict_terminal_status(text, expected):
 
 @pytest.mark.parametrize("bad", [0, -1, True, 1.5, "1.5", "oops", None])
 def test_invalid_execution_limits(bad):
-    from worker.execution import resolve_execution_limits
 
     with pytest.raises(ValueError):
         resolve_execution_limits({"max_agent_turns": bad}, environ={})
@@ -57,31 +78,25 @@ def test_invalid_execution_limits(bad):
 
 def test_limits_precedence_and_immutability():
     from dataclasses import FrozenInstanceError
-    from worker.execution import resolve_execution_limits
 
     limits = resolve_execution_limits(
         {"verify_timeout_s": 41},
-        runtime={"max_agent_turns": 31, "command_timeout_s": 500},
         environ={"AGYSTACK_MAX_AGENT_TURNS": "32", "COMMAND_TIMEOUT": "600"},
-        cli={"max_agent_turns": 33},
     )
-    assert (limits.max_agent_turns, limits.command_timeout_s, limits.verify_timeout_s) == (33, 600, 41)
+    assert (limits.max_agent_turns, limits.command_timeout_s, limits.verify_timeout_s) == (32, 600, 41)
     with pytest.raises(FrozenInstanceError):
         limits.max_agent_turns = 2
     with pytest.raises(ValueError):
         resolve_execution_limits({"unexpected": 5}, environ={})
     with pytest.raises(ValueError):
         resolve_execution_limits([], environ={})
-    with pytest.raises(ValueError):
-        resolve_execution_limits(runtime=None, environ={})
     assert resolve_execution_limits(environ={}).command_timeout_s == 300
     assert resolve_execution_limits(environ={}, command_default=900).command_timeout_s == 900
 
 
 @pytest.mark.parametrize("provider", ["claude", "fable", "deepseek"])
 @pytest.mark.parametrize("finish", [True, False])
-@pytest.mark.parametrize("source", ["task", "keyword"])
-def test_provider_turn_limits_and_final_response(tmp_path, provider, finish, source):
+def test_provider_turn_limits_and_final_response(tmp_path, provider, finish):
     (tmp_path / "note.txt").write_text("still working")
     tool = {"type": "tool_use", "id": "read", "name": "read_file", "input": {"path": "note.txt"}}
     responses = []
@@ -108,20 +123,7 @@ def test_provider_turn_limits_and_final_response(tmp_path, provider, finish, sou
         getter = "_get_genai"
     request.side_effect = responses
     with patch.object(partner_engine, getter, return_value=sdk):
-        if source == "task":
-            status, summary = entry(provider, "work", tmp_path, task_item={"execution_limits": {"max_agent_turns": 33}})
-        else:
-            from worker.execution import ExecutionLimits
-
-            model = {"claude": "claude-3-opus@20240229", "fable": "fable-5-1", "deepseek": "deepseek"}[provider]
-            status, summary = cloud_worker.execute_task(
-                {},
-                "work",
-                tmp_path,
-                model,
-                "",
-                limits=ExecutionLimits(max_agent_turns=33),
-            )
+        status, summary = entry(provider, "work", tmp_path, task_item={"execution_limits": {"max_agent_turns": 33}})
     assert request.call_count == 33
     assert status == ("PASS" if finish else "ISSUES")
     if not finish:
@@ -133,8 +135,6 @@ def test_provider_turn_limits_and_final_response(tmp_path, provider, finish, sou
 
 @pytest.mark.parametrize("suffix", ["& wait", "| cat", "&"])
 def test_timeout_keeps_output_and_kills_descendants(tmp_path, suffix):
-    from worker.execution import ExecutionLimits
-
     child = "import os,time; open('child.pid','w').write(str(os.getpid())); time.sleep(2); open('survived', 'w').write('bad')"
     command = (
         f"echo partial-output; echo partial-error >&2; {shlex.quote(sys.executable)} -c {shlex.quote(child)} {suffix}"
@@ -175,22 +175,26 @@ def worker_repo(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "status, candidate, verify",
+    "status, candidate, verify, fail_status",
     [
-        ("BLOCKED", True, "exit 1"),
-        ("ISSUES", True, "exit 1"),
-        ("PASS", False, "exit 1"),
-        ("PASS", False, "exit 0"),
-        ("PASS", True, "exit 1"),
-        ("PASS", False, "sleep 2"),
+        ("BLOCKED", True, "exit 1", False),
+        ("ISSUES", True, "exit 1", False),
+        ("PASS", False, "exit 1", False),
+        ("PASS", False, "exit 0", False),
+        ("PASS", True, "exit 0", False),
+        ("PASS", True, "exit 1", False),
+        ("PASS", False, "sleep 2", False),
+        ("PASS", True, "exit 0", True),
     ],
 )
-def test_worker_finalization_preserves_evidence(worker_repo, tmp_path, monkeypatch, status, candidate, verify, capsys):
+def test_worker_finalization_preserves_evidence(
+    worker_repo, tmp_path, monkeypatch, status, candidate, verify, fail_status, capsys
+):
     storage = tmp_path / "storage"
     task = {
         "brief": "work",
         "candidate_files": ["service.py"],
-        "evidence_files": ["results/proof.txt"],
+        "evidence_files": ["results/proof.txt", "nested/domain/oracle/checks.json"],
         "verify_command": f"echo verifier-ran > verification.txt; {verify}",
         "execution_limits": {"verify_timeout_s": 1},
     }
@@ -202,6 +206,8 @@ def test_worker_finalization_preserves_evidence(worker_repo, tmp_path, monkeypat
     monkeypatch.setenv("STORAGE_MESSENGER_LOCAL_DIR", str(storage))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cloud_worker.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    raw_payload = json.dumps({"status": "verified", "checks": [1, 2, 3], "score": 0.98}, indent=2).encode("utf-8")
 
     def clone(**kwargs):
         repo = kwargs["repo_dir"]
@@ -218,33 +224,64 @@ def test_worker_finalization_preserves_evidence(worker_repo, tmp_path, monkeypat
             (repo / "service.py").write_text("value = 2\n")
         (repo / "results").mkdir()
         (repo / "results/proof.txt").write_text("partial proof")
+        deep = repo / "nested/domain/oracle/checks.json"
+        deep.parent.mkdir(parents=True, exist_ok=True)
+        deep.write_bytes(raw_payload)
         return status, "work summary"
 
     monkeypatch.setattr(cloud_worker, "clone_and_checkout_task", clone)
     monkeypatch.setattr(cloud_worker, "execute_task", execute)
     monkeypatch.setattr(cloud_worker, "StorageMessenger", None)
+
+    real_upload = storage_uploader.upload_to_gcs
+
+    def upload_hook(bucket_name, object_name, local_file_path):
+        if fail_status and object_name.endswith("status.json"):
+            return False
+        return real_upload(bucket_name, object_name, local_file_path)
+
+    monkeypatch.setattr(storage_uploader, "upload_to_gcs", upload_hook)
+
+    exit_code = 0
     try:
         cloud_worker.main()
     except SystemExit as exc:
-        assert exc.code == 1
-    target = storage / "test-bucket/run/task-0"
-    published = json.loads((target / "status.json").read_text())
-    expected = "PASS" if status == "PASS" and verify == "exit 0" else "ISSUES" if status == "PASS" else status
-    assert published["status"] == expected
+        exit_code = exc.code
+    expected = (
+        "ISSUES"
+        if fail_status
+        else ("PASS" if status == "PASS" and verify == "exit 0" else "ISSUES" if status == "PASS" else status)
+    )
+    assert exit_code == (0 if expected == "PASS" else 1)
     report = cloud_dispatch.parse_worker_logs(capsys.readouterr().out)
     assert len(report) == 1 and report[0]["status"] == expected and report[0]["task_index"] == 0
+    target = storage / "test-bucket/run/task-0"
     assert (target / "evidence/results/proof.txt").read_text() == "partial proof"
-    assert not (target / "patch.diff").exists()
-    if candidate:
-        assert "+value = 2" in (target / "partial.patch.diff").read_text()
+    assert (target / "evidence/nested/domain/oracle/checks.json").read_bytes() == raw_payload
+    if fail_status:
+        assert not (target / "status.json").exists()
+        return
+
+    published = json.loads((target / "status.json").read_text())
+    assert published["status"] == expected
+    if expected == "PASS" and candidate:
+        assert (target / "patch.diff").is_file()
+    else:
+        assert not (target / "patch.diff").exists()
+        if candidate:
+            assert "+value = 2" in (target / "partial.patch.diff").read_text()
     if status == "PASS":
         assert (worker_repo / "verification.txt").is_file()
         assert list((target / "evidence/.agystack/diagnostics").glob("verification-*.log"))
     harvested = result_harvester.harvest_candidate_patches("test-bucket", "run", tmp_path / "harvest")
     assert len(harvested) == 1
     assert harvested[0]["status"] == published["status"]
-    assert not harvested[0]["patch_file"]
     assert (tmp_path / "harvest/task-0/evidence/results/proof.txt").is_file()
+    assert (tmp_path / "harvest/task-0/evidence/nested/domain/oracle/checks.json").read_bytes() == raw_payload
+    if expected == "PASS" and candidate:
+        assert harvested[0]["patch_file"] and Path(harvested[0]["patch_file"]).is_file()
+    else:
+        assert not harvested[0]["patch_file"]
 
 
 @pytest.mark.parametrize(
@@ -267,8 +304,18 @@ def test_dispatch_complete_pass():
     )
 
 
-@pytest.mark.parametrize("limits", [None, [], {"extra": 3}, {"max_agent_turns": "40"}, {"max_agent_turns": True}])
-def test_dispatch_rejects_invalid_task_limits_before_launch(tmp_path, limits):
+@pytest.mark.parametrize(
+    "limits, bad_env",
+    [
+        (None, None),
+        ([], None),
+        ({"extra": 3}, None),
+        ({"max_agent_turns": "40"}, None),
+        ({"max_agent_turns": True}, None),
+        ({}, {"AGYSTACK_MAX_AGENT_TURNS": "oops"}),
+    ],
+)
+def test_dispatch_rejects_invalid_task_limits_before_launch(tmp_path, limits, bad_env):
     command = [
         sys.executable,
         str(SCRIPTS / "cloud_dispatch.py"),
@@ -282,15 +329,14 @@ def test_dispatch_rejects_invalid_task_limits_before_launch(tmp_path, limits):
         json.dumps([{"brief": "work", "execution_limits": limits}]),
     ]
     env = dict(os.environ, GH_TOKEN="fake-test-token")
+    if bad_env:
+        env.update(bad_env)
     result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert "execution_limits" in result.stderr or "positive integer" in result.stderr
 
 
-def test_dispatch_cli_env_runtime_precedence(tmp_path):
-    (tmp_path / "agystack-runtime.json").write_text(
-        json.dumps({"execution_limits": {"max_agent_turns": 40, "command_timeout_s": 500, "verify_timeout_s": 501}})
-    )
+def test_dispatch_env_forwarding(tmp_path):
     env = dict(os.environ, AGYSTACK_MAX_AGENT_TURNS="41", COMMAND_TIMEOUT="600", GH_TOKEN="fake-test-token")
     env.pop("VERIFY_TIMEOUT", None)
     result = subprocess.run(
@@ -303,10 +349,6 @@ def test_dispatch_cli_env_runtime_precedence(tmp_path):
             "--vertex",
             "--project",
             "test",
-            "--max-agent-turns",
-            "42",
-            "--verify-timeout",
-            "601",
             "--manifest",
             json.dumps([{"brief": "work", "execution_limits": {"max_agent_turns": 43}}]),
         ],
@@ -317,9 +359,9 @@ def test_dispatch_cli_env_runtime_precedence(tmp_path):
         check=True,
     )
     payload = json.loads(result.stdout)
-    assert payload["env_vars"]["AGYSTACK_MAX_AGENT_TURNS"] == "42"
+    assert payload["env_vars"]["AGYSTACK_MAX_AGENT_TURNS"] == "41"
     assert payload["env_vars"]["COMMAND_TIMEOUT"] == "600"
-    assert payload["env_vars"]["VERIFY_TIMEOUT"] == "601"
+    assert "VERIFY_TIMEOUT" not in payload["env_vars"]
 
 
 def test_deepseek_retries_consume_request_limit(tmp_path):
@@ -356,14 +398,21 @@ def test_empty_final_response_cannot_reuse_previous_pass(tmp_path, provider):
         assert entry(provider, "work", tmp_path)[0] == "ISSUES"
 
 
-def test_evidence_failure_downgrades_before_status_publication(worker_repo):
+def test_evidence_failure_downgrades_before_status_publication(worker_repo, tmp_path, monkeypatch):
     (worker_repo / "service.py").write_text("value = 2\n")
     (worker_repo / "proof.txt").write_text("proof")
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("STORAGE_MESSENGER_LOCAL_DIR", str(storage))
     published = []
 
     def upload(bucket, name, path):
         published.append((name, path.read_text()))
-        return not name.endswith("proof.txt")
+        if name.endswith("proof.txt"):
+            return False
+        dest = storage / bucket / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(path.read_text(), encoding="utf-8")
+        return True
 
     with patch.object(storage_uploader, "upload_to_gcs", side_effect=upload):
         artifacts = storage_uploader.upload_run_artifacts(
@@ -379,6 +428,11 @@ def test_evidence_failure_downgrades_before_status_publication(worker_repo):
     assert json.loads(published[-1][1])["status"] == "ISSUES"
     assert "patch.diff" not in artifacts
     assert "partial.patch.diff" in artifacts
+    harvested = result_harvester.harvest_candidate_patches("bucket", "run", tmp_path / "harvest")
+    assert len(harvested) == 1
+    assert harvested[0]["status"] == "ISSUES"
+    assert harvested[0]["patch_file"] is None
+    assert Path(harvested[0]["partial_patch_file"]).is_file()
 
 
 def test_missing_status_file_never_promotes_score_or_patch(tmp_path, monkeypatch):
@@ -439,30 +493,9 @@ def test_sdk_harvest_downloads_nested_partial_evidence(tmp_path, monkeypatch):
         "run/task-0/evidence/.agystack/diagnostics/timeout.log": "partial output",
     }
 
-    class Blob:
-        def __init__(self, name, payload):
-            self.name, self.payload = name, payload
-
-        def download_to_filename(self, filename):
-            Path(filename).write_text(self.payload)
-
-    storage = MagicMock()
-    storage.Client.return_value.bucket.return_value.list_blobs.return_value = [
-        Blob(name, value) for name, value in payloads.items()
-    ]
     monkeypatch.delenv("STORAGE_MESSENGER_LOCAL_DIR", raising=False)
-    google_mod = types.ModuleType("google")
-    cloud_mod = types.ModuleType("google.cloud")
-    google_mod.cloud = cloud_mod
-    cloud_mod.storage = storage
-    with patch.dict(
-        sys.modules,
-        {
-            "google": google_mod,
-            "google.cloud": cloud_mod,
-            "google.cloud.storage": storage,
-        },
-    ):
+    _, modules = mock_storage(payloads)
+    with patch.dict(sys.modules, modules):
         results = result_harvester.harvest_candidate_patches("bucket", "run", tmp_path / "harvest")
     assert results[0]["status"] == "BLOCKED"
     assert results[0]["patch_file"] is None
@@ -496,70 +529,38 @@ def test_standalone_harvest_quarantines_incomplete_coverage(tmp_path, monkeypatc
     assert "Winning Candidate" not in result.stdout
 
 
-def test_storage_mock_hierarchy_without_google_module(tmp_path, monkeypatch):
-    storage = MagicMock()
-    google_mod = types.ModuleType("google")
-    cloud_mod = types.ModuleType("google.cloud")
-    google_mod.cloud = cloud_mod
-    cloud_mod.storage = storage
-
-    monkeypatch.delenv("STORAGE_MESSENGER_LOCAL_DIR", raising=False)
-    clean_modules = {k: v for k, v in sys.modules.items() if not k.startswith("google")}
-    clean_modules["google"] = google_mod
-    clean_modules["google.cloud"] = cloud_mod
-    clean_modules["google.cloud.storage"] = storage
-
-    with patch.dict(sys.modules, clean_modules, clear=True):
-        from google.cloud import storage as resolved_storage
-
-        assert resolved_storage is storage
-        storage.Client.return_value.bucket.return_value.list_blobs.return_value = []
-        res = result_harvester.harvest_candidate_patches("bkt", "prefix", tmp_path / "dest")
-        assert res == []
-
-
 def test_harvest_candidate_patches_strict_prefix_matching(tmp_path, monkeypatch):
+    local_storage = tmp_path / "local_storage"
+    monkeypatch.setenv("STORAGE_MESSENGER_LOCAL_DIR", str(local_storage))
+    for sub, idx, score, p_text in [
+        ("canary/task-0", 0, 0.80, "patch canary"),
+        ("canary-other/task-1", 1, 0.99, "patch sibling"),
+    ]:
+        td = local_storage / "bucket/swarms" / sub
+        td.mkdir(parents=True)
+        (td / "status.json").write_text(json.dumps({"task_index": idx, "status": "PASS", "score": score}))
+        (td / "patch.diff").write_text(p_text)
+
+    local_harvest = result_harvester.harvest_candidate_patches("bucket", "swarms/canary", tmp_path / "local_harvest")
+    assert len(local_harvest) == 1
+    assert (local_harvest[0]["task_index"], local_harvest[0]["score"]) == (0, 0.80)
+    assert Path(local_harvest[0]["patch_file"]).read_text() == "patch canary"
+    assert cloud_dispatch.failed_task_count(local_harvest, 2) == 1
+
     payloads = {
         "run/task-0/status.json": json.dumps({"status": "PASS"}),
         "run/task-0/score.json": json.dumps({"score": 0.95}),
         "run/task-0/patch.diff": "valid patch",
-        # Sibling prefix that starts with 'run' but is not 'run/'
         "run-other/task-1/status.json": json.dumps({"status": "PASS"}),
         "run-other/task-1/score.json": json.dumps({"score": 0.99}),
         "run-other/task-1/patch.diff": "invalid patch",
-        # Invalid task naming inside 'run/'
         "run/mytask-2/status.json": json.dumps({"status": "PASS"}),
         "run/task-3-suffix/status.json": json.dumps({"status": "PASS"}),
     }
 
-    class Blob:
-        def __init__(self, name, payload):
-            self.name, self.payload = name, payload
-
-        def download_to_filename(self, filename):
-            Path(filename).write_text(self.payload)
-
-    storage = MagicMock()
-
-    def fake_list_blobs(prefix=""):
-        return [Blob(name, val) for name, val in payloads.items() if name.startswith(prefix)]
-
-    storage.Client.return_value.bucket.return_value.list_blobs.side_effect = fake_list_blobs
-
-    google_mod = types.ModuleType("google")
-    cloud_mod = types.ModuleType("google.cloud")
-    google_mod.cloud = cloud_mod
-    cloud_mod.storage = storage
-
     monkeypatch.delenv("STORAGE_MESSENGER_LOCAL_DIR", raising=False)
-    with patch.dict(
-        sys.modules,
-        {
-            "google": google_mod,
-            "google.cloud": cloud_mod,
-            "google.cloud.storage": storage,
-        },
-    ):
+    _, modules = mock_storage(payloads)
+    with patch.dict(sys.modules, modules):
         results = result_harvester.harvest_candidate_patches("bucket", "run", tmp_path / "harvest")
 
     assert len(results) == 1

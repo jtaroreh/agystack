@@ -1293,9 +1293,6 @@ def main() -> None:
     parser.add_argument("--wait", dest="wait", action="store_true", help="Wait for job completion, stream milestones, and harvest reports (default).")
     parser.add_argument("--no-wait", dest="wait", action="store_false", help="Do not wait for job completion; dispatch asynchronously.")
     parser.add_argument("--session", "--session-id", dest="session_id", type=str, help="Swarm session ID (default: swarm-<timestamp>).")
-    parser.add_argument("--max-agent-turns", type=int, default=None, help="Maximum provider requests per task.")
-    parser.add_argument("--command-timeout", type=int, default=None, help="Command timeout in seconds.")
-    parser.add_argument("--verify-timeout", type=int, default=None, help="Verification timeout in seconds.")
     parser.add_argument("--orchestrator-timeout", type=float, default=600.0, help="Timeout in seconds for orchestrator replies (default: 600.0).")
     parser.add_argument("--set-secrets", type=str, help="Comma-separated secrets mapping for Cloud Run Job (e.g. GEMINI_API_KEY=gemini-key:latest).")
     parser.add_argument("--base-branch", type=str, default=None, help="Base branch for workers to checkout (default: remote default branch).")
@@ -1394,17 +1391,6 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
         return
 
     runtime_cfg = find_runtime_config() or {}
-    cli_limits = {name: value for name, value in {
-        "max_agent_turns": args.max_agent_turns,
-        "command_timeout_s": args.command_timeout,
-        "verify_timeout_s": args.verify_timeout,
-    }.items() if value is not None}
-    try:
-        dispatch_limits = resolve_execution_limits(
-            runtime=runtime_cfg.get("execution_limits", {}), cli=cli_limits,
-        )
-    except ValueError as exc:
-        parser.error(str(exc))
 
     job_name = args.job_name or runtime_cfg.get("job_name") or "agystack-swarm-worker"
     region = args.region or runtime_cfg.get("region") or "us-central1"
@@ -1561,6 +1547,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
             sys.exit(1)
 
     try:
+        resolve_execution_limits()
         for task in tasks_list:
             if isinstance(task, dict):
                 resolve_execution_limits(task.get("execution_limits", {}), environ={})
@@ -1674,8 +1661,8 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
     env_vars["SWARM_SESSION_ID"] = session_id
     env_vars["SESSION_ID"] = session_id
     for name, env_key in LIMIT_ENV.items():
-        if name in cli_limits or env_key in os.environ or name in runtime_cfg.get("execution_limits", {}):
-            env_vars[env_key] = str(getattr(dispatch_limits, name))
+        if env_key in os.environ:
+            env_vars[env_key] = os.environ[env_key]
     if args.orchestrator_timeout:
         env_vars["ORCHESTRATOR_TIMEOUT"] = str(args.orchestrator_timeout)
     if args.base_branch:

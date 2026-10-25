@@ -1,4 +1,3 @@
-
 import os
 import re
 import signal
@@ -52,14 +51,10 @@ def _limit_fields(value):
     return {name: _positive_int(raw, name) for name, raw in value.items()}
 
 
-def resolve_execution_limits(task_limits=_UNSET, *, environ=None, runtime=_UNSET, cli=_UNSET, command_default=300):
+def resolve_execution_limits(task_limits=_UNSET, *, environ=None, command_default=300):
     env = os.environ if environ is None else environ
     values = dict(max_agent_turns=30, command_timeout_s=command_default, verify_timeout_s=300)
-    if runtime is not _UNSET:
-        values.update(_limit_fields(runtime))
     values.update({name: _positive_int(env[key], key) for name, key in LIMIT_ENV.items() if key in env})
-    if cli is not _UNSET:
-        values.update(_limit_fields(cli))
     if task_limits is not _UNSET:
         values.update(_limit_fields(task_limits))
     return ExecutionLimits(**values)
