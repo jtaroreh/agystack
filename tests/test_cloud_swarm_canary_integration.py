@@ -940,18 +940,50 @@ def _load_canary_manifest_and_revision_dir(tmp_path: Path):
 
     verifier_file = fixture_dir / "verify_research.py"
     verifier_code = (
-        "import argparse, json, sys\n"
+        "import argparse, json, subprocess, sys\n"
+        "from pathlib import Path\n"
         "p = argparse.ArgumentParser()\n"
         "p.add_argument('--task-dir', required=True)\n"
         "p.add_argument('--expected-json', required=True)\n"
         "args = p.parse_args()\n"
+        "td = Path(args.task_dir)\n"
+        "rep = json.loads((td / 'report.json').read_text())\n"
+        "dc = json.loads((td / 'domain_check.json').read_text())\n"
+        "res = subprocess.run(dc['oracle_command'], cwd=td, capture_output=True)\n"
+        "if res.returncode != 0: sys.exit(1)\n"
+        "if rep.get('baseline_gate', {}).get('exit_code') != 0: sys.exit(1)\n"
+        "if rep.get('target_modified') and rep.get('final_gate', {}).get('exit_code') != 0: sys.exit(1)\n"
         "print(json.dumps({'execution_status': 'PASS'}))\n"
     )
     verifier_file.write_text(verifier_code, encoding="utf-8")
     verifier_sha = hashlib.sha256(verifier_file.read_bytes()).hexdigest()
 
     bootstrap_file = fixture_dir / "bootstrap.py"
-    bootstrap_file.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    bootstrap_code = (
+        "import hashlib, json, re\n"
+        "from pathlib import Path\n\n"
+        "def sha(path):\n"
+        "    return hashlib.sha256(Path(path).read_bytes()).hexdigest()\n\n"
+        "def main(config):\n"
+        "    from google.cloud import storage\n"
+        "    assert re.fullmatch(r'task-(?:0[1-9]|1[0-9]|2[0-4])', config['task_id'])\n"
+        "    bucket = storage.Client(project=config['project']).bucket(config['bucket'])\n"
+        "    output = Path.cwd() / 'research' / config['task_id']\n"
+        "    output.mkdir(parents=True, exist_ok=True)\n"
+        "    archive = Path('/tmp/phasepoly-source.tar.gz')\n"
+        "    bucket.blob(config['prefix'] + '/source.tar.gz').download_to_filename(archive)\n"
+        "    assert sha(archive) == config['source_sha256']\n"
+        "    package = config['preparation_prefix']\n"
+        "    for remote, local, digest in [\n"
+        "        ('verify_research.py', 'verify_research.py', config['verifier_sha256']),\n"
+        "        ('EVIDENCE_SCHEMA.md', 'EVIDENCE_SCHEMA.md', config['schema_sha256']),\n"
+        "        ('packets/' + config['task_id'] + '.md', 'context.md', config['context_packet_sha256']),\n"
+        "    ]:\n"
+        "        path = output / local\n"
+        "        bucket.blob(package + '/' + remote).download_to_filename(path)\n"
+        "        assert sha(path) == digest\n"
+    )
+    bootstrap_file.write_text(bootstrap_code, encoding="utf-8")
     bootstrap_sha = hashlib.sha256(bootstrap_file.read_bytes()).hexdigest()
 
     task_config = {
@@ -1117,7 +1149,7 @@ def _run_mocked_bootstrap(revision_dir: Path, config: dict, repo_dir: Path, *, m
     mock_gcloud.storage = mock_storage
     mock_google.cloud = mock_gcloud
 
-    orig_sha = boot.sha
+    orig_sha = getattr(boot, "sha", lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest())
     def patched_sha(path):
         p = Path(path)
         if p.name == "phasepoly-source.tar.gz":
