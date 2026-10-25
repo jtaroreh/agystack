@@ -198,5 +198,150 @@ class TestScoreParsing(unittest.TestCase):
         self.assertIsNone(latency_ms)
 
 
+class TestEvidenceCredentialSafeguards(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_dir = Path(self.temp_dir.name)
+        subprocess.run(["git", "init"], cwd=self.repo_dir, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=self.repo_dir, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=self.repo_dir, capture_output=True, check=True)
+        (self.repo_dir / "app.py").write_text("print('hello')\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.py"], cwd=self.repo_dir, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=self.repo_dir, capture_output=True, check=True)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @patch("storage_uploader.upload_to_gcs")
+    def test_evidence_with_credentials_rejected_and_degrades_pass(self, mock_upload):
+        mock_upload.return_value = True
+
+        evidence_file = self.repo_dir / "proof.txt"
+        secret_token = "ghp_" + "a" * 36
+        evidence_file.write_text(f"run log with sensitive token: {secret_token}\n", encoding="utf-8")
+
+        results = storage_uploader.upload_run_artifacts(
+            bucket_name="test-bucket",
+            prefix="runs/exp1",
+            repo_dir=self.repo_dir,
+            task_index=0,
+            status="PASS",
+            evidence_files=["proof.txt"],
+        )
+
+        # File content must NOT have been modified
+        self.assertIn(secret_token, evidence_file.read_text(encoding="utf-8"))
+        # Evidence file must not be in uploaded artifacts
+        self.assertNotIn("evidence/proof.txt", results)
+
+        # status.json locally must degrade from PASS to ISSUES
+        status_file = self.repo_dir / "status.json"
+        self.assertTrue(status_file.is_file())
+        status_data = json.loads(status_file.read_text(encoding="utf-8"))
+        self.assertEqual(status_data["status"], "ISSUES")
+        self.assertIn("credentials", status_data.get("evidence", ""))
+
+    @patch("storage_uploader.upload_to_gcs")
+    def test_sensitive_filenames_rejected(self, mock_upload):
+        mock_upload.return_value = True
+
+        sensitive_names = [
+            ".env",
+            "server.pem",
+            "private.key",
+            "id_rsa",
+            "id_ed25519",
+            "credentials.json",
+            "token.json",
+        ]
+        for name in sensitive_names:
+            file_path = self.repo_dir / name
+            file_path.write_text("dummy sensitive data\n", encoding="utf-8")
+            self.assertTrue(
+                storage_uploader.is_sensitive_path(file_path, self.repo_dir),
+                f"{name} should be recognized as sensitive path",
+            )
+
+        # Also verify symlink is recognized as sensitive path
+        target_file = self.repo_dir / "target.txt"
+        target_file.write_text("target", encoding="utf-8")
+        symlink_file = self.repo_dir / "symlink_file.txt"
+        symlink_file.symlink_to(target_file)
+        self.assertTrue(
+            storage_uploader.is_sensitive_path(symlink_file, self.repo_dir),
+            "Symlink should be recognized as sensitive path",
+        )
+
+        # When passed as evidence_files, all sensitive files must be rejected and status degraded
+        results = storage_uploader.upload_run_artifacts(
+            bucket_name="test-bucket",
+            prefix="runs/exp1",
+            repo_dir=self.repo_dir,
+            task_index=0,
+            status="PASS",
+            evidence_files=sensitive_names + ["symlink_file.txt"],
+        )
+
+        for name in sensitive_names:
+            self.assertNotIn(f"evidence/{name}", results)
+        self.assertNotIn("evidence/symlink_file.txt", results)
+
+        status_file = self.repo_dir / "status.json"
+        status_data = json.loads(status_file.read_text(encoding="utf-8"))
+        self.assertEqual(status_data["status"], "ISSUES")
+
+    @patch("storage_uploader.upload_to_gcs")
+    def test_failed_score_or_results_upload_degrades_pass_to_issues(self, mock_upload):
+        score_file = self.repo_dir / "score.json"
+        score_file.write_text(json.dumps({"score": 0.95}), encoding="utf-8")
+
+        tsv_file = self.repo_dir / "results.tsv"
+        tsv_file.write_text("metric\tvalue\nscore\t0.95\n", encoding="utf-8")
+
+        # 1. Test score.json upload failure
+        def fail_score_upload(bkt, dest, path):
+            if "score.json" in str(dest):
+                return False
+            return True
+
+        mock_upload.side_effect = fail_score_upload
+
+        results = storage_uploader.upload_run_artifacts(
+            bucket_name="test-bucket",
+            prefix="runs/exp1",
+            repo_dir=self.repo_dir,
+            task_index=0,
+            status="PASS",
+        )
+
+        self.assertNotIn("score.json", results)
+        status_file = self.repo_dir / "status.json"
+        status_data = json.loads(status_file.read_text(encoding="utf-8"))
+        self.assertEqual(status_data["status"], "ISSUES")
+        self.assertIn("score.json upload failed", status_data.get("evidence", ""))
+
+        # 2. Test results.tsv upload failure
+        def fail_results_upload(bkt, dest, path):
+            if "results.tsv" in str(dest):
+                return False
+            return True
+
+        mock_upload.side_effect = fail_results_upload
+
+        results = storage_uploader.upload_run_artifacts(
+            bucket_name="test-bucket",
+            prefix="runs/exp1",
+            repo_dir=self.repo_dir,
+            task_index=0,
+            status="PASS",
+        )
+
+        self.assertNotIn("results.tsv", results)
+        status_data = json.loads(status_file.read_text(encoding="utf-8"))
+        self.assertEqual(status_data["status"], "ISSUES")
+        self.assertIn("results.tsv upload failed", status_data.get("evidence", ""))
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ import shlex
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -449,9 +450,17 @@ def test_sdk_harvest_downloads_nested_partial_evidence(tmp_path, monkeypatch):
         Blob(name, value) for name, value in payloads.items()
     ]
     monkeypatch.delenv("STORAGE_MESSENGER_LOCAL_DIR", raising=False)
-    with (
-        patch.dict(sys.modules, {"google.cloud.storage": storage}),
-        patch("google.cloud.storage", storage, create=True),
+    google_mod = types.ModuleType("google")
+    cloud_mod = types.ModuleType("google.cloud")
+    google_mod.cloud = cloud_mod
+    cloud_mod.storage = storage
+    with patch.dict(
+        sys.modules,
+        {
+            "google": google_mod,
+            "google.cloud": cloud_mod,
+            "google.cloud.storage": storage,
+        },
     ):
         results = result_harvester.harvest_candidate_patches("bucket", "run", tmp_path / "harvest")
     assert results[0]["status"] == "BLOCKED"
@@ -484,3 +493,75 @@ def test_standalone_harvest_quarantines_incomplete_coverage(tmp_path, monkeypatc
     assert result.returncode == 1
     assert "Quarantined Candidate" in result.stdout
     assert "Winning Candidate" not in result.stdout
+
+
+def test_storage_mock_hierarchy_without_google_module(tmp_path, monkeypatch):
+    storage = MagicMock()
+    google_mod = types.ModuleType("google")
+    cloud_mod = types.ModuleType("google.cloud")
+    google_mod.cloud = cloud_mod
+    cloud_mod.storage = storage
+
+    monkeypatch.delenv("STORAGE_MESSENGER_LOCAL_DIR", raising=False)
+    clean_modules = {k: v for k, v in sys.modules.items() if not k.startswith("google")}
+    clean_modules["google"] = google_mod
+    clean_modules["google.cloud"] = cloud_mod
+    clean_modules["google.cloud.storage"] = storage
+
+    with patch.dict(sys.modules, clean_modules, clear=True):
+        from google.cloud import storage as resolved_storage
+
+        assert resolved_storage is storage
+        storage.Client.return_value.bucket.return_value.list_blobs.return_value = []
+        res = result_harvester.harvest_candidate_patches("bkt", "prefix", tmp_path / "dest")
+        assert res == []
+
+
+def test_harvest_candidate_patches_strict_prefix_matching(tmp_path, monkeypatch):
+    payloads = {
+        "run/task-0/status.json": json.dumps({"status": "PASS"}),
+        "run/task-0/score.json": json.dumps({"score": 0.95}),
+        "run/task-0/patch.diff": "valid patch",
+        # Sibling prefix that starts with 'run' but is not 'run/'
+        "run-other/task-1/status.json": json.dumps({"status": "PASS"}),
+        "run-other/task-1/score.json": json.dumps({"score": 0.99}),
+        "run-other/task-1/patch.diff": "invalid patch",
+        # Invalid task naming inside 'run/'
+        "run/mytask-2/status.json": json.dumps({"status": "PASS"}),
+        "run/task-3-suffix/status.json": json.dumps({"status": "PASS"}),
+    }
+
+    class Blob:
+        def __init__(self, name, payload):
+            self.name, self.payload = name, payload
+
+        def download_to_filename(self, filename):
+            Path(filename).write_text(self.payload)
+
+    storage = MagicMock()
+
+    def fake_list_blobs(prefix=""):
+        return [Blob(name, val) for name, val in payloads.items() if name.startswith(prefix)]
+
+    storage.Client.return_value.bucket.return_value.list_blobs.side_effect = fake_list_blobs
+
+    google_mod = types.ModuleType("google")
+    cloud_mod = types.ModuleType("google.cloud")
+    google_mod.cloud = cloud_mod
+    cloud_mod.storage = storage
+
+    monkeypatch.delenv("STORAGE_MESSENGER_LOCAL_DIR", raising=False)
+    with patch.dict(
+        sys.modules,
+        {
+            "google": google_mod,
+            "google.cloud": cloud_mod,
+            "google.cloud.storage": storage,
+        },
+    ):
+        results = result_harvester.harvest_candidate_patches("bucket", "run", tmp_path / "harvest")
+
+    assert len(results) == 1
+    assert results[0]["task_index"] == 0
+    assert results[0]["status"] == "PASS"
+    assert results[0]["score"] == 0.95
