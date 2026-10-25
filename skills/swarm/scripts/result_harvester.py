@@ -78,14 +78,17 @@ def harvest_gcs_results(
     target_filename: str = "score.json",
 ) -> List[Dict[str, Any]]:
     clean_prefix = prefix.strip("/")
+    storage_prefix = f"{clean_prefix}/" if clean_prefix else ""
     try:
         from google.cloud import storage
 
         client = storage.Client()
         bucket = client.bucket(bucket_name)
-        blobs = bucket.list_blobs(prefix=clean_prefix)
+        blobs = bucket.list_blobs(prefix=storage_prefix)
         results: List[Dict[str, Any]] = []
         for blob in blobs:
+            if not blob.name.startswith(storage_prefix):
+                continue
             if blob.name.endswith(target_filename):
                 payload = json.loads(blob.download_as_text(encoding="utf-8"))
                 results.append(payload)
@@ -126,6 +129,7 @@ def harvest_candidate_patches(
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
     clean_prefix = prefix.strip("/")
+    storage_prefix = f"{clean_prefix}/" if clean_prefix else ""
     tasks_found: Dict[int, Dict[str, Any]] = {}
 
     local_dir = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
@@ -135,7 +139,7 @@ def harvest_candidate_patches(
             for task_folder in sorted(src_base.iterdir()):
                 if not task_folder.is_dir():
                     continue
-                m = re.search(r"task-(\d+)", task_folder.name)
+                m = re.fullmatch(r"task-(\d+)", task_folder.name)
                 if not m:
                     continue
                 task_idx = int(m.group(1))
@@ -173,9 +177,12 @@ def harvest_candidate_patches(
 
             client = storage.Client()
             bucket = client.bucket(bucket_name)
-            blobs = bucket.list_blobs(prefix=clean_prefix)
+            blobs = bucket.list_blobs(prefix=storage_prefix)
             for blob in blobs:
-                m = re.search(r"(?:^|/)task-(\d+)/(.+)$", blob.name)
+                if not blob.name.startswith(storage_prefix):
+                    continue
+                rel_name = blob.name[len(storage_prefix):]
+                m = re.match(r"^task-(\d+)/(.+)$", rel_name)
                 if not m:
                     continue
                 task_idx = int(m.group(1))
@@ -211,7 +218,7 @@ def harvest_candidate_patches(
             )
             for item in dest.glob("task-*"):
                 if item.is_dir():
-                    m = re.search(r"task-(\d+)", item.name)
+                    m = re.fullmatch(r"task-(\d+)", item.name)
                     if m:
                         task_idx = int(m.group(1))
                         sf = item / "score.json"

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import fnmatch
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -8,6 +10,81 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+
+try:
+    from worker.execution import CREDENTIAL_PATTERNS
+except ImportError:
+    try:
+        from skills.swarm.scripts.worker.execution import CREDENTIAL_PATTERNS
+    except ImportError:
+        CREDENTIAL_PATTERNS = [
+            re.compile(r"ghp_[A-Za-z0-9_]{36,}"),
+            re.compile(r"AIza[0-9A-Za-z-_]{35}"),
+            re.compile(r"github_pat_[0-9A-Za-z_]{20,}"),
+            re.compile(r"ya29\.[0-9A-Za-z-_]+"),
+            re.compile(r"Bearer [A-Za-z0-9_\-\.]+"),
+        ]
+
+
+def is_sensitive_path(path: Path, root: Path) -> bool:
+    try:
+        p = Path(path)
+        root_path = Path(root)
+        full_path = p if p.is_absolute() else (root_path / p)
+        if os.path.islink(full_path) or full_path.is_symlink():
+            return True
+        r = root_path.resolve()
+        resolved = full_path.resolve()
+        curr = full_path.parent
+        while curr != root_path and curr.resolve() != r and curr != curr.parent:
+            if os.path.islink(curr) or curr.is_symlink():
+                return True
+            curr = curr.parent
+        if r != resolved and r not in resolved.parents:
+            return True
+        parts = resolved.relative_to(r).parts
+        if ".git" in parts or ".git" in p.parts or ".git" in full_path.parts:
+            return True
+        sensitive_patterns = [
+            ".env",
+            ".env.*",
+            "*.pem",
+            "*.key",
+            "id_rsa*",
+            "id_ed25519*",
+            "credentials.json",
+            "token.json",
+        ]
+        for pattern in sensitive_patterns:
+            if fnmatch.fnmatch(full_path.name.lower(), pattern.lower()):
+                return True
+            if fnmatch.fnmatch(resolved.name.lower(), pattern.lower()):
+                return True
+        for part in parts:
+            for pattern in sensitive_patterns:
+                if fnmatch.fnmatch(part.lower(), pattern.lower()):
+                    return True
+        return False
+    except Exception:
+        return True
+
+
+def file_contains_credentials(path: Path) -> bool:
+    p = Path(path)
+    if not p.is_file():
+        return False
+    try:
+        content = p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        try:
+            content = p.read_bytes().decode("utf-8", errors="ignore")
+        except Exception:
+            return False
+    for pat in CREDENTIAL_PATTERNS:
+        if pat.search(content):
+            return True
+    return False
+
 
 
 def get_oauth_token() -> Optional[str]:
@@ -266,34 +343,60 @@ def upload_run_artifacts(
 
     uploaded: Dict[str, str] = {}
 
-    delivery_errors = []
+    delivery_errors: List[str] = []
     proposed_pass = status == "PASS"
-    evidence_paths = []
+    evidence_paths: List[Path] = []
     root = repo.resolve()
+
     for relative in evidence_files or []:
-        path = (root / relative).resolve()
-        if root not in path.parents or ".git" in path.relative_to(root).parts:
-            delivery_errors.append(f"Evidence path outside allowed repository files: {relative}")
+        raw_path = root / relative
+        if is_sensitive_path(raw_path, root):
+            delivery_errors.append(f"Evidence path is sensitive or outside repository: {relative}")
+            continue
+        path = raw_path.resolve()
+        if is_sensitive_path(path, root):
+            delivery_errors.append(f"Evidence path is sensitive or outside repository: {relative}")
             continue
         if path.is_dir():
-            evidence_paths.extend(path.rglob("*"))
+            for child in path.rglob("*"):
+                if is_sensitive_path(child, root):
+                    delivery_errors.append(
+                        f"Evidence path is sensitive or outside repository: {child.relative_to(root).as_posix() if root in child.resolve().parents else child}"
+                    )
+                elif child.is_file():
+                    evidence_paths.append(child)
         elif path.is_file():
             evidence_paths.append(path)
         else:
             delivery_errors.append(f"Evidence file missing: {relative}")
+
     diagnostics = root / ".agystack/diagnostics"
     if diagnostics.is_dir():
-        evidence_paths.extend(diagnostics.glob("*.log"))
+        for diag in diagnostics.glob("*.log"):
+            if is_sensitive_path(diag, root):
+                delivery_errors.append(f"Diagnostic path is sensitive: {diag.name}")
+            elif diag.is_file():
+                evidence_paths.append(diag)
+
     for path in sorted(set(evidence_paths)):
         resolved = path.resolve()
-        if not resolved.is_file() or root not in resolved.parents or ".git" in resolved.relative_to(root).parts:
+        if not resolved.is_file():
             continue
-        name = f"evidence/{path.relative_to(root).as_posix()}"
+        rel_name = path.relative_to(root).as_posix() if root in resolved.parents else path.name
+        if is_sensitive_path(path, root):
+            delivery_errors.append(f"Evidence path is sensitive: {rel_name}")
+            continue
+        if file_contains_credentials(path):
+            delivery_errors.append(f"Evidence file contains credentials: {rel_name}")
+            continue
+
+        name = f"evidence/{rel_name}"
         dest = f"{target_prefix}/{name}"
         if upload_to_gcs(bucket_name, dest, path):
             uploaded[name] = f"gs://{bucket_name}/{dest}"
         else:
             delivery_errors.append(f"Evidence upload failed: {name}")
+
     if delivery_errors and proposed_pass:
         status = "ISSUES"
 
@@ -307,10 +410,17 @@ def upload_run_artifacts(
                 patch_path.write_text(patch_content, encoding="utf-8")
 
         if patch_path.is_file() and patch_path.stat().st_size > 0:
-            dest = f"{target_prefix}/{patch_name}"
-            if upload_to_gcs(bucket_name, dest, patch_path):
-                uploaded[patch_name] = f"gs://{bucket_name}/{dest}"
-                patch_uploaded = True
+            if is_sensitive_path(patch_path, root):
+                delivery_errors.append(f"Candidate patch path is sensitive: {patch_name}")
+            elif file_contains_credentials(patch_path):
+                delivery_errors.append(f"Candidate patch contains credentials: {patch_name}")
+            else:
+                dest = f"{target_prefix}/{patch_name}"
+                if upload_to_gcs(bucket_name, dest, patch_path):
+                    uploaded[patch_name] = f"gs://{bucket_name}/{dest}"
+                    patch_uploaded = True
+                else:
+                    delivery_errors.append(f"Candidate patch upload failed: {patch_name}")
 
         if candidate_files and not patch_uploaded:
             delivery_errors.append("Candidate patch failed to upload or is missing under zero-push delivery.")
@@ -320,15 +430,33 @@ def upload_run_artifacts(
     # Upload score.json and results.tsv
     score_path = repo / "score.json"
     if score_path.is_file():
-        dest = f"{target_prefix}/score.json"
-        if upload_to_gcs(bucket_name, dest, score_path):
-            uploaded["score.json"] = f"gs://{bucket_name}/{dest}"
+        if is_sensitive_path(score_path, root):
+            delivery_errors.append("score.json is a sensitive path")
+        elif file_contains_credentials(score_path):
+            delivery_errors.append("score.json contains credentials")
+        else:
+            dest = f"{target_prefix}/score.json"
+            if upload_to_gcs(bucket_name, dest, score_path):
+                uploaded["score.json"] = f"gs://{bucket_name}/{dest}"
+            else:
+                delivery_errors.append("score.json upload failed")
 
     results_path = repo / "results.tsv"
     if results_path.is_file():
-        dest = f"{target_prefix}/results.tsv"
-        if upload_to_gcs(bucket_name, dest, results_path):
-            uploaded["results.tsv"] = f"gs://{bucket_name}/{dest}"
+        if is_sensitive_path(results_path, root):
+            delivery_errors.append("results.tsv is a sensitive path")
+        elif file_contains_credentials(results_path):
+            delivery_errors.append("results.tsv contains credentials")
+        else:
+            dest = f"{target_prefix}/results.tsv"
+            if upload_to_gcs(bucket_name, dest, results_path):
+                uploaded["results.tsv"] = f"gs://{bucket_name}/{dest}"
+            else:
+                delivery_errors.append("results.tsv upload failed")
+
+    # Finalize delivery_errors and degrade status from PASS to ISSUES if delivery_errors is non-empty
+    if delivery_errors and status == "PASS":
+        status = "ISSUES"
 
     # Write and upload status.json LAST with the finalized status.
     status_path = repo / "status.json"
@@ -343,10 +471,15 @@ def upload_run_artifacts(
     status_data["artifacts"] = uploaded
     if delivery_errors:
         status_data["evidence"] = "\n".join(delivery_errors)
+        status_data["delivery_errors"] = delivery_errors
+    else:
+        status_data.pop("delivery_errors", None)
     status_path.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
 
     dest = f"{target_prefix}/status.json"
     if upload_to_gcs(bucket_name, dest, status_path):
         uploaded["status.json"] = f"gs://{bucket_name}/{dest}"
+    else:
+        delivery_errors.append("status.json upload failed")
 
     return uploaded
