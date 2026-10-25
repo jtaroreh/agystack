@@ -214,11 +214,22 @@ class TestEvidenceCredentialSafeguards(unittest.TestCase):
 
     @patch("storage_uploader.upload_to_gcs")
     def test_evidence_with_credentials_rejected_and_degrades_pass(self, mock_upload):
-        mock_upload.return_value = True
+        uploaded_payloads = {}
+
+        def spy_upload(bucket, obj, path):
+            uploaded_payloads[obj] = Path(path).read_bytes()
+            return True
+
+        mock_upload.side_effect = spy_upload
+
+        safe_file = self.repo_dir / "safe.txt"
+        safe_bytes = b"safe measurement: 42\n"
+        safe_file.write_bytes(safe_bytes)
 
         evidence_file = self.repo_dir / "proof.txt"
         secret_token = "ghp_" + "a" * 36
-        evidence_file.write_text(f"run log with sensitive token: {secret_token}\n", encoding="utf-8")
+        cred_bytes = f"run log with sensitive token: {secret_token}\n".encode("utf-8")
+        evidence_file.write_bytes(cred_bytes)
 
         results = storage_uploader.upload_run_artifacts(
             bucket_name="test-bucket",
@@ -226,15 +237,26 @@ class TestEvidenceCredentialSafeguards(unittest.TestCase):
             repo_dir=self.repo_dir,
             task_index=0,
             status="PASS",
-            evidence_files=["proof.txt"],
+            evidence_files=["safe.txt", "proof.txt"],
         )
 
-        # File content must NOT have been modified
-        self.assertIn(secret_token, evidence_file.read_text(encoding="utf-8"))
-        # Evidence file must not be in uploaded artifacts
+        self.assertEqual(safe_file.read_bytes(), safe_bytes)
+        self.assertEqual(evidence_file.read_bytes(), cred_bytes)
         self.assertNotIn("evidence/proof.txt", results)
+        self.assertIn("evidence/safe.txt", results)
+        self.assertEqual(
+            uploaded_payloads.get("runs/exp1/task-0/evidence/safe.txt"),
+            safe_bytes,
+        )
 
-        # status.json locally must degrade from PASS to ISSUES
+        secret_bytes = secret_token.encode("utf-8")
+        for obj, payload in uploaded_payloads.items():
+            self.assertNotIn(
+                secret_bytes,
+                payload,
+                f"Synthetic secret leaked in outbound upload for {obj}",
+            )
+
         status_file = self.repo_dir / "status.json"
         self.assertTrue(status_file.is_file())
         status_data = json.loads(status_file.read_text(encoding="utf-8"))

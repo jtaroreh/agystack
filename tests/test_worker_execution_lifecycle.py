@@ -281,7 +281,8 @@ def test_dispatch_rejects_invalid_task_limits_before_launch(tmp_path, limits):
         "--manifest",
         json.dumps([{"brief": "work", "execution_limits": limits}]),
     ]
-    result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True)
+    env = dict(os.environ, GH_TOKEN="fake-test-token")
+    result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert "execution_limits" in result.stderr or "positive integer" in result.stderr
 
@@ -290,7 +291,7 @@ def test_dispatch_cli_env_runtime_precedence(tmp_path):
     (tmp_path / "agystack-runtime.json").write_text(
         json.dumps({"execution_limits": {"max_agent_turns": 40, "command_timeout_s": 500, "verify_timeout_s": 501}})
     )
-    env = dict(os.environ, AGYSTACK_MAX_AGENT_TURNS="41", COMMAND_TIMEOUT="600")
+    env = dict(os.environ, AGYSTACK_MAX_AGENT_TURNS="41", COMMAND_TIMEOUT="600", GH_TOKEN="fake-test-token")
     env.pop("VERIFY_TIMEOUT", None)
     result = subprocess.run(
         [
