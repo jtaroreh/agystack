@@ -24,6 +24,7 @@ Place cheap, always-on assertions or invariant guards at the exact boundary wher
 - Validate inputs, deserialized payloads, and constructed models at creation time.
 - If an illegitimate state enters internal code, reject or panic immediately with diagnostic details rather than carrying on in a degraded state.
 - Keep guards cheap enough to run permanently in production. An always-on cheap signal catches regressions immediately instead of masking them behind silent fallbacks.
+- If the deciding fact took a deep dig to find, propose the cheap, always-on signal that would have shown it at first look.
 
 ## Pattern
 

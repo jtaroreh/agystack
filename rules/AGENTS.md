@@ -44,4 +44,4 @@ Always use the most direct, deterministic tool surface for each task:
 2. **CLI / Runtime Tools (`run_command`)**: Test suites, API endpoints, build/server logs, process lifecycles, and exit codes.
 3. **Browser Tools (`browser_subagent` / Chrome DevTools MCP)**: Strictly for live UI interaction, DOM layout, CSS styles, user events, and rendered visual screenshots.
 
-Per-role models live in `agystack-models.md` next to this file. `/setup-agystack` rewrites that file.
+Per-role models live in `agystack-models.md` at the plugin root. `/setup-agystack` rewrites that file.

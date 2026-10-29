@@ -29,7 +29,7 @@ Run:
 /setup-agystack
 ```
 
-[`/setup-agystack`](../../skills/setup-agystack/SKILL.md) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/agystack/rules/agystack-models.md`, a small rule every agystack skill reads.
+[`/setup-agystack`](../../skills/setup-agystack/SKILL.md) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/agystack/agystack-models.md`, a configuration file every agystack skill reads.
 
 You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default later, delete that role's line, or just run `/setup-agystack` again.
 

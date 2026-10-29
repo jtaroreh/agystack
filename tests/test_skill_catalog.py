@@ -58,3 +58,24 @@ def test_guide_indexes_all_principles():
         assert (skill_file.parent.name in guide_principles or 
                 f"skills/{skill_file.parent.name}" in guide_principles or 
                 slug in guide_principles), f"08-principles.md missing reference to {skill_file.parent.name}"
+
+
+def test_all_skills_match_directory():
+    skills_dir = REPO_ROOT / "skills"
+    all_skills = sorted(skills_dir.glob("*/SKILL.md"))
+    assert len(all_skills) > 0, "No skills found in skills/"
+    for skill_file in all_skills:
+        content = skill_file.read_text(encoding="utf-8")
+        assert content.startswith("---"), f"{skill_file} missing frontmatter delimiter"
+
+        parts = content.split("---", 2)
+        assert len(parts) >= 3, f"{skill_file} invalid frontmatter structure"
+        frontmatter = parts[1]
+
+        name_match = re.search(r"^name:\s*(.+)$", frontmatter, re.MULTILINE)
+        assert name_match, f"{skill_file} missing 'name:' in frontmatter"
+
+        dir_name = skill_file.parent.name
+        skill_name = name_match.group(1).strip().strip("'\"")
+        assert skill_name == dir_name, f"{skill_file} name '{skill_name}' does not match dir '{dir_name}'"
+

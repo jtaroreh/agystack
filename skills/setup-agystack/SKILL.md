@@ -5,7 +5,7 @@ description: Configure models and execution runtime for agystack. Configures Ant
 
 # Setup agystack
 
-Configure model tiers in `~/.gemini/config/plugins/agystack/rules/agystack-models.md` and execution runtime in `~/.gemini/config/plugins/agystack/agystack-runtime.json` (or workspace `.agents/plugins/agystack/`).
+Configure model tiers in `~/.gemini/config/plugins/agystack/agystack-models.md` and execution runtime in `~/.gemini/config/plugins/agystack/agystack-runtime.json` (or workspace `.agents/plugins/agystack/`).
 
 ## Prerequisites
 
@@ -69,7 +69,7 @@ Enumerate the model tiers you can pass to `invoke_subagent` (local) and `cloud_d
 
 ### 3. Load current state
 
-If `~/.gemini/config/plugins/agystack/rules/agystack-models.md` exists, read its current role assignments. Otherwise start from skill defaults.
+If `~/.gemini/config/plugins/agystack/agystack-models.md` exists, read its current role assignments. Otherwise start from skill defaults.
 
 ### 4. Map and confirm
 
@@ -79,7 +79,7 @@ Show every role with its model tier and confirm:
 
 ### 5. Write the model rule
 
-Write to `.agents/plugins/agystack/rules/agystack-models.md` if installed workspace-locally, otherwise `~/.gemini/config/plugins/agystack/rules/agystack-models.md`:
+Write to `.agents/plugins/agystack/agystack-models.md` if installed workspace-locally, otherwise `~/.gemini/config/plugins/agystack/agystack-models.md`:
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.

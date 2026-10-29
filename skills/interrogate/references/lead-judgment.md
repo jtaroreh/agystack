@@ -15,6 +15,12 @@ You have the full conversation context. Use it.
 
 ## Filtering Principles
 
+### Empirical Verification Rerun
+
+Before acting on any finding, the coordinator reruns the reviewer's provided repro command using `run_command`.
+- If the command does not reproduce the failure against the code, or if the reviewer failed to provide an executable reproduction, drop the finding.
+- A finding must stand on empirical evidence, not theoretical speculation or rhetorical confidence.
+
 ### Nitpick Gravity
 
 Reviewers, especially adversarial ones, tend to fill their review. If they don't find critical issues, they'll inflate nits to fill the space. If a reviewer's findings are all nits and style preferences, the code is probably fine. Say so.

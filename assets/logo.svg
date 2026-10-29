@@ -1,0 +1,19 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="antigravity-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0084FF" />
+      <stop offset="50%" stop-color="#A855F7" />
+      <stop offset="100%" stop-color="#FF3366" />
+    </linearGradient>
+  </defs>
+
+  <circle cx="128" cy="128" r="100" stroke="#71717A" stroke-width="1.5" />
+  <line x1="128" y1="28" x2="128" y2="34" stroke="#71717A" stroke-width="1.5" />
+  <line x1="128" y1="222" x2="128" y2="228" stroke="#71717A" stroke-width="1.5" />
+  <line x1="28" y1="128" x2="34" y2="128" stroke="#71717A" stroke-width="1.5" />
+  <line x1="222" y1="128" x2="228" y2="128" stroke="#71717A" stroke-width="1.5" />
+
+  <path d="M 76 164 L 128 138 L 180 164 L 180 182 L 128 156 L 76 182 Z" fill="#FFFFFF" />
+  <path d="M 76 128 L 128 102 L 180 128 L 180 146 L 128 120 L 76 146 Z" fill="#0091FF" />
+  <path d="M 76 92 L 128 66 L 180 92 L 180 110 L 128 84 L 76 110 Z" fill="url(#antigravity-gradient)" />
+</svg>

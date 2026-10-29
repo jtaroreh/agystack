@@ -469,6 +469,12 @@ def parse_model_config(config_path=None):
         paths = [Path(config_path)]
     else:
         paths = [
+            # 1. Standard: Plugin root
+            Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "agystack-models.md",
+            Path(__file__).resolve().parents[3] / "agystack-models.md",
+            Path("agystack-models.md"),
+            Path(".agents/plugins/agystack/agystack-models.md"),
+            # 2. Legacy fallback: rules/ subdirectory
             Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "rules" / "agystack-models.md",
             Path(__file__).resolve().parents[3] / "rules" / "agystack-models.md",
             Path("rules/agystack-models.md"),
