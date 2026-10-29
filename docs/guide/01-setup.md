@@ -10,13 +10,34 @@ In this page you install the plugin, pick which models agystack uses, and run yo
 
 ## Install the plugin
 
-Install agystack globally or for a specific workspace:
+You can install agystack from the official Antigravity Marketplace or directly via git:
+
+### Option 1: Antigravity Marketplace (Recommended)
+
+From the Antigravity CLI:
+```bash
+agy plugin install agystack
+```
+
+Or via the Antigravity App UI:
+1. Open the left sidebar and select **Customizations**.
+2. Switch to the **Marketplace** tab.
+3. Search for `agystack` and click **Install**.
+
+### Option 2: Ask the agent
+
+In your agent chat session:
+```text
+install this antigravity plugin for me: https://github.com/jtaroreh/agystack
+```
+
+### Option 3: Direct git clone
 
 ```bash
-# Option A: Global installation (recommended - applies across all projects)
+# Global installation (recommended - applies across all projects)
 git clone https://github.com/jtaroreh/agystack ~/.gemini/config/plugins/agystack
 
-# Option B: Workspace-only installation (applies to current project)
+# Workspace-only installation (applies to current project)
 git clone https://github.com/jtaroreh/agystack .agents/plugins/agystack
 ```
 Restart Antigravity or start a new chat so it discovers the plugin.
