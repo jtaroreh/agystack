@@ -3,9 +3,10 @@
   "name": "agystack",
   "displayName": "agystack",
   "version": "0.15.0",
-  "description": "agystack for Antigravity IDE. Rigorous agent workflows: poteto-mode, how, why, architect, arena, swarm, interrogate, deslop. Port of Lauren Tan's pstack for Antigravity.",
+  "description": "Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Port of Lauren Tan's pstack.",
   "author": {
-    "name": "Lauren Tan (original pstack), Antigravity port"
+    "name": "Lauren Tan (original pstack), Joel Taroreh (Antigravity port)",
+    "url": "https://github.com/jtaroreh/agystack"
   },
   "homepage": "https://github.com/jtaroreh/agystack",
   "repository": "https://github.com/jtaroreh/agystack",
