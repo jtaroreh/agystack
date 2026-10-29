@@ -26,6 +26,6 @@
   "suggestedPrompts": [
     "/agystack plan and implement this feature",
     "/interrogate this implementation with multi-model adversarial reviews",
-    "/teach me the architecture of this project"
+    "/create-verification-skill for this project"
   ]
 }

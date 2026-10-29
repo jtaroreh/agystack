@@ -21,7 +21,7 @@ Rigorous agentic engineering framework for Google Antigravity: poteto-mode, play
 
 1. `/agystack plan and implement this feature`
 2. `/interrogate this implementation with multi-model adversarial reviews`
-3. `/teach me the architecture of this project`
+3. `/create-verification-skill for this project`
 
 ## Key Capabilities
 
