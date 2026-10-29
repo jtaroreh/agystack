@@ -25,6 +25,8 @@ scratch/
 google-services.json
 GoogleService-Info.plist
 *.log
+dist/
+*.zip
 .venv/
 venv/
 env/
