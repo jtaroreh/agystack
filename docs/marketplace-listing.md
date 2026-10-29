@@ -8,20 +8,20 @@ This document defines the official catalog metadata, presentation copy, and deve
 - **Display Name:** `agystack`
 - **Version:** `0.16.0`
 - **Category:** Developer Tools / Agentic Engineering
-- **Author:** Lauren Tan (original pstack), Joel Taroreh (Antigravity port)
+- **Author:** Joel Taroreh
 - **Repository:** https://github.com/jtaroreh/agystack
 - **License:** MIT
 - **Logo:** `assets/logo.svg` (256x256, transparent, high-contrast geometric chevron)
 
 ## Description
 
-Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Port of Lauren Tan's pstack.
+Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Spinoff of poteto's pstack.
 
 ## Suggested Prompts
 
-1. `Plan and implement this feature with /poteto-mode rigor`
-2. `Interrogate this implementation with multi-model adversarial reviews`
-3. `Run /arena to compare multiple architectural approaches`
+1. `/agystack plan and implement this feature`
+2. `/interrogate this implementation with multi-model adversarial reviews`
+3. `/teach me the architecture of this project`
 
 ## Key Capabilities
 
