@@ -34,7 +34,7 @@ this repository is **agystack**, the agentic engineering framework for Google An
 
 ### prerequisites
 
-- `bun` (v1.0+) is mandatory for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`). Node.js is not supported.
+- `bun` (v1.0+) is used for PR babysitting (`watch-pr`). Orchestration is native agentic markdown via Brain Artifacts. Node.js is not supported.
 - `gh` (GitHub CLI) is required for PR automation and preflight checks.
 - `gt` (Graphite CLI) is recommended for stacked PRs.
 
@@ -207,6 +207,7 @@ Or trigger `/swarm` right in chat:
 | [`/unslop`](./skills/unslop/SKILL.md) | you're cleaning up writing. removes AI tells. |
 | [`/bro`](./skills/bro/SKILL.md) | you want the last message restated in plain human language, no jargon. |
 | [`/technical-writing`](./skills/technical-writing/SKILL.md) | layered doc standard (Diátaxis + Google developer style + STE + Global English) for docs, RFCs, readmes, PR descriptions, commit messages. |
+| [`/statechart`](./skills/statechart/SKILL.md) | you want to model system states, transitions, invariants, and failure modes as native Mermaid diagrams. |
 
 </details>
 

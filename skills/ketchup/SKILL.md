@@ -27,7 +27,7 @@ The user can respond with a single token or pick such as Option A.
 Do not ask open-ended questions when a structured pick settles the fork.
 When an action is blocked on external input, state the exact input required and the default fallback.
 
-## Native Antigravity Artifacts
+## Native Antigravity Artifacts & Visual Progress
 
 Deliver comprehensive context through native Antigravity Artifacts in `<appDataDir>/brain/<conversation-id>/`.
 Point to artifacts using clickable file links.
@@ -37,6 +37,10 @@ Key companion artifacts include:
 - `walkthrough.md` for verified changes and test receipts.
 - `decision_trail.md` for sequential forks, rationales, and results.
 - `implementation_plan.md` for roadmap progress and checked boxes.
+
+### Visual Progress Carousels and Generative UI
+Use native markdown carousels (````carousel ... ````) with `<!-- slide -->` comments for sequential visual walkthroughs and before/after progressions.
+Embed `generative_ui` HTML/SVG timeline widgets for visual progress rendering directly in artifacts without external video compilation dependencies like ffmpeg MP4s.
 
 ## Visual Media Embedding
 

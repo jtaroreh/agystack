@@ -175,7 +175,7 @@ Antigravity subagents use native `invoke_subagent` model tiers. Model tiers (`in
 | Deep judgment, prose, architecture | `inherit` or `pro` |
 | Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` |
 
-Read per-role overrides from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (or `.agents/plugins/agystack/rules/agystack-models.md`). If a line is missing, use the defaults above.
+Read per-role overrides from `~/.gemini/config/plugins/agystack/agystack-models.md` (or `.agents/plugins/agystack/agystack-models.md`). If a line is missing, use the defaults above.
 
 Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One subagent runs per list entry.
 
@@ -203,7 +203,7 @@ agystack skills (`/interrogate`, `/arena`, `/architect`, `/swarm`) build directl
 
 | Artifact / Config | Antigravity Path |
 | --- | --- |
-| Role models configuration | `~/.gemini/config/plugins/agystack/rules/agystack-models.md` |
+| Role models configuration | `~/.gemini/config/plugins/agystack/agystack-models.md` |
 | Runtime execution config | `~/.gemini/config/plugins/agystack/agystack-runtime.json` |
 | Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (discovered across `~/.gemini/antigravity/brain/` and `~/.gemini/antigravity-ide/brain/`) |
 | Session artifacts | `<appDataDir>/brain/<conversation-id>/` |

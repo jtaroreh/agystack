@@ -1112,10 +1112,14 @@ def resolve_swarm_model(
         role_model = None
         paths_to_check = [
             agystack_models_path,
+            Path(os.path.expanduser("~/.gemini/config/plugins/agystack/agystack-models.md")),
+            Path(__file__).resolve().parents[3] / "agystack-models.md",
             Path("agystack-models.md"),
+            Path(".agents/plugins/agystack/agystack-models.md"),
+            Path(os.path.expanduser("~/.gemini/config/plugins/agystack/rules/agystack-models.md")),
+            Path(__file__).resolve().parents[3] / "rules" / "agystack-models.md",
             Path("rules/agystack-models.md"),
             Path(".agents/plugins/agystack/rules/agystack-models.md"),
-            Path(os.path.expanduser("~/.gemini/config/plugins/agystack/rules/agystack-models.md")),
         ]
         for p in paths_to_check:
             if p and p.is_file():

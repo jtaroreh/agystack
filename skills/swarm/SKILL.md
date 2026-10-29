@@ -21,7 +21,7 @@ Open a todolist with one entry per phase before launching anything.
 1. State the done predicate and the deliverable artifact or report.
 2. Choose the shape: partition into slices, race N workers on identical briefs, or mix both. For a race, declare `first pass`, `rank all`, or `best-of`.
 3. Set N. N is total workers.
-4. Pick worker model from `swarm workers` in `~/.gemini/config/plugins/agystack/rules/agystack-models.md` (default: `flash`).
+4. Pick worker model from `swarm workers` in `~/.gemini/config/plugins/agystack/agystack-models.md` (default: `flash`).
 5. Check execution runtime:
    - If `agystack-runtime.json` does not exist or specifies `"runtime": "local"`, use local subagents for N <= 8.
    - If N > 8 or `agystack-runtime.json` specifies `"runtime": "cloud-run"`, use Cloud Run dispatch.

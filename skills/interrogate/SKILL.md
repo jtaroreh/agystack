@@ -25,7 +25,7 @@ State what the code attempts to accomplish based on commit messages, PR descript
 
 Launch all reviewers in a single turn using `invoke_subagent`. Simulating reviewer personas in-context is strictly prohibited.
 
-Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` when present, or fall back to defaults:
+Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/agystack-models.md` when present, or fall back to defaults:
 
 | Subagent | Default model tier |
 |---|---|
@@ -42,7 +42,11 @@ For each reviewer:
 Fill `references/reviewer-prompt.md` with:
 1. Stated intent
 2. Diff or file contents
-3. Rubric from `references/rubric.md`
+3. Rubric from `references/rubric.md`, explicitly injecting concrete audit categories:
+   - **Idempotency & Crash Recovery:** Re-execution safety and partial failure state.
+   - **Concurrency & Races:** Shared state serialization and lock invariants.
+   - **Boundary Discipline:** System boundary validation vs internal type trust.
+   - **Contract vs Symptom:** Root cause verification vs shallow guard clauses.
 4. Code-quality lens from `references/code-quality-review.md`
 5. System `{PARENT_CONVERSATION_ID}` for return routing
 
@@ -55,21 +59,24 @@ Fill `references/reviewer-prompt.md` with:
 4. **Full Arrival:** When all reviewers report, cancel the timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Step 4.
 5. **Watchdog Timeout Fallback:** If the watchdog fires, inspect `manage_subagents(Action: "list")`, terminate unresponsive workers (`manage_subagents(Action: "kill", ConversationIds: [<id>])`), and synthesize surviving findings.
 
-## Step 4. Synthesize
+## Step 4. Empirical Verification Gate & Synthesis
 
-- Parse reviewer findings
-- Identify multi-model consensus (highest confidence)
-- Isolate lone-model findings (lower confidence)
-- Deduplicate overlapping issues
-- Highlight direct disagreements between models
+- Parse reviewer findings.
+- **Empirical Gate:** Every actionable finding MUST include an executable repro command, curl call, test snippet, or shell one-liner proving the defect or reproducing the failure against the code. Speculative findings lacking executable reproduction are dropped.
+- **Lead Verifier Rerun:** The coordinator reruns each repro command using `run_command`. If the command does not reproduce the failure against the codebase, the finding is dropped.
+- Identify multi-model consensus (highest confidence).
+- Isolate lone-model findings (lower confidence).
+- Deduplicate overlapping issues.
+- Highlight direct disagreements between models.
 
 ## Step 5. Lead Judgment
 
-Classify findings using the framework in `references/lead-judgment.md`:
-- **Act on.** Critical defects in correctness, security, or maintainability that block landing.
+Classify surviving verified findings using the framework in `references/lead-judgment.md`:
+- Filter out "Nitpick Gravity" and subjective preferences ("I would have done it differently").
+- **Act on.** Critical defects in correctness, security, or maintainability with verified repros that block landing.
 - **Consider.** Valid tradeoffs worth operator attention.
 - **Noted.** Context-dependent, premature optimization, or low impact.
-- **Dismissed.** False positives or missing context, with brief rationale.
+- **Dismissed.** Unreproduced findings, false positives, or missing context, with brief rationale.
 
 ## Output Format
 
@@ -78,7 +85,7 @@ Write the complete categorized review, rationales, and agreement map to `<appDat
 Structure:
 - **Intent.** Stated goal of the change.
 - **Reviewers.** One bullet per reviewer (model, finding count).
-- **Act On.** Findings requiring resolution.
+- **Act On.** Findings requiring resolution, with verified repro commands.
 - **Consider.** Tradeoffs to evaluate.
 - **Noted.** Low-priority items.
 - **Dismissed.** Rejected findings with justification.

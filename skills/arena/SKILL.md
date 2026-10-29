@@ -21,7 +21,7 @@ Open a todolist tracking the operational phases:
 
 1. **Artifact.** Define the target output each candidate must produce.
 2. **Rubric.** Formulate 3-6 concrete, gradeable criteria (e.g. `Adds a --dry-run flag that skips writes`).
-3. **Runners.** Use `arena runners` from `~/.gemini/config/plugins/agystack/rules/agystack-models.md` if configured, or default across available tiers: `pro`, `flash`, `inherit`.
+3. **Runners.** Use `arena runners` from `~/.gemini/config/plugins/agystack/agystack-models.md` if configured, or default across available tiers: `pro`, `flash`, `inherit`.
 4. **Workspaces.** Assign isolated workspaces via `Workspace: "branch"` or scratch paths (`<appDataDir>/brain/<conversation-id>/scratch/arena-<slug>/candidate-<n>/`) per **principle-separate-before-serializing-shared-state**.
 
 ## Phase B: Fan out
@@ -41,7 +41,7 @@ Provide `{PARENT_CONVERSATION_ID}` in each prompt. Candidates MUST invoke `send_
 
 ## Phase C: Cross-judge
 
-Spawn one judge subagent via `invoke_subagent` (`TypeName: "research"`, `Role: "Arena Cross-Judge"`) on a distinct tier from `pro`, `flash`, `inherit`. The judge scores candidates against rubric criteria and recommends a base with rationale.
+Spawn one judge subagent via `invoke_subagent` (`TypeName: "research"`, `Role: "Arena Cross-Judge"`). The cross-judge must be selected from a different model family than the candidates. For Antigravity, assign the judge role to `Model: "pro"` (Gemini Pro) to ensure deep comparative judgment over Flash candidate drafts. The judge scores candidates against rubric criteria and recommends a base with rationale.
 
 ## Phase D: Pick a base
 

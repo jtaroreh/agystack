@@ -38,7 +38,8 @@ For each finding, provide:
    - `nit`: Style, naming, minor improvement. Only include nits if they're genuinely useful, not to pad your review.
 2. **Finding**: What the problem is, in concrete terms. Reference specific lines/functions.
 3. **Evidence**: Why you believe this is a problem. Show your reasoning. Don't just assert.
-4. **Suggestion** (optional): What you'd do instead, if you have a concrete alternative. Skip this if you don't have a clear fix.
+4. **Repro / Verification**: An executable command, curl call, test snippet, or shell one-liner proving the defect or reproducing the failure against the code. Findings without a reproducible check or executable proof are rejected.
+5. **Suggestion** (optional): What you'd do instead, if you have a concrete alternative. Skip this if you don't have a clear fix.
 
 ## What Makes a Good Finding
 
@@ -72,6 +73,7 @@ Format your findings as:
 **Location**: file:line or function name
 **Finding**: What's wrong
 **Evidence**: Why this matters
+**Repro / Verification**: An executable command, curl call, test snippet, or shell one-liner proving the defect or reproducing the failure against the code.
 **Suggestion**: (optional) What to do instead
 
 ### 2. [Severity] Short title

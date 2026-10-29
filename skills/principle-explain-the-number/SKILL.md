@@ -24,3 +24,7 @@ Do not say "the loop is cleaner so it runs faster". Identify what hardware resou
 - Concurrency: Mutex lock contention, false sharing across cache lines, thread pool exhaustion, or atomic contention.
 
 If profiling data or hardware counters cannot confirm the mechanism, label the explanation as an unverified hypothesis and measure the counter before declaring success.
+
+## Pre-Registration & Decision Thresholds
+
+Write the decision before you run. Name the result that would change a decision, and the noise floor. Stop when the run-to-run spread is larger than the effect.
