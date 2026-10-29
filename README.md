@@ -38,21 +38,37 @@ this repository is **agystack**, the agentic engineering framework for Google An
 - `gh` (GitHub CLI) is required for PR automation and preflight checks.
 - `gt` (Graphite CLI) is recommended for stacked PRs.
 
-Install agystack globally (for all workspaces) or locally in your project:
+### installation methods
 
-Option A: Global install (recommended)
+#### Option 1: Antigravity Marketplace (Recommended)
+
+From the Antigravity CLI:
+```bash
+agy plugin install agystack
+```
+
+Or inside the Antigravity App:
+1. Open the left sidebar and select **Customizations**.
+2. Switch to the **Marketplace** tab.
+3. Search for `agystack` and click **Install**.
+
+#### Option 2: Ask the agent
+
+In any conversation turn, prompt:
+```text
+install this antigravity plugin for me: https://github.com/jtaroreh/agystack
+```
+
+#### Option 3: Manual Git Clone
+
+Global install (all workspaces):
 ```bash
 git clone https://github.com/jtaroreh/agystack.git ~/.gemini/config/plugins/agystack
 ```
 
-Option B: Workspace-local install
+Workspace-local install:
 ```bash
 git clone https://github.com/jtaroreh/agystack.git .agents/plugins/agystack
-```
-
-**or honestly. you can probably just tell your chat**
-```text
-install this antigravity plugin for me: https://github.com/jtaroreh/agystack
 ```
 
 Native Antigravity tools (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and visual Artifacts) are documented in [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
