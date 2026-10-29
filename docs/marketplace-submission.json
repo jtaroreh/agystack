@@ -3,7 +3,7 @@
   "id": "agystack",
   "name": "agystack",
   "displayName": "agystack",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "category": "developer-tools",
   "description": "Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Port of Lauren Tan's pstack.",
   "author": {

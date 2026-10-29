@@ -2,7 +2,7 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agystack",
   "displayName": "agystack",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Port of Lauren Tan's pstack.",
   "author": {
     "name": "Lauren Tan (original pstack), Joel Taroreh (Antigravity port)",

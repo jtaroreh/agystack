@@ -6,7 +6,7 @@ This document defines the official catalog metadata, presentation copy, and deve
 
 - **Plugin Name:** `agystack`
 - **Display Name:** `agystack`
-- **Version:** `0.15.0`
+- **Version:** `0.16.0`
 - **Category:** Developer Tools / Agentic Engineering
 - **Author:** Lauren Tan (original pstack), Joel Taroreh (Antigravity port)
 - **Repository:** https://github.com/jtaroreh/agystack
