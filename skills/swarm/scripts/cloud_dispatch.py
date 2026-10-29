@@ -32,6 +32,12 @@ except ImportError:
         is_partner_model = None
         PARTNER_MODEL_ALIASES = {}
 
+try:
+    from worker.execution import LIMIT_ENV, TERMINAL_STATES, resolve_execution_limits
+except ImportError:
+    from skills.swarm.scripts.worker.execution import LIMIT_ENV, TERMINAL_STATES, resolve_execution_limits
+
+
 TIER3_DEDICATED_MODELS = {
     "glm-5-3-flash",
     "glm-5.3-flash",
@@ -370,6 +376,14 @@ def parse_worker_logs(log_output: str) -> List[Dict[str, Any]]:
     for line in log_output.splitlines():
         trimmed = line.strip()
         if trimmed.startswith("[STATUS:"):
+            if not current_status and current_evidence:
+                current_status = trimmed.split("[STATUS:")[1].split("]")[0].strip()
+                _flush()
+                current_status = ""
+                current_evidence = []
+                current_summary = []
+                mode = None
+                continue
             _flush()
             current_status = trimmed.split("[STATUS:")[1].split("]")[0].strip()
             current_evidence = []
@@ -1174,6 +1188,19 @@ except ImportError:
         )
 
 
+def failed_task_count(report_items: List[Dict[str, Any]], task_count: int) -> int:
+    reports = {}
+    invalid = 0
+    for item in report_items:
+        index = item.get("task_index")
+        if type(index) is not int or not 0 <= index < task_count or index in reports:
+            invalid += 1
+            continue
+        status = item.get("status")
+        reports[index] = status if isinstance(status, str) and status in TERMINAL_STATES else "UNKNOWN"
+    return invalid + sum(reports.get(index) != "PASS" for index in range(task_count))
+
+
 def print_candidate_patches_table(
     harvested_patches: List[Dict[str, Any]],
     baseline_score: Optional[float] = None,
@@ -1364,6 +1391,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
         return
 
     runtime_cfg = find_runtime_config() or {}
+
     job_name = args.job_name or runtime_cfg.get("job_name") or "agystack-swarm-worker"
     region = args.region or runtime_cfg.get("region") or "us-central1"
     project = args.project or runtime_cfg.get("project_id")
@@ -1417,7 +1445,15 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
             print(f"Error: Failed to harvest GCS results for session {session_id}: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        print_candidate_patches_table(harvested_patches, baseline_score=args.baseline_score)
+        failed_count = failed_task_count(harvested_patches, args.tasks) if args.tasks and args.tasks > 0 else 1
+        print_candidate_patches_table(
+            harvested_patches, baseline_score=args.baseline_score, failed_count=failed_count,
+            allow_partial=args.ignore_partial_failures,
+        )
+        if not args.tasks:
+            print("Complete task coverage is unknown. Supply --tasks to verify the expected count.")
+        if failed_count:
+            sys.exit(1)
         return
 
     if args.wait_execution:
@@ -1477,8 +1513,13 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
             except Exception as exc:
                 print(f"Warning: Failed to harvest GCS results: {exc}", file=sys.stderr)
 
+        expected_count = args.tasks
+        if isinstance(desc_data, dict):
+            expected_count = desc_data.get("spec", {}).get("taskCount", desc_data.get("taskCount", expected_count))
+        failed_cnt = failed_task_count(harvested_patches, expected_count) if type(expected_count) is int and expected_count > 0 else 1
+        if not exec_succeeded:
+            failed_cnt = max(1, failed_cnt)
         if harvested_patches:
-            failed_cnt = 0 if exec_succeeded else 1
             print_candidate_patches_table(
                 harvested_patches,
                 baseline_score=args.baseline_score,
@@ -1487,9 +1528,35 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
                 allow_partial=getattr(args, "ignore_partial_failures", False),
             )
 
-        if not exec_succeeded:
+        if not exec_succeeded or failed_cnt:
+            print("Execution lacks complete passing task status coverage.", file=sys.stderr)
             sys.exit(1)
         return
+
+    tasks_list: List[Any] = []
+    sys.path.insert(0, str(Path(__file__).parent))
+
+    if args.seed_lottery:
+        from manifest_generator import generate_seed_lottery
+        tasks_list = generate_seed_lottery(seeds_count=args.seed_lottery)
+    elif args.manifest:
+        try:
+            tasks_list = load_manifest(args.manifest)
+        except Exception as exc:
+            print(f"Error: Failed to load manifest: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    try:
+        resolve_execution_limits()
+        for task in tasks_list:
+            if isinstance(task, dict):
+                resolve_execution_limits(task.get("execution_limits", {}), environ={})
+    except ValueError as exc:
+        parser.error(str(exc))
+    task_count = args.tasks or (len(tasks_list) if tasks_list else 1)
+    if tasks_list and task_count != len(tasks_list):
+        parser.error("--tasks must match the manifest task count")
+    manifest_serialized = json.dumps(tasks_list) if tasks_list else ""
 
     repo_url = args.repo or get_git_remote_url()
     gh_token = get_gh_token()
@@ -1563,28 +1630,14 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
         sys.exit(1)
 
     if not gh_token and "GH_TOKEN" not in active_secret_keys and "gh_token" not in active_secret_keys:
-        print("Error: GH_TOKEN could not be resolved from environment or `gh auth token`", file=sys.stderr)
-        sys.exit(1)
+        if not args.dry_run:
+            print("Error: GH_TOKEN could not be resolved from environment or `gh auth token`", file=sys.stderr)
+            sys.exit(1)
+        gh_token = "DRY_RUN_GH_TOKEN"
 
     if not use_vertex and not gemini_api_key and not args.dry_run and "GEMINI_API_KEY" not in active_secret_keys and "gemini_api_key" not in active_secret_keys:
         print("Error: GEMINI_API_KEY environment variable is required when not in Vertex AI mode.", file=sys.stderr)
         sys.exit(1)
-
-    tasks_list: List[Any] = []
-    sys.path.insert(0, str(Path(__file__).parent))
-
-    if args.seed_lottery:
-        from manifest_generator import generate_seed_lottery
-        tasks_list = generate_seed_lottery(seeds_count=args.seed_lottery)
-    elif args.manifest:
-        try:
-            tasks_list = load_manifest(args.manifest)
-        except Exception as exc:
-            print(f"Error: Failed to load manifest: {exc}", file=sys.stderr)
-            sys.exit(1)
-
-    task_count = args.tasks or (len(tasks_list) if tasks_list else 1)
-    manifest_serialized = json.dumps(tasks_list) if tasks_list else ""
 
     env_vars = {
         "REPO_URL": repo_url,
@@ -1607,6 +1660,9 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
     session_id = args.session_id or f"swarm-{int(time.time())}"
     env_vars["SWARM_SESSION_ID"] = session_id
     env_vars["SESSION_ID"] = session_id
+    for name, env_key in LIMIT_ENV.items():
+        if env_key in os.environ:
+            env_vars[env_key] = os.environ[env_key]
     if args.orchestrator_timeout:
         env_vars["ORCHESTRATOR_TIMEOUT"] = str(args.orchestrator_timeout)
     if args.base_branch:
@@ -1881,7 +1937,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
             print(f"Total: {len(report_items)} | PASS: {pass_count} | ISSUES: {issues_count} | BLOCKED: {blocked_count}")
             print("=" * 80)
 
-        failed_tasks_count = issues_count + blocked_count
+        failed_tasks_count = failed_task_count(report_items, task_count)
         if not exec_succeeded and failed_tasks_count == 0:
             failed_tasks_count = 1
 
@@ -1901,7 +1957,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
 
         cleanup_session(session_id=session_id, bucket_name=gcs_bucket)
 
-        if not exec_succeeded:
+        if not exec_succeeded or failed_tasks_count > 0:
             sys.exit(1)
 
     except subprocess.CalledProcessError as exc:

@@ -78,14 +78,17 @@ def harvest_gcs_results(
     target_filename: str = "score.json",
 ) -> List[Dict[str, Any]]:
     clean_prefix = prefix.strip("/")
+    storage_prefix = f"{clean_prefix}/" if clean_prefix else ""
     try:
         from google.cloud import storage
 
         client = storage.Client()
         bucket = client.bucket(bucket_name)
-        blobs = bucket.list_blobs(prefix=clean_prefix)
+        blobs = bucket.list_blobs(prefix=storage_prefix)
         results: List[Dict[str, Any]] = []
         for blob in blobs:
+            if not blob.name.startswith(storage_prefix):
+                continue
             if blob.name.endswith(target_filename):
                 payload = json.loads(blob.download_as_text(encoding="utf-8"))
                 results.append(payload)
@@ -126,6 +129,7 @@ def harvest_candidate_patches(
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
     clean_prefix = prefix.strip("/")
+    storage_prefix = f"{clean_prefix}/" if clean_prefix else ""
     tasks_found: Dict[int, Dict[str, Any]] = {}
 
     local_dir = os.environ.get("STORAGE_MESSENGER_LOCAL_DIR")
@@ -135,7 +139,7 @@ def harvest_candidate_patches(
             for task_folder in sorted(src_base.iterdir()):
                 if not task_folder.is_dir():
                     continue
-                m = re.search(r"task-(\d+)", task_folder.name)
+                m = re.fullmatch(r"task-(\d+)", task_folder.name)
                 if not m:
                     continue
                 task_idx = int(m.group(1))
@@ -159,6 +163,12 @@ def harvest_candidate_patches(
                     target_status = target_task_dir / "status.json"
                     shutil.copy2(status_src, target_status)
                     stf = target_status
+                for filename in ("partial.patch.diff", "results.tsv"):
+                    source = task_folder / filename
+                    if source.is_file():
+                        shutil.copy2(source, target_task_dir / filename)
+                if (task_folder / "evidence").is_dir():
+                    shutil.copytree(task_folder / "evidence", target_task_dir / "evidence", dirs_exist_ok=True)
                 tasks_found[task_idx] = {"score_file": sf, "patch_file": pf, "status_file": stf}
 
     if not tasks_found:
@@ -167,20 +177,27 @@ def harvest_candidate_patches(
 
             client = storage.Client()
             bucket = client.bucket(bucket_name)
-            blobs = bucket.list_blobs(prefix=clean_prefix)
+            blobs = bucket.list_blobs(prefix=storage_prefix)
             for blob in blobs:
-                m = re.search(r"task-(\d+)/([^/]+)$", blob.name)
+                if not blob.name.startswith(storage_prefix):
+                    continue
+                rel_name = blob.name[len(storage_prefix):]
+                m = re.match(r"^task-(\d+)/(.+)$", rel_name)
                 if not m:
                     continue
                 task_idx = int(m.group(1))
                 filename = m.group(2)
-                if filename not in ("score.json", "patch.diff", "status.json"):
+                relative = Path(filename)
+                if relative.is_absolute() or ".." in relative.parts:
+                    continue
+                if filename not in ("score.json", "patch.diff", "partial.patch.diff", "status.json", "results.tsv") and not filename.startswith("evidence/"):
                     continue
                 if task_idx not in tasks_found:
                     tasks_found[task_idx] = {}
                 target_task_dir = dest / f"task-{task_idx}"
                 target_task_dir.mkdir(parents=True, exist_ok=True)
                 target_file = target_task_dir / filename
+                target_file.parent.mkdir(parents=True, exist_ok=True)
                 blob.download_to_filename(str(target_file))
                 if filename == "score.json":
                     tasks_found[task_idx]["score_file"] = target_file
@@ -201,7 +218,7 @@ def harvest_candidate_patches(
             )
             for item in dest.glob("task-*"):
                 if item.is_dir():
-                    m = re.search(r"task-(\d+)", item.name)
+                    m = re.fullmatch(r"task-(\d+)", item.name)
                     if m:
                         task_idx = int(m.group(1))
                         sf = item / "score.json"
@@ -230,7 +247,6 @@ def harvest_candidate_patches(
             try:
                 data = json.loads(Path(score_file).read_text(encoding="utf-8"))
                 score = data.get("score")
-                status = data.get("status", "PASS" if score is not None else "UNKNOWN")
             except Exception:
                 pass
 
@@ -250,8 +266,13 @@ def harvest_candidate_patches(
         if isinstance(score, (int, float)) and isinstance(baseline_score, (int, float)):
             score_delta = round(float(score) - float(baseline_score), 4)
 
+        if status != "PASS":
+            patch_file = None
+        partial_patch = dest / f"task-{task_idx}" / "partial.patch.diff"
         results.append({
             "task_index": task_idx,
+            "partial_patch_file": str(partial_patch) if partial_patch.is_file() else None,
+            "evidence_dir": str(dest / f"task-{task_idx}" / "evidence"),
             "score": score,
             "score_delta": score_delta,
             "status": status,

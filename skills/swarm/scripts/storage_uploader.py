@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import fnmatch
 import json
 import os
 import subprocess
@@ -8,6 +9,71 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+
+try:
+    from worker.execution import CREDENTIAL_PATTERNS
+except ImportError:
+    from skills.swarm.scripts.worker.execution import CREDENTIAL_PATTERNS
+
+
+def is_sensitive_path(path: Path, root: Path) -> bool:
+    try:
+        p = Path(path)
+        root_path = Path(root)
+        full_path = p if p.is_absolute() else (root_path / p)
+        if os.path.islink(full_path) or full_path.is_symlink():
+            return True
+        r = root_path.resolve()
+        resolved = full_path.resolve()
+        curr = full_path.parent
+        while curr != root_path and curr.resolve() != r and curr != curr.parent:
+            if os.path.islink(curr) or curr.is_symlink():
+                return True
+            curr = curr.parent
+        if r != resolved and r not in resolved.parents:
+            return True
+        parts = resolved.relative_to(r).parts
+        if ".git" in parts or ".git" in p.parts or ".git" in full_path.parts:
+            return True
+        sensitive_patterns = [
+            ".env",
+            ".env.*",
+            "*.pem",
+            "*.key",
+            "id_rsa*",
+            "id_ed25519*",
+            "credentials.json",
+            "token.json",
+        ]
+        for pattern in sensitive_patterns:
+            if fnmatch.fnmatch(full_path.name.lower(), pattern.lower()):
+                return True
+            if fnmatch.fnmatch(resolved.name.lower(), pattern.lower()):
+                return True
+        for part in parts:
+            for pattern in sensitive_patterns:
+                if fnmatch.fnmatch(part.lower(), pattern.lower()):
+                    return True
+        return False
+    except Exception:
+        return True
+
+
+def file_contains_credentials(path: Path) -> bool:
+    p = Path(path)
+    if not p.is_file():
+        return False
+    try:
+        content = p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        try:
+            content = p.read_bytes().decode("utf-8", errors="ignore")
+        except Exception:
+            return False
+    for pat in CREDENTIAL_PATTERNS:
+        if pat.search(content):
+            return True
+    return False
 
 
 def get_oauth_token() -> Optional[str]:
@@ -33,9 +99,7 @@ def get_oauth_token() -> Optional[str]:
         import google.auth
         import google.auth.transport.requests
 
-        credentials, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
-        )
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/devstorage.read_write"])
         credentials.refresh(google.auth.transport.requests.Request())
         if credentials.token:
             return credentials.token
@@ -69,6 +133,7 @@ def upload_to_gcs(bucket_name: str, object_name: str, local_file_path: Path) -> 
         dest = Path(local_dir) / bucket_name / object_name
         dest.parent.mkdir(parents=True, exist_ok=True)
         import shutil
+
         shutil.copy2(path, dest)
         return True
 
@@ -256,50 +321,103 @@ def upload_run_artifacts(
     status: str = "UNKNOWN",
     candidate_files: Optional[List[str]] = None,
     commit_sha: Optional[str] = None,
+    *,
+    evidence_files: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     repo = Path(repo_dir)
     clean_prefix = prefix.strip().strip("/")
-    task_dir = f"task-{task_index}"
-    target_prefix = f"{clean_prefix}/{task_dir}" if clean_prefix else task_dir
+    target_prefix = f"{clean_prefix}/task-{task_index}" if clean_prefix else f"task-{task_index}"
 
     uploaded: Dict[str, str] = {}
+    delivery_errors: List[str] = []
+    root = repo.resolve()
 
-    # ATOMIC PUBLICATION:
-    # Under zero-push architecture, if status == "PASS":
-    # Generate patch.diff and upload it to GCS FIRST (target_prefix/patch.diff).
+    def _upload_checked(path: Path, name: str) -> bool:
+        if is_sensitive_path(path, root):
+            delivery_errors.append(f"{name} is sensitive or outside repository")
+            return False
+        if file_contains_credentials(path):
+            delivery_errors.append(f"{name} contains credentials")
+            return False
+        dest = f"{target_prefix}/{name}"
+        if upload_to_gcs(bucket_name, dest, path):
+            uploaded[name] = f"gs://{bucket_name}/{dest}"
+            return True
+        delivery_errors.append(f"{name} upload failed")
+        return False
+
+    evidence_paths: List[Path] = []
+    for relative in evidence_files or []:
+        raw_path = root / relative
+        if is_sensitive_path(raw_path, root):
+            delivery_errors.append(f"Evidence path is sensitive or outside repository: {relative}")
+            continue
+        if raw_path.is_dir():
+            for child in sorted(raw_path.rglob("*")):
+                if is_sensitive_path(child, root):
+                    rel = child.relative_to(root).as_posix() if root in child.resolve().parents else child.name
+                    delivery_errors.append(f"Evidence path is sensitive or outside repository: {rel}")
+                elif child.is_file():
+                    evidence_paths.append(child)
+        elif raw_path.is_file():
+            evidence_paths.append(raw_path)
+        else:
+            delivery_errors.append(f"Evidence file missing: {relative}")
+
+    diagnostics = root / ".agystack/diagnostics"
+    if diagnostics.is_dir():
+        if is_sensitive_path(diagnostics, root):
+            delivery_errors.append(f"Diagnostic path is sensitive or outside repository: {diagnostics.name}")
+        else:
+            for diag in sorted(diagnostics.glob("*.log")):
+                if is_sensitive_path(diag, root):
+                    delivery_errors.append(f"Diagnostic path is sensitive or outside repository: {diag.name}")
+                elif diag.is_file():
+                    evidence_paths.append(diag)
+
+    for path in sorted(set(evidence_paths)):
+        resolved = path.resolve()
+        if not resolved.is_file():
+            continue
+        rel_name = path.relative_to(root).as_posix() if root in resolved.parents else path.name
+        _upload_checked(path, f"evidence/{rel_name}")
+
+    if delivery_errors and status == "PASS":
+        status = "ISSUES"
+
     patch_uploaded = False
-    if status == "PASS":
-        patch_path = repo / "patch.diff"
-        if not patch_path.is_file():
-            patch_content = _generate_git_patch(repo, candidate_files=candidate_files, commit_sha=commit_sha)
-            if patch_content:
-                patch_path.write_text(patch_content, encoding="utf-8")
+    if candidate_files or (status == "PASS" and candidate_files is None):
+        patch_name = "patch.diff" if status == "PASS" else "partial.patch.diff"
+        patch_path = repo / patch_name
+        if is_sensitive_path(patch_path, root):
+            delivery_errors.append(f"Candidate patch path is sensitive: {patch_name}")
+            if status == "PASS":
+                status = "ISSUES"
+        else:
+            if candidate_files or not patch_path.is_file():
+                patch_content = _generate_git_patch(repo, candidate_files=candidate_files, commit_sha=commit_sha)
+                if patch_content:
+                    patch_path.write_text(patch_content, encoding="utf-8")
 
-        if patch_path.is_file() and patch_path.stat().st_size > 0:
-            dest = f"{target_prefix}/patch.diff"
-            if upload_to_gcs(bucket_name, dest, patch_path):
-                uploaded["patch.diff"] = f"gs://{bucket_name}/{dest}"
-                patch_uploaded = True
+            if patch_path.is_file() and patch_path.stat().st_size > 0:
+                patch_uploaded = _upload_checked(patch_path, patch_name)
 
-        # If candidate_files were modified and patch.diff failed to upload or is missing/empty:
-        # Override status = "ISSUES"!
         if candidate_files and not patch_uploaded:
-            status = "ISSUES"
+            delivery_errors.append("Candidate patch failed to upload or is missing under zero-push delivery.")
+            if status == "PASS":
+                status = "ISSUES"
 
-    # Upload score.json and results.tsv
     score_path = repo / "score.json"
     if score_path.is_file():
-        dest = f"{target_prefix}/score.json"
-        if upload_to_gcs(bucket_name, dest, score_path):
-            uploaded["score.json"] = f"gs://{bucket_name}/{dest}"
+        _upload_checked(score_path, "score.json")
 
     results_path = repo / "results.tsv"
     if results_path.is_file():
-        dest = f"{target_prefix}/results.tsv"
-        if upload_to_gcs(bucket_name, dest, results_path):
-            uploaded["results.tsv"] = f"gs://{bucket_name}/{dest}"
+        _upload_checked(results_path, "results.tsv")
 
-    # Write and upload status.json LAST with the finalized status.
+    if delivery_errors and status == "PASS":
+        status = "ISSUES"
+
     status_path = repo / "status.json"
     status_data = {}
     if status_path.is_file():
@@ -309,12 +427,18 @@ def upload_run_artifacts(
             status_data = {}
     status_data["task_index"] = task_index
     status_data["status"] = status
-    if candidate_files and not patch_uploaded and status == "ISSUES":
-        status_data["evidence"] = "Candidate patch failed to upload or is missing under zero-push delivery."
+    status_data["artifacts"] = uploaded
+    if delivery_errors:
+        status_data["evidence"] = "\n".join(delivery_errors)
+        status_data["delivery_errors"] = delivery_errors
+    else:
+        status_data.pop("delivery_errors", None)
     status_path.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
 
     dest = f"{target_prefix}/status.json"
     if upload_to_gcs(bucket_name, dest, status_path):
         uploaded["status.json"] = f"gs://{bucket_name}/{dest}"
+    else:
+        delivery_errors.append("status.json upload failed")
 
     return uploaded

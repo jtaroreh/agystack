@@ -10,7 +10,6 @@ and outputs a structured report.
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -34,7 +33,7 @@ Guidelines:
 1. Implement the requested task directly and surgically in the workspace.
 2. Maintain high engineering rigor: run test suites and verification commands before completing.
 3. Keep diffs minimal and clean. Avoid narrating comments or speculative code.
-4. Conclude with a clear summary and status ([STATUS: PASS] or [STATUS: ISSUES]).
+4. End your final response with exactly one standalone unquoted status line outside code fences, [STATUS: PASS], [STATUS: ISSUES], or [STATUS: BLOCKED].
 """
 
 
@@ -169,20 +168,10 @@ def emit_agent_response(
     )
 
 
-CREDENTIAL_PATTERNS = [
-    re.compile(r"ghp_[A-Za-z0-9_]{36,}"),
-    re.compile(r"AIza[0-9A-Za-z-_]{35}"),
-    re.compile(r"ya29\.[0-9A-Za-z-_]+"),
-    re.compile(r"Bearer [A-Za-z0-9_\-\.]+"),
-]
-
-
-def scrub_credentials(text: str) -> str:
-    if not text:
-        return text
-    for pattern in CREDENTIAL_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
-    return text
+try:
+    from worker.execution import CREDENTIAL_PATTERNS as CREDENTIAL_PATTERNS, scrub_credentials
+except ImportError:
+    from skills.swarm.scripts.worker.execution import CREDENTIAL_PATTERNS as CREDENTIAL_PATTERNS, scrub_credentials
 
 
 class TokenShield:
@@ -701,14 +690,10 @@ def parse_porcelain_status(stdout: str) -> List[str]:
     return modified_files
 
 
-def evaluate_agent_status(agent_text: str) -> Tuple[str, str]:
-    match = re.search(r"\[STATUS:\s*(PASS|ISSUES|BLOCKED|DEV_IMPROVED)\s*\]", agent_text, re.IGNORECASE)
-    if match:
-        st = match.group(1).upper()
-        if st == "DEV_IMPROVED":
-            return "PASS", agent_text
-        return st, agent_text
-    return "ISSUES", agent_text
+try:
+    from worker.execution import ExecutionLimits, evaluate_agent_status, limits_for_task, run_bounded_shell, write_diagnostic
+except ImportError:
+    from skills.swarm.scripts.worker.execution import ExecutionLimits, evaluate_agent_status, limits_for_task, run_bounded_shell, write_diagnostic
 
 
 try:
@@ -811,10 +796,14 @@ def execute_task(
     task_index: int = 0,
     messenger: Optional[Any] = None,
     orchestrator_timeout: float = 600.0,
+    *,
+    limits: Optional[ExecutionLimits] = None,
 ) -> Tuple[str, str]:
     task_type = "agent"
     if isinstance(task_item, dict):
         task_type = task_item.get("type", "agent")
+
+    limits = limits or limits_for_task(task_item, command_default=900 if task_type == "command" else 300)
 
     # Command execution runner
     if task_type == "command":
@@ -828,26 +817,9 @@ def execute_task(
         emit_tool_invocation(task_index, "run_command", {"command": cmd_str})
         emit_milestone(task_index, "RUNNING_COMMAND", cmd_str)
         print(f"Executing command task: {cmd_str}", flush=True)
-        timeout = int(os.environ.get("COMMAND_TIMEOUT", "900"))
-        try:
-            res = subprocess.run(
-                cmd_str,
-                shell=True,
-                cwd=repo_dir,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            if res.returncode == 0:
-                emit_tool_result(task_index, "run_command", res.stdout, success=True)
-                return "PASS", res.stdout
-            else:
-                err_msg = res.stderr if res.stderr else res.stdout
-                emit_tool_result(task_index, "run_command", err_msg, success=False)
-                return "ISSUES", err_msg
-        except subprocess.TimeoutExpired:
-            emit_tool_result(task_index, "run_command", f"Command timed out after {timeout} seconds", success=False)
-            return "ISSUES", f"Command timed out after {timeout} seconds: {cmd_str}"
+        res, output = run_bounded_shell(cmd_str, repo_dir, limits.command_timeout_s)
+        emit_tool_result(task_index, "run_command", output, success=res.returncode == 0)
+        return ("PASS" if res.returncode == 0 else "ISSUES"), output
 
     resolved_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
     if is_deepseek_model(resolved_model):
@@ -862,6 +834,7 @@ def execute_task(
             project=project,
             location=location_override,
             messenger=messenger,
+            limits=limits,
         )
 
     if is_partner_model(resolved_model):
@@ -875,6 +848,7 @@ def execute_task(
             project=project,
             location=location,
             messenger=messenger,
+            limits=limits,
         )
 
     # General Agent Execution using Google Antigravity SDK
@@ -1031,6 +1005,8 @@ def main() -> None:
         )
         sys.exit(1)
 
+    limits = limits_for_task(task_item, command_default=900 if isinstance(task_item, dict) and task_item.get("type") == "command" else 300)
+
     task_model = resolve_worker_model(raw_model=model_override, task_item=task_item)
     use_vertex = (
         os.environ.get("USE_VERTEX_AI", "").lower() in ("1", "true", "yes")
@@ -1144,22 +1120,11 @@ def main() -> None:
         task_index=task_index,
         messenger=messenger,
         orchestrator_timeout=orchestrator_timeout,
+        limits=limits,
     )
 
-    if agent_status == "BLOCKED":
-        emit_milestone(task_index, "COMPLETE", "BLOCKED")
-        print("=" * 80)
-        print("[STATUS: BLOCKED]")
-        print("Evidence:")
-        print(f"- Task Index: {task_index}")
-        print(f"- Branch: {branch_name}")
-        print("- Commit SHA: N/A")
-        print("- Changes Pushed: False")
-        print("- Diff Stat:\nExecution blocked before changes.")
-        print("Summary:")
-        print(agent_summary.strip())
-        print("=" * 80, flush=True)
-        sys.exit(1)
+    agent_summary = scrub_credentials(agent_summary)
+    write_diagnostic(repo_dir, "agent-result", agent_summary)
 
     score, accuracy, latency_ms = parse_score_metrics(repo_dir)
     gcs_bucket = os.environ.get("GCS_RESULTS_BUCKET", "").strip()
@@ -1209,53 +1174,38 @@ def main() -> None:
         agent_summary += f"\n[Steering Instructions Applied]: {steer_summary}"
         print(f"Notice: Applied {len(steer_messages)} steering instruction(s): {steer_summary}", flush=True)
 
-    # Prevent ghost commits: Only commit when agent_status == "PASS" and candidate files exist
-    if agent_status == "PASS" and candidate_files:
+    if agent_status == "PASS" and verify_cmd_str:
         emit_milestone(task_index, "VALIDATING_CANDIDATE")
-        if verify_cmd_str:
-            print(f"Running verification command: {verify_cmd_str}", flush=True)
-            verify_timeout = int(os.environ.get("VERIFY_TIMEOUT", "300"))
-            try:
-                test_check = subprocess.run(
-                    verify_cmd_str,
-                    shell=True,
-                    cwd=repo_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=verify_timeout,
-                )
-                if test_check.returncode != 0:
-                    agent_status = "ISSUES"
-                    err_snippet = (test_check.stderr.strip() or test_check.stdout.strip())[-500:]
-                    diff_stat = f"Commit rejected: Candidate failed verification command (exit code {test_check.returncode}): {err_snippet}"
-                    print(f"Warning: Candidate modifications failed verification command (exit code {test_check.returncode}). Commit blocked.", file=sys.stderr)
-            except subprocess.TimeoutExpired:
-                agent_status = "ISSUES"
-                diff_stat = f"Commit rejected: Candidate verification command timed out after {verify_timeout}s."
-                print(f"Warning: Candidate verification command timed out after {verify_timeout}s. Commit blocked.", file=sys.stderr)
+        test_check, verify_output = run_bounded_shell(
+            verify_cmd_str, repo_dir, limits.verify_timeout_s, label="verification",
+        )
+        agent_summary += f"\nVerification:\n{verify_output}"
+        if test_check.returncode != 0:
+            agent_status = "ISSUES"
+            diff_stat = f"Commit rejected: Candidate failed verification command (exit code {test_check.returncode})."
 
-        if agent_status == "PASS":
-            try:
-                for cand_file in candidate_files:
-                    run_command(["git", "add", "--", cand_file], cwd=repo_dir, check=True)
-                cached_diff = run_command(["git", "diff", "--cached", "--name-only"], cwd=repo_dir, check=False)
-                if not cached_diff.stdout.strip():
-                    diff_stat = "Commit skipped: No candidate changes staged."
-                    print("Notice: No candidate changes staged; skipping git commit.", file=sys.stderr)
-                else:
-                    commit_msg = f"worker-{task_index}: execute swarm brief"
-                    run_command(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True)
-                    commit_res = run_command(["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True)
-                    commit_sha = commit_res.stdout.strip()
-                    diff_res = run_command(["git", "diff", "--stat", "HEAD~1", "HEAD"], cwd=repo_dir, check=False)
-                    diff_stat = diff_res.stdout.strip()
-            except subprocess.CalledProcessError as exc:
-                agent_status = "ISSUES"
-                commit_sha = None
-                err_text = (exc.stderr or str(exc)).strip()
-                diff_stat = f"Commit failed: {err_text}"
-                err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token and gh_token in exc.stderr else err_text
-                print(f"Warning: Git commit preparation failed: {err_msg}", file=sys.stderr)
+    if agent_status == "PASS" and candidate_files:
+        try:
+            for cand_file in candidate_files:
+                run_command(["git", "add", "--", cand_file], cwd=repo_dir, check=True)
+            cached_diff = run_command(["git", "diff", "--cached", "--name-only"], cwd=repo_dir, check=False)
+            if not cached_diff.stdout.strip():
+                diff_stat = "Commit skipped: No candidate changes staged."
+                print("Notice: No candidate changes staged; skipping git commit.", file=sys.stderr)
+            else:
+                commit_msg = f"worker-{task_index}: execute swarm brief"
+                run_command(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True)
+                commit_res = run_command(["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True)
+                commit_sha = commit_res.stdout.strip()
+                diff_res = run_command(["git", "diff", "--stat", "HEAD~1", "HEAD"], cwd=repo_dir, check=False)
+                diff_stat = diff_res.stdout.strip()
+        except subprocess.CalledProcessError as exc:
+            agent_status = "ISSUES"
+            commit_sha = None
+            err_text = (exc.stderr or str(exc)).strip()
+            diff_stat = f"Commit failed: {err_text}"
+            err_msg = exc.stderr.replace(gh_token, "REDACTED") if gh_token and gh_token in exc.stderr else err_text
+            print(f"Warning: Git commit preparation failed: {err_msg}", file=sys.stderr)
     elif agent_status != "PASS":
         diff_stat = f"Commit skipped: worker status is {agent_status} (PASS required; ghost commits prohibited)."
         print(f"Notice: Agent status is {agent_status}. Skipping git commit.", file=sys.stderr)
@@ -1303,6 +1253,7 @@ def main() -> None:
                 status=final_status,
                 candidate_files=candidate_files,
                 commit_sha=commit_sha,
+                evidence_files=task_item.get("evidence_files", []) if isinstance(task_item, dict) else [],
             )
             if gcs_uris:
                 emit_milestone(task_index, "ARTIFACTS_UPLOADED")
@@ -1320,11 +1271,8 @@ def main() -> None:
             except Exception:
                 pass
 
-        # Fail-closed check: if final_status == "PASS" and candidate_files were modified,
-        # but upload_run_artifacts() failed to upload patch.diff or status.json to GCS,
-        # or if upload explicitly failed, override final_status = "ISSUES".
-        if final_status == "PASS" and candidate_files:
-            if upload_failed or "patch.diff" not in gcs_uris or "status.json" not in gcs_uris:
+        if final_status == "PASS":
+            if upload_failed or "status.json" not in gcs_uris or (candidate_files and "patch.diff" not in gcs_uris):
                 final_status = "ISSUES"
                 fail_evidence = "Artifact upload to GCS failed; candidate patch could not be preserved."
                 agent_summary += f"\n{fail_evidence}"
@@ -1339,7 +1287,6 @@ def main() -> None:
 
     emit_milestone(task_index, "COMPLETE", final_status)
     print("=" * 80)
-    print(f"[STATUS: {final_status}]")
     print("Evidence:")
     print(f"- Task Index: {task_index}")
     print(f"- Branch: {branch_name}")
@@ -1368,8 +1315,12 @@ def main() -> None:
         print(f"- GCS Score: {gcs_uris['score.json']}")
     print(f"- Diff Stat:\n{diff_stat}")
     print("Summary:")
-    print(agent_summary.strip())
-    print("=" * 80, flush=True)
+    for summary_line in agent_summary.strip().splitlines():
+        print(f"> {summary_line}")
+    print("=" * 80)
+    print(f"[STATUS: {final_status}]", flush=True)
+    if final_status != "PASS":
+        sys.exit(1)
 
 
 if __name__ == "__main__":

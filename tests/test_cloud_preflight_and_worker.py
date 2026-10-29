@@ -412,7 +412,7 @@ class TestTaskExecutionAndValidation(unittest.TestCase):
 
         mock_agent_instance = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.text = AsyncMock(return_value="[STATUS: PASS] completed successfully")
+        mock_resp.text = AsyncMock(return_value="completed successfully\n[STATUS: PASS]")
         mock_agent_instance.chat = AsyncMock(return_value=mock_resp)
 
         mock_agent_cm = MagicMock()
@@ -449,7 +449,7 @@ class TestTaskExecutionAndValidation(unittest.TestCase):
 
         mock_agent_instance = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.text = AsyncMock(return_value="[STATUS: PASS] done")
+        mock_resp.text = AsyncMock(return_value="done\n[STATUS: PASS]")
         mock_agent_instance.chat = AsyncMock(return_value=mock_resp)
 
         mock_agent_cm = MagicMock()
@@ -488,7 +488,7 @@ class TestTaskExecutionAndValidation(unittest.TestCase):
 
         mock_agent_instance = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.text = AsyncMock(return_value="[STATUS: PASS] fallback success")
+        mock_resp.text = AsyncMock(return_value="fallback success\n[STATUS: PASS]")
         mock_agent_instance.chat = AsyncMock(return_value=mock_resp)
 
         mock_agent_cm = MagicMock()
@@ -1817,18 +1817,17 @@ class TestStagnancyTrackerAndHooks(unittest.TestCase):
     def test_command_task_timeout_handling(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_dir = Path(tmp_dir)
-            with patch.dict(os.environ, {"COMMAND_TIMEOUT": "5"}), patch(
-                "subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="sleep 100", timeout=5)
-            ):
+            with patch.dict(os.environ, {"COMMAND_TIMEOUT": "1"}):
                 status, output = execute_task(
-                    task_item={"type": "command", "command": "sleep 100"},
+                    task_item={"type": "command", "command": "echo started; sleep 2"},
                     task_brief="Run long command",
                     repo_dir=repo_dir,
                     model_override="flash",
                     api_key="test-key",
                 )
                 self.assertEqual(status, "ISSUES")
-                self.assertEqual(output, "Command timed out after 5 seconds: sleep 100")
+                self.assertIn("timed out after 1 seconds", output)
+                self.assertIn("started", output)
 
 
 if __name__ == "__main__":

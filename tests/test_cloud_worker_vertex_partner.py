@@ -138,7 +138,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_block = MagicMock()
-        mock_block.text = "[STATUS: PASS] Work verified."
+        mock_block.text = "Work verified.\n[STATUS: PASS]"
         mock_response.content = [mock_block]
         mock_client.messages.create.return_value = mock_response
         mock_anthropic.AnthropicVertex.return_value = mock_client
@@ -164,7 +164,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_block = MagicMock()
-        mock_block.text = "[STATUS: PASS] Success."
+        mock_block.text = "Success.\n[STATUS: PASS]"
         mock_response.content = [mock_block]
         mock_client.messages.create.return_value = mock_response
         mock_anthropic.AnthropicVertex.return_value = mock_client
@@ -224,7 +224,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_block = MagicMock()
-        mock_block.text = "[STATUS: PASS] Done."
+        mock_block.text = "Done.\n[STATUS: PASS]"
         mock_response.content = [mock_block]
         mock_client.messages.create.return_value = mock_response
         mock_anthropic.AnthropicVertex.return_value = mock_client
@@ -249,7 +249,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         mock_aiplatform = MagicMock()
         mock_endpoint = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.predictions = ["[STATUS: PASS] Done."]
+        mock_resp.predictions = ["Done.\n[STATUS: PASS]"]
         mock_endpoint.predict.return_value = mock_resp
         mock_aiplatform.Endpoint.return_value = mock_endpoint
 
@@ -273,14 +273,14 @@ class TestVertexPartnerExecution(unittest.TestCase):
         mock_genai = MagicMock()
         mock_client = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.text = "[STATUS: PASS] DeepSeek done."
+        mock_resp.text = "DeepSeek done.\n[STATUS: PASS]"
         mock_resp.function_calls = []
         mock_resp.candidates = [
             MagicMock(
                 content=MagicMock(
                     parts=[
                         MagicMock(
-                            text="[STATUS: PASS] DeepSeek done.",
+                            text="DeepSeek done.\n[STATUS: PASS]",
                             thought=None,
                             function_call=None,
                         )
@@ -336,7 +336,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         resp1.content = [block_tool2]
 
         block_final = MagicMock()
-        block_final.text = "[STATUS: PASS] Solution implemented and tests pass."
+        block_final.text = "Solution implemented and tests pass.\n[STATUS: PASS]"
 
         resp2 = MagicMock()
         resp2.content = [block_final]
@@ -414,7 +414,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         # Turn 1: DeepSeek finishes with PASS
         part_final = MagicMock()
         part_final.thought = None
-        part_final.text = "[STATUS: PASS] DeepSeek solution implemented."
+        part_final.text = "DeepSeek solution implemented.\n[STATUS: PASS]"
         part_final.function_call = None
 
         resp1 = MagicMock()
@@ -422,7 +422,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         cand1 = MagicMock()
         cand1.content = MagicMock(parts=[part_final])
         resp1.candidates = [cand1]
-        resp1.text = "[STATUS: PASS] DeepSeek solution implemented."
+        resp1.text = "DeepSeek solution implemented.\n[STATUS: PASS]"
 
         mock_client.models.generate_content.side_effect = [resp0, resp1]
         mock_genai.Client.return_value = mock_client
@@ -485,7 +485,7 @@ class TestVertexPartnerExecution(unittest.TestCase):
         resp1.content = [block_edit]
 
         block_final = MagicMock()
-        block_final.text = "[STATUS: PASS] Readme edited."
+        block_final.text = "Readme edited.\n[STATUS: PASS]"
         resp2 = MagicMock()
         resp2.content = [block_final]
 
@@ -532,7 +532,7 @@ class TestMixedManifestRouting(unittest.TestCase):
         mock_ag.policy.allow_all = MagicMock()
         mock_agent_instance = MagicMock()
         mock_ag_resp = MagicMock()
-        mock_ag_resp.text = AsyncMock(return_value="[STATUS: PASS] Gemini agent done")
+        mock_ag_resp.text = AsyncMock(return_value="Gemini agent done\n[STATUS: PASS]")
         mock_agent_instance.chat = AsyncMock(return_value=mock_ag_resp)
         mock_agent_cm = MagicMock()
         mock_agent_cm.__aenter__ = AsyncMock(return_value=mock_agent_instance)
@@ -543,7 +543,7 @@ class TestMixedManifestRouting(unittest.TestCase):
         mock_claude_client = MagicMock()
         mock_claude_resp = MagicMock()
         mock_claude_block = MagicMock()
-        mock_claude_block.text = "[STATUS: PASS] Claude agent done"
+        mock_claude_block.text = "Claude agent done\n[STATUS: PASS]"
         mock_claude_resp.content = [mock_claude_block]
         mock_claude_client.messages.create.return_value = mock_claude_resp
         mock_anthropic.AnthropicVertex.return_value = mock_claude_client
@@ -551,7 +551,7 @@ class TestMixedManifestRouting(unittest.TestCase):
         mock_aiplatform = MagicMock()
         mock_fable_endpoint = MagicMock()
         mock_fable_resp = MagicMock()
-        mock_fable_resp.predictions = ["[STATUS: PASS] Fable agent done"]
+        mock_fable_resp.predictions = ["Fable agent done\n[STATUS: PASS]"]
         mock_fable_endpoint.predict.return_value = mock_fable_resp
         mock_aiplatform.Endpoint.return_value = mock_fable_endpoint
 
@@ -641,7 +641,7 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         mock_genai = MagicMock()
         mock_client = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.text = "[STATUS: PASS] DeepSeek task done"
+        mock_resp.text = "DeepSeek task done\n[STATUS: PASS]"
         mock_resp.function_calls = []
         mock_resp.candidates = []
         mock_client.models.generate_content.return_value = mock_resp
