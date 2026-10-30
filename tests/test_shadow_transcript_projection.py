@@ -505,13 +505,18 @@ class TestShadowTranscriptProjection(unittest.TestCase):
         mock_telemetry_out = io.StringIO()
         with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
             shield = TokenShield(task_index=0, telemetry_stream=mock_telemetry_out)
+            fake_ghp = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyzAB"
+            fake_aiza = "AIza" + "SyD-1234567890abcdefABCDEF123456789"
+            fake_oauth = "ya29." + "a0AfH6SMCxyz123_456-789"
+            fake_bearer = "Bearer " + "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xyz"
+            fake_ghp_thought = "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
             with shield:
                 shield.emit_milestone("START", "Container booted")
-                print("Leaking GitHub token ghp_1234567890abcdefghijklmnopqrstuvwxyzAB in terminal")
-                print("Leaking Google AIza key AIzaSyD-1234567890abcdefABCDEF123456789 in terminal")
-                print("Leaking OAuth token ya29.a0AfH6SMCxyz123_456-789 in terminal")
-                print("Leaking auth header Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xyz in terminal")
-                shield.emit_thought("Internal thought with ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+                print(f"Leaking GitHub token {fake_ghp} in terminal")
+                print(f"Leaking Google AIza key {fake_aiza} in terminal")
+                print(f"Leaking OAuth token {fake_oauth} in terminal")
+                print(f"Leaking auth header {fake_bearer} in terminal")
+                shield.emit_thought(f"Internal thought with {fake_ghp_thought}")
 
         stdout_content = mock_stdout.getvalue()
         telemetry_content = mock_telemetry_out.getvalue()
