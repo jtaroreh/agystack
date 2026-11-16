@@ -6,6 +6,8 @@ mainAgent: true
 model: inherit
 commandExecutionPolicy: sandbox
 inheritCustomizations: false
+inheritMcp: true
+tools: [read_file, edit_file, write_file, run_command, manage_task, send_message, schedule, invoke_subagent, manage_subagents, define_subagent, ask_question, search_web, generate_image]
 ---
 
 # Poteto subagent
