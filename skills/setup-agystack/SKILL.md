@@ -62,8 +62,14 @@ Enumerate the model tiers you can pass to `invoke_subagent` (local) and `cloud_d
 - `flash_lite`: Lightweight tier (minimal latency for quick lookups)
 - `inherit` (or `auto`): Inherit parent chat model
 
+**Google Gemini 4 Core Matrix (Ultra 5x/20x tiers):**
+- `orchestrator`: Dynamic multi-model scheduling and task handoff across Carbon / Argon / Hydrogen
+- `gemini-4-carbon`: Flagship heavy reasoning and complex planning with configurable thinking depth
+- `gemini-4-argon`: Frontier software engineering and systems implementation for continuous agent workflows
+- `gemini-4-hydrogen`: High-speed execution and automated verification (Worker/Verifier)
+
 **Cloud Run swarm model tiers (`cloud_dispatch.py`):**
-- **Tier 1 (Zero-Friction MaaS):** `gemini-4-argon`, `gemini-3.8-flash`, `deepseek-v4.1-flash` (Instant on global Vertex endpoint, zero forms).
+- **Tier 1 (Zero-Friction MaaS):** `gemini-4-carbon`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-3.8-flash`, `deepseek-v4.1-flash` (Instant on global Vertex endpoint, zero forms).
 - **Tier 2 (Gated Partner MaaS):** `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-opus` (Requires one-time Console agreement).
 - **Tier 3 (Dedicated GPU Endpoint):** Open-weights models like `glm-5-3-flash` requiring dedicated 8x H100/B200 GPU instances.
 

@@ -93,8 +93,12 @@ class TestVertexPartnerModelResolution(unittest.TestCase):
             "gemini-3.8-flash",
             "gemini-3.1-pro",
             "gemini-3.1-flash-lite",
+            "gemini-4-carbon",
             "gemini-4-argon",
+            "gemini-4-hydrogen",
+            "carbon",
             "argon",
+            "hydrogen",
             "flash",
             "pro",
         ]

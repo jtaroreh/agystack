@@ -512,11 +512,11 @@ class TestSetupRuntimePlatformValidation(unittest.TestCase):
         self.assertTrue(res["ok"])
         self.assertGreater(res["roles_count"], 0)
         self.assertIn("arena runners", res["roles"])
-        self.assertEqual(res["roles"]["arena runners"], ["inherit", "flash", "pro"])
+        self.assertEqual(res["roles"]["arena runners"], ["gemini-4-carbon", "gemini-4-argon", "orchestrator"])
         self.assertIn("swarm workers", res["roles"])
-        self.assertEqual(res["roles"]["swarm workers"], ["flash"])
+        self.assertEqual(res["roles"]["swarm workers"], ["gemini-4-hydrogen"])
         self.assertIn("feature", res["roles"])
-        self.assertEqual(res["roles"]["feature"], ["inherit"])
+        self.assertEqual(res["roles"]["feature"], ["gemini-4-argon"])
 
     def test_parse_model_config_missing_file(self):
         res = setup_runtime.parse_model_config(config_path="/nonexistent/agystack-models.md")

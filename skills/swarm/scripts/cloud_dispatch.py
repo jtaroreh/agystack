@@ -856,7 +856,7 @@ def run_preflight(
         )
 
     if not vertex_location:
-        vertex_location = "global" if (model and (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower())) else region
+        vertex_location = "global" if (model and (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or model == "orchestrator" or "deepseek" in model.lower())) else region
 
     # 1. Git Authentication & Repository Accessibility Check
     if not repo_url:
@@ -1145,9 +1145,17 @@ def resolve_swarm_model(
         "pro": "gemini-3.1-pro",
         "flash_lite": "gemini-3.1-flash-lite",
         "flash-lite": "gemini-3.1-flash-lite",
+        "carbon": "gemini-4-carbon",
+        "gemini-carbon": "gemini-4-carbon",
+        "gemini-4-carbon": "gemini-4-carbon",
         "argon": "gemini-4-argon",
         "gemini-argon": "gemini-4-argon",
+        "gemini-4-argon": "gemini-4-argon",
         "gemini-4": "gemini-4-argon",
+        "hydrogen": "gemini-4-hydrogen",
+        "gemini-hydrogen": "gemini-4-hydrogen",
+        "gemini-4-hydrogen": "gemini-4-hydrogen",
+        "orchestrator": "orchestrator",
         "gemini": "gemini-3.8-flash",
         "deepseek": "deepseek-v4.1-flash",
         "deepseek-flash": "deepseek-v4.1-flash",
@@ -1344,7 +1352,9 @@ def main() -> None:
 Vertex AI Model Garden Tiers for Cloud Swarms:
 -----------------------------------------------------------------------------------------
 Tier 1: Native MaaS (Instant Serverless, Zero Forms)
-  - gemini-4-argon              Global Vertex AI endpoint, deep reasoning
+  - gemini-4-carbon             Global Vertex AI endpoint, flagship reasoning & planning
+  - gemini-4-argon              Global Vertex AI endpoint, deep reasoning & systems engineering
+  - gemini-4-hydrogen           Global Vertex AI endpoint, high-speed execution & verification
   - gemini-3.8-flash            Global Vertex AI endpoint, balanced speed
   - gemini-3.1-pro              Global Vertex AI endpoint, high capability
   - deepseek-v4.1-flash         Global Vertex AI endpoint (deepseek-ai namespace)
@@ -1409,7 +1419,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
     explicit_vertex_loc = args.vertex_location or runtime_cfg.get("vertex_location")
     if explicit_vertex_loc:
         vertex_location = explicit_vertex_loc
-    elif model and (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or "deepseek" in model.lower()):
+    elif model and (model.startswith(("gemini-2.5", "gemini-3", "gemini-4")) or model == "orchestrator" or "deepseek" in model.lower()):
         vertex_location = "global"
     else:
         vertex_location = region

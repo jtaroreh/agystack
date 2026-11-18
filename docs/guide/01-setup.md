@@ -50,7 +50,7 @@ Run:
 /setup-agystack
 ```
 
-[`/setup-agystack`](../../skills/setup-agystack/SKILL.md) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/agystack/agystack-models.md`, a configuration file every agystack skill reads.
+[`/setup-agystack`](../../skills/setup-agystack/SKILL.md) detects the models you have access to, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/plugins/agystack/agystack-models.md`, a configuration file every agystack skill reads. Ultra subscribers can map roles directly to the Gemini 4 matrix (Orchestrator, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen).
 
 You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default later, delete that role's line, or just run `/setup-agystack` again.
 
