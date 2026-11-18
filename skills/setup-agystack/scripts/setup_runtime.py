@@ -116,7 +116,9 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
         "region": region,
         "anthropic_installed": False,
         "serverless_models": [
+            "gemini-4-carbon",
             "gemini-4-argon",
+            "gemini-4-hydrogen",
             "gemini-3.8-flash",
             "gemini-3.1-pro",
             "deepseek-v4.1-flash-maas",

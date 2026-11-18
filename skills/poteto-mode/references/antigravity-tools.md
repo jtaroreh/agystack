@@ -161,23 +161,28 @@ Every playbook completion requires concrete proof on the real target surface bef
 
 ## Models
 
-Antigravity subagents use native `invoke_subagent` model tiers. Model tiers (`inherit`, `pro`, `flash`, `flash_lite`) represent Gemini depth and compute budget tiers, not cross-family priors.
+Antigravity subagents use native `invoke_subagent` model tiers and the Google Gemini 4 Core Matrix (available to Google AI Ultra subscribers across 5x and 20x tiers). Model tiers (`inherit`, `pro`, `flash`, `flash_lite`) represent Gemini depth and compute budget tiers, while the Gemini 4 matrix provides specialized architectural roles:
 
-- `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.8 Flash High with Antigravity 2.12.2 ADC support)
+- `orchestrator` (Dynamic scheduling mode: multi-model automated collaboration and task handoff across Carbon / Argon / Hydrogen)
+- `gemini-4-carbon` (Flagship heavy reasoning and complex planning with Low / Medium / High thinking depth; primary brain for deep orchestration)
+- `gemini-4-argon` (Frontier reasoning and systems programming for continuous agent workflows)
+- `gemini-4-hydrogen` (High-speed execution and automated verification: Worker/Verifier)
+- `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.8 Flash High with Antigravity ADC support)
 - `pro` (High-capability tier)
 - `flash` (Balanced fast tier: fast exploration, standard implementation, and reviews)
 - `flash_lite` (Lightweight tier: fast mechanical scans and lookups)
 
-| Role / Intent | Antigravity Model Tier |
+| Role / Intent | Antigravity Model / Tier |
 | --- | --- |
-| Primary reasoning / difficult tasks | `inherit` (runs on your active chat model, e.g. Gemini 3.8 Flash High) |
-| Fast mechanical scanning / exploration | `flash` or `flash_lite` |
-| Deep judgment, prose, architecture | `inherit` or `pro` |
-| Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` |
+| Dynamic multi-model coordination | `orchestrator` |
+| Primary reasoning / difficult tasks / architecture | `gemini-4-carbon` or `pro` / `inherit` |
+| Systems programming / bug-fixing / refactoring | `gemini-4-argon` |
+| Fast execution / verification / exploration | `gemini-4-hydrogen` or `flash` / `flash_lite` |
+| Multi-model review panels & arenas | Diverse combination (e.g. `gemini-4-carbon`, `gemini-4-argon`, `orchestrator`) |
 
 Read per-role overrides from `~/.gemini/config/plugins/agystack/agystack-models.md` (or `.agents/plugins/agystack/agystack-models.md`). If a line is missing, use the defaults above.
 
-Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One subagent runs per list entry.
+Keep panels diverse across available models (`gemini-4-carbon`, `gemini-4-argon`, `orchestrator` or `inherit`, `flash`, `pro`). One subagent runs per list entry.
 
 ## Antigravity Slash Commands & Multi-Agent Capabilities
 
