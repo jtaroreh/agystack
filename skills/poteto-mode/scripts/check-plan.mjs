@@ -165,7 +165,7 @@ for (const pr of prSections) {
 
 	const live = block("Verify, live.");
 	if (live) {
-		if (!LANES_PATTERN.test(live.rest)) fail(live.n, `${pr.title}: Verify, live lacks "Ten lanes on \`<swarm workers model>\` at the PR head" with the model filled in`);
+		if (!LANES_PATTERN.test(live.rest)) fail(live.n, `${pr.title}: Verify, live lacks "Ten lanes on \`<model>\` at the PR head" with the model filled in`);
 		const lanes = boxes(live.lines).map((b) => ({ ...b, m: b.text.match(/^Lane (\d+)\. /) }));
 		const numbers = lanes.filter((b) => b.m).map((b) => Number(b.m[1])).sort((a, b) => a - b);
 		if (numbers.join(",") !== "1,2,3,4,5,6,7,8,9,10") fail(live.n, `${pr.title}: lanes are [${numbers.join(",")}], expected 1 to 10`);

@@ -1,1 +1,0 @@
-"""Worker modular components."""

@@ -32,7 +32,6 @@ def run_safety_hook(
     run_env = os.environ.copy()
     run_env.pop("NON_INTERACTIVE", None)
     run_env.pop("CI", None)
-    run_env.pop("CLOUD_RUN_TASK_INDEX", None)
     run_env.setdefault("GIT_BRANCH", "main")
     if env:
         run_env.update(env)
@@ -299,7 +298,6 @@ class TestPreToolSafetyHook(unittest.TestCase):
             {"NON_INTERACTIVE": "1"},
             {"CI": "true"},
             {"CI": "1"},
-            {"CLOUD_RUN_TASK_INDEX": "0"},
         ]
         destructive_commands = [
             "rm -rf /",
@@ -385,7 +383,6 @@ def run_delegation_hook(
     run_env = os.environ.copy()
     run_env.pop("NON_INTERACTIVE", None)
     run_env.pop("CI", None)
-    run_env.pop("CLOUD_RUN_TASK_INDEX", None)
     run_env.pop("SUBAGENT", None)
     run_env.pop("IS_SUBAGENT", None)
     run_env.pop("ANTIGRAVITY_SUBAGENT_ID", None)
@@ -721,25 +718,6 @@ class TestPreToolDelegationHook(unittest.TestCase):
                     result = run_delegation_hook(json.dumps(payload), env=env)
                     self.assertEqual(result.returncode, 0)
                     self.assertEqual(json.loads(result.stdout.strip()), {})
-
-    def test_cloud_run_task_permits_writes(self):
-        large_code = "\n".join(f"var_{i} = {i}" for i in range(60))
-        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
-            target_py = Path(tmp_dir) / "cloud_task_file.py"
-            payload = {
-                "toolCall": {
-                    "name": "write_to_file",
-                    "args": {
-                        "TargetFile": str(target_py),
-                        "CodeContent": large_code,
-                    },
-                }
-            }
-            result = run_delegation_hook(
-                json.dumps(payload), env={"CLOUD_RUN_TASK_INDEX": "0"}
-            )
-            self.assertEqual(result.returncode, 0)
-            self.assertEqual(json.loads(result.stdout.strip()), {})
 
     def test_coordinator_prompt_does_not_bypass(self):
         large_code = "\n".join(f"var_{i} = {i}" for i in range(60))

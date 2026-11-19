@@ -39,7 +39,6 @@ zip -r -q "${ARCHIVE}" \
   agents/ \
   skills/ \
   agystack-models.md \
-  agystack-runtime.json.example \
   hooks.json.example \
   -x "*.DS_Store" \
   -x "*__pycache__*" \

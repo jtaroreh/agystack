@@ -3,7 +3,7 @@
 Antigravity PreToolUse lifecycle hook for scoped destructive command safety.
 Intercepts run_command calls and prompts confirmation for destructive patterns
 (root deletion, trunk force-push, database drop) in interactive sessions.
-In headless/CI/Cloud Run environments, rejects destructive commands with decision: deny.
+In headless/CI/automated environments, rejects destructive commands with decision: deny.
 Outputs {} and exits 0 on all safe code paths. Never crashes.
 """
 
@@ -419,7 +419,7 @@ def is_headless_environment() -> bool:
         return True
     if os.environ.get("CI", "").lower() in ("1", "true"):
         return True
-    return bool(os.environ.get("CLOUD_RUN_TASK_INDEX"))
+    return False
 
 
 def main() -> None:

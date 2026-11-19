@@ -5,20 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "agystack"
 version = "0.16.0"
-description = "Agentic swarm orchestration and poteto workflow plugin for Google Antigravity"
+description = "Rigorous agentic engineering and poteto workflow plugin for Google Antigravity"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = [
-    "google-cloud-storage>=2.14.0,<3.0.0",
-    "google-cloud-run>=0.10.0,<1.0.0",
-    "google-genai>=0.1.0,<3.0.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
-agent = [
-    "google-antigravity>=0.1.0,<0.2.0",
-]
 test = [
     "pytest>=8.0.0",
     "pytest-mock>=3.12.0",

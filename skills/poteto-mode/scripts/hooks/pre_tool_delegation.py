@@ -33,9 +33,6 @@ def is_subagent_environment() -> bool:
         return True
     if is_truthy(os.environ.get("IS_SUBAGENT")):
         return True
-    if os.environ.get("CLOUD_RUN_TASK_INDEX"):
-        # Cloud Run workers are task execution delegates (allow_subagents=False)
-        return True
     return False
 
 

@@ -20,24 +20,13 @@ class TestReactiveCoordinationRules(unittest.TestCase):
         self.assertIn("Continuous Busy-Wait Prohibited", content)
         self.assertIn("manage_subagents(list)", content)
 
-    def test_agents_md_scopes_cloud_swarm_liveness(self):
+    def test_agents_md_scopes_primitive_boundary(self):
         agents_file = RULES_DIR / "AGENTS.md"
         content = agents_file.read_text(encoding="utf-8")
         self.assertIn("Primitive Boundary:", content)
         self.assertIn(
-            "Active heartbeat polling (every 60-120s) applies strictly to external CLI/Cloud Run subprocesses (`run_command`, `cloud_dispatch.py`), NEVER to local Antigravity subagents (`invoke_subagent`).",
+            "Active heartbeat polling (every 60-120s) applies strictly to external CLI subprocesses (`run_command`), NEVER to local Antigravity subagents (`invoke_subagent`).",
             content,
-        )
-
-        swarm_file = SKILLS_DIR / "swarm" / "SKILL.md"
-        swarm_content = swarm_file.read_text(encoding="utf-8")
-        self.assertIn(
-            "Active Liveness & Non-Blocking Monitoring (Cloud Run Swarms Only):",
-            swarm_content,
-        )
-        self.assertIn(
-            "NEVER applies to native local Antigravity subagents (`invoke_subagent`)",
-            swarm_content,
         )
 
     def test_reviewer_prompt_has_send_message_contract(self):
@@ -56,18 +45,12 @@ class TestReactiveCoordinationRules(unittest.TestCase):
         )
         self.assertIn("{PARENT_CONVERSATION_ID}", content)
 
-    def test_arena_and_swarm_skills_have_reactive_protocol(self):
+    def test_arena_skill_has_reactive_protocol(self):
         arena_content = (SKILLS_DIR / "arena" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn('TimerCondition: "never"', arena_content)
         self.assertIn("ZERO tool calls", arena_content)
         self.assertIn("send_message", arena_content)
         self.assertIn("{PARENT_CONVERSATION_ID}", arena_content)
-
-        swarm_content = (SKILLS_DIR / "swarm" / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn('TimerCondition: "never"', swarm_content)
-        self.assertIn("ZERO tool calls", swarm_content)
-        self.assertIn("send_message", swarm_content)
-        self.assertIn("{PARENT_CONVERSATION_ID}", swarm_content)
 
     def test_agents_md_has_delegation_thresholds(self):
         agents_file = RULES_DIR / "AGENTS.md"
