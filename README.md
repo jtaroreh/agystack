@@ -6,11 +6,10 @@
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](./pyproject.toml)
 [![Bun 1.0+](https://img.shields.io/badge/Bun-1.0%2B-orange.svg)](https://bun.sh)
 
-**agystack** is an agentic engineering framework for Google Antigravity, created by [Joel Taroreh](https://x.com/joeltaroreh). It equips autonomous agents with a set of rigorous skills, playbooks, and cloud swarms built on the anti-slop foundation of [poteto](https://x.com/poteto)'s Cursor pstack.
+**agystack** is an agentic engineering framework for Google Antigravity, created by [Joel Taroreh](https://x.com/joeltaroreh). It equips autonomous agents with a set of rigorous skills, playbooks, and adversarial workflows built on the anti-slop foundation of [poteto](https://x.com/poteto)'s Cursor pstack.
 
-Where pstack brought anti-slop rigor to editor chats, **agystack expands it into a distributed, multi-tier engineering fleet**:
+Where pstack brought anti-slop rigor to editor chats, **agystack brings it natively to Google Antigravity**:
 
-- **Google Cloud Run Fleets (`/swarm`).** When local machines hit limits, fan out across headless cloud containers. Fleet workers run in parallel, stream real-time milestones, and deliver isolated candidate patches to GCS without git worktree collisions.
 - **The `/loop` Hillclimb Engine.** Run automated hypothesis-and-verify loops against a concrete test command (`--verify "<cmd>"`). agystack applies discrete edits, reverts regressions, and reactively iterates until green without manual babysitting.
 - **Automated PR Babysitting & Stack Shipping (`watch-pr`).** Eliminate GitHub PR friction. Dedicated tooling monitors CI checks, detects merge conflicts across Graphite stacks, and triages review comments. Real defects get fixed with runtime reproduction, while bot noise gets dismissed with concrete reasons.
 - **Adversarial Reviews & Bakeoffs (`/interrogate`, `/arena`).** Prevent single-agent blind spots. Dispatch concurrent reviewers to attack diffs from independent angles before shipping, or run competing candidate implementations in parallel worktrees and graft winning pieces sequentially.
@@ -79,7 +78,7 @@ Restart Antigravity or open a new chat after install.
 
 two steps:
 
-1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) and choose which models you want, choose if you want to setup cloud swarm with Google Cloud auth. 
+1. run [`/setup-agystack`](./skills/setup-agystack/SKILL.md) and choose which models you want per role.
 2. use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/poteto-mode/SKILL.md) whenever you're doing anything that requires rigor.
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
@@ -149,38 +148,11 @@ the full rules and playbooks live in [`skills/poteto-mode/SKILL.md`](./skills/po
 
 [`/agystack`](./skills/agystack/SKILL.md) and [`/poteto-mode`](./skills/poteto-mode/SKILL.md) are also sticky modes: once entered they stay on across turns, applying themselves when a playbook matches or the task needs rigor and staying out of the way otherwise. opt out any time by saying so.
 
-they work seamlessly with Antigravity's `/goal` (for multi-hour overnight autonomy) and `/loop` (for inner-loop metric optimization and TDD hillclimbs). you can make agents work for many hours without sacrificing rigor.
-
-## cloud swarms (Cloud Run)
-
-local subagents work great for up to 8 workers. but when you want massive parallel exploration, parameter sweeps, or candidate bakeoffs, agystack fans out across Google Cloud Run instead.
-
-workers run in isolated containers, never push to git directly, and upload `patch.diff` artifacts and streaming milestones to GCS. the coordinator ranks the winning diffs so you can review and apply them locally.
-
-set it up with [`/setup-agystack`](./skills/setup-agystack/SKILL.md) with your Google Cloud auth and run [`/swarm`](./skills/swarm/SKILL.md) to dispatch.
-
-### summoning cloud agents (Gemini & DeepSeek)
-
-Cloud swarms run on Google Cloud Run with zero-friction serverless models:
-
-```bash
-# list supported cloud models and tiers
-python3 skills/swarm/scripts/cloud_dispatch.py --list-models
-
-# fan out 5 Gemini Argon agents
-python3 skills/swarm/scripts/cloud_dispatch.py --tasks 5 --model gemini-4-argon
-
-# fan out 5 DeepSeek Flash 4.1 agents
-python3 skills/swarm/scripts/cloud_dispatch.py --tasks 5 --model deepseek-v4.1-flash
-```
-
-Or trigger `/swarm` right in chat:
-- `/swarm 5 workers using Gemini Argon to test src/`
-- `/swarm 5 workers using DeepSeek Flash to explore hypotheses`
+they work seamlessly with Antigravity's `/goal` (for multi-hour overnight autonomy), `/loop` (for inner-loop metric optimization and TDD hillclimbs), and built-in `/swarm` (for multi-slice parallel fan-out). you can make agents work for many hours without sacrificing rigor.
 
 ## skills
 
-[`/poteto-mode`](./skills/poteto-mode/SKILL.md) runs most of these for you when a step needs them (`how`, `why`, `architect`, `arena`, `swarm`, `interrogate`, `unslop`, `no-comments`, `technical-writing`, `tdd`, and the principles). the table below is for when you want one directly:
+[`/poteto-mode`](./skills/poteto-mode/SKILL.md) runs most of these for you when a step needs them (`how`, `why`, `architect`, `arena`, `interrogate`, `unslop`, `no-comments`, `technical-writing`, `tdd`, and the principles). the table below is for when you want one directly:
 
 
 
@@ -206,7 +178,6 @@ Or trigger `/swarm` right in chat:
 | `/grill-me` | your requirements are underspecified or ambiguous and you want Socratic pressure testing before kicking off architecture or autonomous execution ([guide](./docs/guide/04-design.md#flesh-out-ambiguous-requirements-with-grill-me)). |
 | [`/architect`](./skills/architect/SKILL.md) | you're about to write code that crosses a function boundary and want the caller's usage, types, and module shape settled first. |
 | [`/arena`](./skills/arena/SKILL.md) | you want N parallel attempts at the same thing, then to grab the best parts of each. |
-| [`/swarm`](./skills/swarm/SKILL.md) | you want N parallel workers across different slices or races, then one aggregated report. |
 | [`/interrogate`](./skills/interrogate/SKILL.md) | you have a diff and want several different models to try to break it, including a strict code-quality lens. |
 | [`/automate-me`](./skills/automate-me/SKILL.md) | you want your own `-mode` skill, drafted from how you've actually worked. |
 | [`/deslop`](./skills/deslop/SKILL.md) | you want to clean defensive code, redundant guards, and AI bloat out of diffs before commit. |
@@ -262,8 +233,6 @@ architect:         design this instrumentation to be high signal with no false p
                    this first.
 arena:             /arena take my prompt to the arena verbatim. i want to compare their proposals
                    with yours.
-swarm:             /swarm check every package under packages/ against its check.sh. one worker per
-                   package. one report.
 interrogate:       /interrogate review this pr.
 tdd:               /tdd implement
 unslop:            can we unslop and tighten the new changes?

@@ -26,7 +26,7 @@ Your current design becomes one candidate among several, and the synthesis tells
 /swarm check every package under packages/ against its check.sh. one worker per package. one report.
 ```
 
-Each worker owns one package. The parent waits for every slice and returns one `PASS`, `ISSUES`, or `BLOCKED` report instead of raw worker dumps.
+Antigravity's built-in `swarm` assigns each worker one package, waits for every slice, and returns one compact report instead of raw worker dumps.
 
 ## Review a branch skeptically
 
@@ -94,7 +94,7 @@ Whenever an agent uses `write_to_file`, the hook triggers `skills/poteto-mode/sc
 
 ## Destructive Command Guard with Antigravity PreToolUse Hooks
 
-Prevent accidental catastrophic commands in interactive sessions without disrupting autonomous swarms or CI pipelines. Antigravity's `PreToolUse` lifecycle hook intercepts commands before execution and prompts for confirmation if a destructive command pattern is detected:
+Prevent accidental catastrophic commands in interactive sessions without disrupting autonomous runs or CI pipelines. Antigravity's `PreToolUse` lifecycle hook intercepts commands before execution and prompts for confirmation if a destructive command pattern is detected:
 
 ```json
 {
@@ -120,7 +120,7 @@ The hook evaluates `run_command` invocations for destructive signatures:
 - Force-pushing to protected trunk branches (`git push --force origin main`, `git push origin +master`), while explicitly allowing `--force-with-lease` on feature branches
 - Dropping databases (`drop database <name>`)
 
-When running in headless environments (`NON_INTERACTIVE="1"`, `CI="true"`, or `CLOUD_RUN_TASK_INDEX` in Cloud Run worker containers), the hook automatically rejects destructive commands (`"decision": "reject"`) to prevent catastrophic corruption in unattended runs or automated test suites.
+When running in headless environments (`NON_INTERACTIVE="1"` or `CI="true"`), the hook automatically rejects destructive commands (`"decision": "deny"`) to prevent catastrophic corruption in unattended runs or automated test suites.
 
 To activate, copy or merge `hooks.json.example` into `.agents/hooks.json` (project-local) or `~/.gemini/config/hooks.json` (user-global).
 
@@ -151,7 +151,7 @@ The hook intercepts `write_to_file` and `replace_file_content` to keep coordinat
 - Permits markdown deliverables (`*.md`, `*.markdown`) and scratch/slice files (`scratch/*`, `.slices/*`) immediately.
 - Permits trivial surgical edits (<= 50 lines of code on a single existing file) directly.
 - Bypasses checks for active subagents (`SUBAGENT=1`, `IS_SUBAGENT=1`, or child transcript detection).
-- In headless/CI environments (`NON_INTERACTIVE="1"`, `CI="1"`, `CLOUD_RUN_TASK_INDEX`), rejects non-trivial direct code writes (`decision: reject`) unless subagents are disabled (`HEADLESS_NO_SUBAGENTS="1"`).
+- In headless/CI environments (`NON_INTERACTIVE="1"`, `CI="1"`), rejects non-trivial direct code writes (`decision: reject`) unless subagents are disabled (`HEADLESS_NO_SUBAGENTS="1"` or `ALLOW_SUBAGENTS="false"`).
 - In interactive sessions, prompts the user (`decision: force_ask`) on non-trivial writes (>50 lines on single existing files or creating new source files), preventing accidental coordinator bloat while providing an override when direct execution is explicitly desired.
 
 ## The pitfalls
@@ -159,7 +159,7 @@ The hook intercepts `write_to_file` and `replace_file_content` to keep coordinat
 - **Enumerating skills in the prompt.** "use /how then /architect then /arena" reorders steps the playbook already sequences. State the goal and constraints. Name a skill only to override a default.
 - **A vague finish condition.** "make it better" gives `/loop` or `/goal` nothing to check. `/loop` requires a command that exits 0. `/goal` requires a checkable predicate or artifact. Give a command or artifact that can pass or fail.
 - **Parallel agents in one worktree.** They overwrite each other and the diff becomes archaeology. Say "own worktree per attempt" and the isolation is free.
-- **Using `/arena` for coverage.** `/arena` repeats one design or code brief, then picks a base and grafts the best parts. `/swarm` partitions slices or declared race arms and aggregates one report.
+- **Using `/arena` for coverage.** `/arena` repeats one design or code brief, then picks a base and grafts the best parts. Antigravity's built-in `swarm` partitions slices or declared race arms and aggregates one report.
 - **Accepting every review comment.** Bots and humans both file real catches and noise in one list. `/interrogate` sorts findings into act-on and dismissed buckets with reasons, and you can override either way.
 - **Treating `auto` as a model slug.** `auto` and `inherit-parent` mean "omit the model field so the subagent inherits the parent chat model." [Setup](./01-setup.md) covers the roles.
 - **Reporting success off a green build.** A build proves it compiles. Ask for the real command, flow, stored value, or profile, and expect the evidence in the reply.

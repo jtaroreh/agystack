@@ -24,9 +24,7 @@ Always operate on the most direct, authoritative surface for the task:
 | Subagent workspace isolation | `Workspace: "branch"` (isolated git branch/worktree) or `Workspace: "share"` |
 | `environment: "local"` | `Workspace: "inherit"` (default parent workspace) |
 | Worker iteration / message passing | `send_message` with `Recipient` and `Message` |
-| Parallel fan-out (Local N <= 8) | Single `invoke_subagent` call with multiple entries in `Subagents` array |
-| Parallel fan-out (Cloud N > 8) | `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/swarm -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-json> --parallelism 16` |
-| Cloud container worker | `python skills/swarm/scripts/cloud_worker.py` entrypoint in Cloud Run |
+| Parallel fan-out | Single `invoke_subagent` call with multiple entries, or Antigravity's built-in `swarm` tool (`swarm`, `post_message`, `read_board`, `swarm_wait`) |
 | `AskQuestion` | `ask_question` tool for interactive questions |
 | Background Wake / Scheduling | `schedule` tool (one-shot timer `DurationSeconds` or recurring `CronExpression`) |
 | Background processes | `run_command` (async) + `manage_task` (status/kill/input) with reactive wakeup |
@@ -57,47 +55,6 @@ When a command encounters exit code 126/127 or sandbox permission denial (`Permi
 1. **Never apologize or retry the identical command in a loop.** Policy blocks do not resolve with repeated attempts.
 2. **Check if the query is investigatory and can be satisfied via native read tools.** Read-only queries against repository contents, code symbols, files, or commit logs can be satisfied using native filesystem tools (`view_file`, `find_by_name`, `grep_search`).
 3. **If external mutation is required, explain the exact required permission grant or present the command.** Explicitly state the missing grant under `permissioned-github` (e.g. `gh.create` or `git.update`) or present the exact command for the human operator to run directly on the host.
-
-## Parallel Cloud Agent Execution (Cloud Run Runtime)
-
-When running massive swarms (N > 8) or when Cloud Run runtime is configured, agystack uses Google Cloud Run Jobs for serverless parallel execution.
-
-### Runtime Profile and Cost Model
-
-- **On-Demand Batch Runner Only:** Cloud Run does not run continuously and is never an always-on server. Containers spin up strictly on demand.
-- **Zero Idle Cost:** Costs $0 when idle. Charges apply only to active container execution seconds during a swarm job.
-- **Local Daily Work:** Daily tasks (pair programming, routine edits, bug fixes, refactoring, code reviews via `/interrogate`, and local subagents) always run locally on your machine.
-- **Explicit Swarm Trigger:** Cloud Run only spins up containers when you explicitly trigger `/swarm` (or ask to swarm a task across many parallel workers).
-
-### Architecture
-
-1. **Coordinator:** Generates task briefs into a JSON manifest and invokes `cloud_dispatch.py` via dynamic discovery.
-2. **Cloud Run Job:** Spawns up to 100+ container tasks concurrently across Google Cloud compute.
-3. **Container Instances:** Each instance executes `cloud_worker.py`, index-matched to its `CLOUD_RUN_TASK_INDEX`.
-4. **Zero-Push Patch Delivery:** Worker clones, executes task, uploads score.json and patch.diff if verified PASS under zero-push architecture.
-5. **Aggregation:** The dispatcher aggregates container logs and outputs a structured execution report.
-
-### Runtime Configuration (`agystack-runtime.json`)
-
-Saved at `~/.gemini/config/plugins/agystack/agystack-runtime.json` or `.agents/plugins/agystack/agystack-runtime.json`:
-
-```json
-{
-  "runtime": "cloud-run",
-  "project_id": "my-gcp-project",
-  "region": "us-central1",
-  "job_name": "agystack-swarm-worker",
-  "image": "us-central1-docker.pkg.dev/my-gcp-project/agystack/worker:latest",
-  "parallelism": 16,
-  "model": "gemini-3.8-flash"
-}
-```
-
-### Credentials & Security
-
-- `GH_TOKEN`: Automatically retrieved from local GitHub CLI (`gh auth token`) and passed to Cloud Run Job environment.
-- `GEMINI_API_KEY`: Sourced from environment and forwarded to container workers for SDK initialization.
-- All tokens are redacted from dry-run displays and error logs.
 
 ## Antigravity Native Artifacts
 
@@ -197,17 +154,15 @@ There is a strict boundary between user-facing slash commands and programmatic a
 
 ### agystack Skills vs Native Platform Modes
 
-agystack skills (`/interrogate`, `/arena`, `/architect`, `/swarm`) build directly on Antigravity's programmatic primitives (`invoke_subagent`, `run_command`, `schedule`, artifacts). They orchestrate independent subagents across isolated context windows, diverse model tiers (`pro`, `flash`, `inherit`), and segregated workspaces with automated verification and synthesis.
+agystack skills (`/interrogate`, `/arena`, `/architect`) build directly on Antigravity's programmatic primitives (`invoke_subagent`, `run_command`, `schedule`, artifacts). They orchestrate independent subagents across isolated context windows, diverse model tiers (`pro`, `flash`, `inherit`), and segregated workspaces with automated verification and synthesis. For multi-slice coverage sweeps or parallel worker swarms, use Antigravity's built-in `swarm` tool (`swarm`, `post_message`, `read_board`, `swarm_wait`).
 
 ## Paths
 
 | Artifact / Config | Antigravity Path |
 | --- | --- |
 | Role models configuration | `~/.gemini/config/plugins/agystack/agystack-models.md` |
-| Runtime execution config | `~/.gemini/config/plugins/agystack/agystack-runtime.json` |
 | Agent conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (discovered across `~/.gemini/antigravity/brain/` and `~/.gemini/antigravity-ide/brain/`) |
 | Session artifacts | `<appDataDir>/brain/<conversation-id>/` |
-| Cloud worker scripts | `skills/swarm/scripts/` |
 | Project-local skills | `.agents/skills/` in the project, or this plugin's `skills/` |
 | User global skills | `~/.gemini/config/skills/` or `~/.gemini/config/plugins/agystack/skills/` |
 
@@ -220,12 +175,12 @@ agystack skills (`/interrogate`, `/arena`, `/architect`, `/swarm`) build directl
 
 agystack enforces strict separation between coordinator planning and subagent code execution:
 
-1. **Mandatory Subagent Delegation for Code Writes:** Delegate all non-trivial code modifications, feature implementations, bug fixes, and refactoring to a subagent (`invoke_subagent` with `TypeName: "poteto-agent"` or configured role model) in an isolated context window. The parent agent operates as coordinator: planning, reviewing the subagent's diffs, running verification, and communicating with the user using unslopped prose. Pass purely technical specs, interfaces, and test criteria to the subagent so its context remains unburdened by conversational prose guidelines. A subagent already running as a delegate, or executing in an environment where subagent spawning is disallowed (such as `allow_subagents=False` in cloud workers or subagents without nesting tools), satisfies this invariant by executing and owning the diff directly.
+1. **Mandatory Subagent Delegation for Code Writes:** Delegate all non-trivial code modifications, feature implementations, bug fixes, and refactoring to a subagent (`invoke_subagent` with `TypeName: "poteto-agent"` or configured role model) in an isolated context window. The parent agent operates as coordinator: planning, reviewing the subagent's diffs, running verification, and communicating with the user using unslopped prose. Pass purely technical specs, interfaces, and test criteria to the subagent so its context remains unburdened by conversational prose guidelines. A subagent already running as a delegate, or executing in an environment where subagent spawning is disallowed (such as subagents without nesting tools or headless workers with `ALLOW_SUBAGENTS=false`), satisfies this invariant by executing and owning the diff directly.
 2. **Iterative Worker Loops vs Fresh Spawns:** Use `send_message` for tight iterative worker loops on sequential adjustments to preserve active worker context and avoid re-reading repository state. Reserve fresh subagent spawns for distinct phase boundaries or clean units of work.
-3. **Mandatory Subagent Fan-Out:** Call `invoke_subagent` for:
+3. **Mandatory Subagent Fan-Out:** Call `invoke_subagent` (or Antigravity's built-in `swarm` tool) for:
    - **Adversarial Code Review (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers (`pro`, `flash`, `inherit`). In-context persona emulation is strictly prohibited.
    - **Design & Candidate Bakeoffs (`/arena`):** Dispatch parallel subagents in isolated workspaces or scratch paths.
-   - **Large Payload Sweeps (`/swarm`):** Offload wide search matrices or multi-slice tests to subagents to guard the main context window.
+   - **Large Payload Sweeps:** Offload wide search matrices or multi-slice tests to Antigravity's built-in `swarm` tool or `invoke_subagent` workers to guard the main context window.
    - **Blinded Behavioral Evals (`/eval`):** Run candidate tasks blindly through isolated subagents.
    - **Cross-Model Trail Audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model tier before closing.
 
@@ -238,6 +193,6 @@ agystack enforces strict separation between coordinator planning and subagent co
   Because `TimerCondition: "never"` is used, incremental completions wake the coordinator reactively without cancelling the timer. Once all workers arrive, cancel the active watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)`.
 - **Timeout Diagnosis:** Call `manage_subagents(Action: "list")` ONLY when the watchdog timer fires or an explicit error occurs. Child transcripts may only be read for post-mortem diagnostics, never while waiting.
 - **State-Aware Inspection:** Before calling `manage_subagents(kill)`, inspect `state` and `stateDetail`. If `state` is `running` and `stateDetail` shows an active tool execution (like test runs or compilation), do not kill.
-- **Local Verification Before Teardown:** In candidate races (`/arena`, `/swarm`), verify the winning candidate's patch locally before tearing down surviving runners.
+- **Local Verification Before Teardown:** In candidate races (`/arena` or native swarms), verify the winning candidate's patch locally before tearing down surviving runners.
 - **Phase-Boundary Teardown:** Restrict cancellations strictly to phase transitions (Synthesis or Abort).
 - **Subagent Context Guard Invariant:** `inheritCustomizations: false` is recommended for dedicated background worker agents (e.g. `comment-sicko` or ephemeral task delegates) to guard child context windows against injecting 50+ unrelated global skills and coordinator rules (`rules/AGENTS.md`), while the primary chat coordinator agent maintains access to skills. The coordinator passes pure technical specs, signatures, and test commands directly in the dispatch prompt.

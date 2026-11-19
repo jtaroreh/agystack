@@ -15,7 +15,7 @@ This document defines the official catalog metadata, presentation copy, and deve
 
 ## Description
 
-Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Spinoff of poteto's pstack.
+Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, and adversarial reviews. Spinoff of poteto's pstack.
 
 ## Suggested Prompts
 
@@ -28,7 +28,6 @@ Rigorous agentic engineering framework for Google Antigravity: poteto-mode, play
 - **Twenty-Three Rigorous Playbooks:** Structured procedural engines for bug fixes, performance investigations, refactoring, autonomous loops, and stacked shipping.
 - **Twenty-Four Anti-Slop Principles:** Invariant rules that prevent speculative code, enforce domain data models, and mandate real-world runtime verification.
 - **Subagent Context Isolation:** Guard coordinator chat context windows by delegating code changes over 50 lines to isolated background workers.
-- **Google Cloud Run Swarms (`/swarm`):** Scale beyond local machine concurrency with serverless container fleets executing parallel parameter sweeps and candidate patches.
 - **Multi-Model Adversarial Interrogation (`/interrogate`):** Dispatch concurrent reviewer panels across distinct model tiers to challenge diffs before merge.
 - **Native Antigravity Artifacts:** Structured deliverables (`implementation_plan.md`, `walkthrough.md`, `<topic>_report.md`) rendered directly in the IDE canvas.
 

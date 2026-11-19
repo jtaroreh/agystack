@@ -5,7 +5,7 @@
   "displayName": "agystack",
   "version": "0.16.0",
   "category": "developer-tools",
-  "description": "Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Spinoff of poteto's pstack.",
+  "description": "Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, and adversarial reviews. Spinoff of poteto's pstack.",
   "author": {
     "name": "Joel Taroreh",
     "url": "https://github.com/jtaroreh/agystack"
@@ -26,7 +26,6 @@
     "agentic-engineering",
     "anti-slop",
     "playbooks",
-    "subagents",
-    "swarms"
+    "subagents"
   ]
 }

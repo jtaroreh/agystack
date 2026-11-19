@@ -1,6 +1,6 @@
 ---
 name: agystack
-description: agystack's agentic engineering framework and rigor mode. Runs poteto-mode playbooks, isolated subagents, and cloud swarms. Use for /agystack, agystack, or rigorous engineering on Antigravity.
+description: agystack's agentic engineering framework and rigor mode. Runs poteto-mode playbooks, isolated subagents, and adversarial reviews. Use for /agystack, agystack, or rigorous engineering on Antigravity.
 mode: true
 icon: rocket
 color: blue

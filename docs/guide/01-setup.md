@@ -4,7 +4,7 @@ In this page you install the plugin, pick which models agystack uses, and run yo
 
 ## Prerequisites
 
-- `bun` (v1.0+) is mandatory for PR babysitting (`watch-pr`) and multi-agent orchestration (`orch`). Node.js is not supported.
+- `bun` (v1.0+) is mandatory for PR babysitting (`watch-pr`) and TypeScript script tests (Node.js is used for `check-plan.mjs`).
 - `gh` (GitHub CLI) is required for PR automation and preflight checks.
 - `gt` (Graphite CLI) is recommended for stacked PRs.
 
@@ -54,7 +54,7 @@ Run:
 
 You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default later, delete that role's line, or just run `/setup-agystack` again.
 
-You might be wondering what happens if you use Auto. Set a role to `inherit-parent` or `auto` and agystack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for every `/swarm` worker unless a race names a model for each arm.
+You might be wondering what happens if you use Auto. Set a role to `inherit-parent` or `auto` and agystack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size.
 
 ## Accept the verification offer, or don't
 
