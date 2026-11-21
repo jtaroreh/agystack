@@ -1,11 +1,11 @@
 ---
-name: swarm
-description: "Fan out N parallel workers, drain them, and return one report. Use for /swarm, 'swarm this', or parallel coverage, races, gauntlets, and exploration."
+name: cloud-swarm
+description: "Fan out more than 8 parallel workers across Google Cloud Run for large exploration sweeps, races, gauntlets, and coverage matrices. For 8 or fewer workers use a local `invoke_subagent` fan-out. For agents that collaborate on a shared board use Antigravity's built-in /swarm."
 ---
 
-# Swarm
+# Cloud Swarm
 
-Fan out N parallel workers locally or across Google Cloud Run. Workers cover separate slices or race the same brief. The parent coordinator waits, aggregates, and returns one consolidated report.
+Fan out more than 8 parallel workers across Google Cloud Run. Workers cover separate slices or race the same brief. The parent coordinator waits, aggregates, and returns one consolidated report.
 
 ## Start
 
@@ -22,23 +22,11 @@ Open a todolist with one entry per phase before launching anything.
 2. Choose the shape: partition into slices, race N workers on identical briefs, or mix both. For a race, declare `first pass`, `rank all`, or `best-of`.
 3. Set N. N is total workers.
 4. Pick worker model from `swarm workers` in `~/.gemini/config/plugins/agystack/agystack-models.md` (default: `flash`).
-5. Check execution runtime:
-   - If `agystack-runtime.json` does not exist or specifies `"runtime": "local"`, use local subagents for N <= 8.
-   - If N > 8 or `agystack-runtime.json` specifies `"runtime": "cloud-run"`, use Cloud Run dispatch.
+5. Execution routing:
+   - For 8 or fewer workers (and unless `agystack-runtime.json` specifies `"runtime": "cloud-run"`), use local `invoke_subagent` fan-out (see `skills/poteto-mode/references/antigravity-tools.md`).
+   - For more than 8 workers or when `agystack-runtime.json` specifies `"runtime": "cloud-run"`, use Cloud Run dispatch.
 
-## Phase B: Fan out
-
-### Local Subagents (N <= 8)
-
-Spawn all N workers in one `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Swarm Worker (<slice>)"`, `Workspace: "branch"`, and the configured model. In each worker prompt, explicitly provide `{PARENT_CONVERSATION_ID}` and mandate that upon task completion, the worker MUST invoke `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"` to deliver its slice status and findings (mirroring `skills/interrogate/references/reviewer-prompt.md`) so the coordinator receives reactive wakeups without timing out.
-
-**Reactive Dispatch & Watchdog Protocol:**
-- **Turn 1 (Dispatch & Arm):** Dispatch local workers via `invoke_subagent` and arm a single global watchdog deadline using `schedule(DurationSeconds: 300..600, Prompt="Watchdog: swarm workers timed out", TimerCondition: "never")`.
-- **Turn 2 (Yield):** Output a status update with ZERO tool calls (`tool_calls: []`). Never run busy polling loops on local subagents.
-- **Incremental Arrivals:** On each worker arrival via `send_message`, record slice results and yield immediately with ZERO tool calls if workers remain active.
-- **Teardown & Completion:** Once all N workers complete, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Phase C. If the watchdog fires, diagnose via `manage_subagents(Action: "list")`, terminate unresponsive workers (`manage_subagents(Action: "kill", ConversationIds: [<id>])`), and aggregate available slice results.
-
-### Cloud Run Dispatch (N > 8 or Cloud Run Runtime)
+## Phase B: Fan out (Cloud Run Dispatch)
 
 Cloud Run swarms enable parallel execution across dozens or hundreds of container tasks.
 
@@ -82,14 +70,14 @@ Before launching cloud swarms, match the model to the project's Model Garden ena
 2. **Execute Active Pre-Flight Check:**
    Run active pre-flight validation to ensure credentials, git remotes, model endpoints, and GCS buckets are reachable before spinning up compute:
    ```bash
-   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" --preflight --gcs-bucket <bucket> --model gemini-3.8-flash --vertex
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/cloud-swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" --preflight --gcs-bucket <bucket> --model gemini-3.8-flash --vertex
    ```
    (Pre-flight runs automatically by default during dispatch unless `--no-preflight` is specified.)
 
 3. **Launch the Swarm & Stream Real-Time Milestones:**
    Launch cloud dispatch CLI with unbuffered streaming and fail-fast candidate evaluation:
    ```bash
-   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/cloud-swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
      --manifest <manifest-path> \
      --tasks <N> \
      --gcs-bucket <bucket> \
@@ -102,18 +90,18 @@ Before launching cloud swarms, match the model to the project's Model Garden ena
    When coordinating asynchronously, pass `--no-wait` to `cloud_dispatch.py` to prevent blocking the agent turn:
    ```bash
    # Dispatch asynchronously and return execution handle immediately
-   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/cloud-swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
      --manifest <manifest-path> \
      --tasks <N> \
      --gcs-bucket <bucket> \
      --no-wait
 
    # Harvest and rank candidate patches from an existing session without launching compute
-   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/cloud-swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
      --harvest-session <session_id> --gcs-bucket <bucket> --baseline-score <float>
 
    # Attach to a running execution to stream milestones and harvest upon completion
-   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
+   python3 "${AGYSTACK_DISPATCH_SCRIPT:-$(find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/cloud-swarm/scripts" -name cloud_dispatch.py 2>/dev/null | head -n 1)}" \
      --wait-execution <execution_name> --session <session_id> --gcs-bucket <bucket>
    ```
    The dispatcher automatically executes pre-flight checks, retrieves `GH_TOKEN` via `gh auth token`, executes the Cloud Run Job, streams real-time unbuffered `[MILESTONE]` execution progress directly to stdout as events occur, and aggregates final candidate patches into a ranked summary report. Dispatchers and coordinators must never block passively on buffered command execution.
@@ -141,11 +129,10 @@ Every brief stands alone. Include goal, scope, exact slice, verification command
 
 ## Phase C: Aggregate & Early Harvest
 
-1. For local workers: collect terminal reports from `invoke_subagent`.
-2. For cloud workers: `cloud_dispatch.py` automatically harvests candidate patches from GCS into `.slices/<session_id>/task-<i>/` and displays candidate patch file locations in the execution summary.
-3. Apply selection rule (first pass, rank all, best-of): rank candidates by score delta descending.
-4. **Candidate Integration Protocol:** Apply the winning `patch.diff` to a local worktree (`git apply .slices/<session_id>/task-<i>/patch.diff`), run local verification, and commit. If verified, re-baseline and evaluate subsequent candidates sequentially. Never merge or compose multiple candidate patches simultaneously without intermediate verification (`principle-sequence-verifiable-units`).
-5. Build a compact result table, one-line evidenced issues, and explicit dropouts.
+1. `cloud_dispatch.py` automatically harvests candidate patches from GCS into `.slices/<session_id>/task-<i>/` and displays candidate patch file locations in the execution summary.
+2. Apply selection rule (first pass, rank all, best-of): rank candidates by score delta descending.
+3. **Candidate Integration Protocol:** Apply the winning `patch.diff` to a local worktree (`git apply .slices/<session_id>/task-<i>/patch.diff`), run local verification, and commit. If verified, re-baseline and evaluate subsequent candidates sequentially. Never merge or compose multiple candidate patches simultaneously without intermediate verification (`principle-sequence-verifiable-units`).
+4. Build a compact result table, one-line evidenced issues, and explicit dropouts.
 
 ## Phase D: Report
 

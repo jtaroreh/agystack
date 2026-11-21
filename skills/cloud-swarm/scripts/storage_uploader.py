@@ -10,10 +10,14 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 try:
     from worker.execution import CREDENTIAL_PATTERNS
 except ImportError:
-    from skills.swarm.scripts.worker.execution import CREDENTIAL_PATTERNS
+    CREDENTIAL_PATTERNS = []
 
 
 def is_sensitive_path(path: Path, root: Path) -> bool:

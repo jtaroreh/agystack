@@ -28,7 +28,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 # Ensure scripts directory is on sys.path
-SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"
+SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 

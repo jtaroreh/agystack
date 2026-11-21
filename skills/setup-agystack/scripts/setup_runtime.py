@@ -535,30 +535,53 @@ def parse_model_config(config_path=None):
         }
 
 
-def check_platform(hook_path=None, brain_dir=None, model_config_path=None, run_cmd_fn=None):
+def check_skill_collisions(plugin_root=None):
+    root = Path(plugin_root).resolve() if plugin_root else Path(__file__).resolve().parents[3]
+    swarm_path = root / "skills" / "swarm"
+    if swarm_path.exists():
+        return {
+            "ok": False,
+            "path": str(swarm_path),
+            "collision": True,
+            "error": f"Legacy skills/swarm directory shadows Antigravity built-in swarm; remove {swarm_path}",
+            "required": True,
+        }
+    return {
+        "ok": True,
+        "path": str(swarm_path),
+        "collision": False,
+        "error": None,
+        "required": True,
+    }
+
+
+def check_platform(hook_path=None, brain_dir=None, model_config_path=None, plugin_root=None, run_cmd_fn=None):
     hook_result = check_hook_contract(hook_path=hook_path, run_cmd_fn=run_cmd_fn)
     artifact_result = check_artifact_dir(brain_dir=brain_dir)
     model_result = parse_model_config(config_path=model_config_path)
+    collision_result = check_skill_collisions(plugin_root=plugin_root)
 
     checks = {
         "hook_contract": hook_result,
         "artifact_dir": artifact_result,
         "model_config": model_result,
+        "skill_collisions": collision_result,
     }
     all_ok = all(c.get("ok", False) for c in checks.values() if isinstance(c, dict) and c.get("required"))
     checks["ok"] = all_ok
     return checks
 
 
-def run_doctor(run_cmd_fn=None, include_python=True, import_fn=None, hook_path=None, brain_dir=None, model_config_path=None):
+def run_doctor(run_cmd_fn=None, include_python=True, import_fn=None, hook_path=None, brain_dir=None, model_config_path=None, plugin_root=None):
     deps = check_dependencies(run_cmd_fn=run_cmd_fn, include_python=include_python, import_fn=import_fn)
-    platform = check_platform(hook_path=hook_path, brain_dir=brain_dir, model_config_path=model_config_path, run_cmd_fn=run_cmd_fn)
+    platform = check_platform(hook_path=hook_path, brain_dir=brain_dir, model_config_path=model_config_path, plugin_root=plugin_root, run_cmd_fn=run_cmd_fn)
 
     result = dict(deps)
     result["platform"] = platform
     result["safety_hook"] = platform["hook_contract"]
     result["artifact_dir"] = platform["artifact_dir"]
     result["model_config"] = platform["model_config"]
+    result["skill_collisions"] = platform["skill_collisions"]
 
     all_deps_ok = all(dep.get("ok", False) for dep in deps.values() if isinstance(dep, dict) and dep.get("required"))
     platform_ok = platform.get("ok", False)
@@ -834,7 +857,7 @@ def run_provisioning(
         bucket_name = f"{project_id}-swarm-results"
 
     if not scripts_dir or not (Path(scripts_dir) / "Dockerfile").is_file():
-        candidate = Path(__file__).resolve().parents[2] / "swarm" / "scripts"
+        candidate = Path(__file__).resolve().parents[2] / "cloud-swarm" / "scripts"
         if (candidate / "Dockerfile").is_file():
             scripts_dir = str(candidate)
 

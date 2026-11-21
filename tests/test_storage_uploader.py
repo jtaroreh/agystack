@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "swarm" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "cloud-swarm" / "scripts"))
 
 import storage_uploader
 import cloud_worker

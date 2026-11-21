@@ -23,7 +23,7 @@ Your current design becomes one candidate among several, and the synthesis tells
 ## Check independent slices in parallel
 
 ```text
-/swarm check every package under packages/ against its check.sh. one worker per package. one report.
+/cloud-swarm check every package under packages/ against its check.sh. one worker per package. one report.
 ```
 
 Each worker owns one package. The parent waits for every slice and returns one `PASS`, `ISSUES`, or `BLOCKED` report instead of raw worker dumps.
@@ -159,7 +159,7 @@ The hook intercepts `write_to_file` and `replace_file_content` to keep coordinat
 - **Enumerating skills in the prompt.** "use /how then /architect then /arena" reorders steps the playbook already sequences. State the goal and constraints. Name a skill only to override a default.
 - **A vague finish condition.** "make it better" gives `/loop` or `/goal` nothing to check. `/loop` requires a command that exits 0. `/goal` requires a checkable predicate or artifact. Give a command or artifact that can pass or fail.
 - **Parallel agents in one worktree.** They overwrite each other and the diff becomes archaeology. Say "own worktree per attempt" and the isolation is free.
-- **Using `/arena` for coverage.** `/arena` repeats one design or code brief, then picks a base and grafts the best parts. `/swarm` partitions slices or declared race arms and aggregates one report.
+- **Using `/arena` for coverage.** `/arena` repeats one design or code brief, then picks a base and grafts the best parts. `/cloud-swarm` (or local fan-out) partitions slices or declared race arms and aggregates one report.
 - **Accepting every review comment.** Bots and humans both file real catches and noise in one list. `/interrogate` sorts findings into act-on and dismissed buckets with reasons, and you can override either way.
 - **Treating `auto` as a model slug.** `auto` and `inherit-parent` mean "omit the model field so the subagent inherits the parent chat model." [Setup](./01-setup.md) covers the roles.
 - **Reporting success off a green build.** A build proves it compiles. Ask for the real command, flow, stored value, or profile, and expect the evidence in the reply.

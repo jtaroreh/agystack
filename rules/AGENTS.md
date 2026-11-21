@@ -14,7 +14,7 @@ Mirroring pstack in Cursor, enforce strict separation between coordination and c
 2. **Mandatory Subagent Fan-Out:** You MUST invoke distinct background subagents via `invoke_subagent` for:
    - **Code reviews and adversarial interrogation (`/interrogate`):** Dispatch concurrent reviewers across distinct model tiers (`pro`, `flash`, `inherit`). Simulating reviewer personas in the parent context is strictly forbidden.
    - **Multi-candidate design and code bakeoffs (`/arena`):** Dispatch parallel subagents in isolated workspaces or scratch paths.
-   - **High-volume exploration sweeps and test matrices (`/swarm`):** Offload large payload reads to subagents to guard the main context window.
+   - **High-volume exploration sweeps and test matrices (`/cloud-swarm` for Cloud Run, local fan-out for <= 8 workers):** Offload large payload reads to subagents to guard the main context window.
    - **Blinded behavioral evaluations (`/eval`):** Run candidate attempts through blinded subagents.
    - **Cross-model decision audits (`/show-me-your-work`):** Dispatch an independent subagent on a different model family to audit the decision log.
 3. **Candidate Integration Invariant:** Parallel candidate diffs from swarms, arenas, or subagent fan-outs must never be bulk-merged. The coordinator must evaluate candidate branches in isolation, rank them by delta, and graft winning modifications sequentially—verifying and benchmarking each change independently before attempting the next (`principle-sequence-verifiable-units`).

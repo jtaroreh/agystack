@@ -2,7 +2,7 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agystack",
   "displayName": "agystack",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Rigorous agentic engineering framework for Google Antigravity: poteto-mode, playbooks, isolated subagents, adversarial reviews, and cloud swarms. Spinoff of poteto's pstack.",
   "author": {
     "name": "Joel Taroreh",

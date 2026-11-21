@@ -7,7 +7,7 @@ class TestContainerSpec(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.project_root = Path(__file__).resolve().parent.parent
-        cls.scripts_dir = cls.project_root / "skills" / "swarm" / "scripts"
+        cls.scripts_dir = cls.project_root / "skills" / "cloud-swarm" / "scripts"
         cls.dockerfile_path = cls.scripts_dir / "Dockerfile"
 
         if not cls.dockerfile_path.is_file():

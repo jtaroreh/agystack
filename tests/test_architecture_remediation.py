@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SWARM_SCRIPTS = REPO_ROOT / "skills" / "swarm" / "scripts"
+SWARM_SCRIPTS = REPO_ROOT / "skills" / "cloud-swarm" / "scripts"
 sys.path.insert(0, str(SWARM_SCRIPTS))
 
 import cloud_dispatch
@@ -304,9 +304,9 @@ class TestArchitectureRemediation(unittest.TestCase):
         self.assertIn("skipped=3", res.stderr + res.stdout)
 
     def test_script_resolver_path_resolution_in_skill_md(self):
-        skill_md = REPO_ROOT / "skills" / "swarm" / "SKILL.md"
+        skill_md = REPO_ROOT / "skills" / "cloud-swarm" / "SKILL.md"
         content = skill_md.read_text(encoding="utf-8")
-        resolver_pattern = 'find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/swarm/scripts" -name cloud_dispatch.py'
+        resolver_pattern = 'find -L "$HOME/.gemini/config/plugins/agystack" ".agents/plugins/agystack" "skills/cloud-swarm/scripts" -name cloud_dispatch.py'
         self.assertIn(resolver_pattern, content)
 
     def test_run_preflight_missing_gcs_bucket_fails_fast(self):

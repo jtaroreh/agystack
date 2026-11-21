@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 
 # Add scripts directory to path
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from storage_messenger import StorageMessenger, MessageStatus, MessageType

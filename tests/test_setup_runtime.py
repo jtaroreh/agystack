@@ -1,3 +1,4 @@
+import contextlib
 import io
 import json
 import os
@@ -7,8 +8,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "setup-agystack" / "scripts"))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "skills" / "setup-agystack" / "scripts"))
 import setup_runtime
+
+
+@contextlib.contextmanager
+def isolated_home():
+    with tempfile.TemporaryDirectory() as tmp_home:
+        clean_env = os.environ.copy()
+        clean_env["HOME"] = tmp_home
+        clean_env.pop("ANTIGRAVITY_APP_DATA_DIR", None)
+        clean_env.pop("ANTIGRAVITY_CONVERSATION_ID", None)
+        with patch.dict(os.environ, clean_env, clear=True):
+            yield Path(tmp_home).resolve()
 
 
 class TestSetupRuntimeDoctor(unittest.TestCase):
@@ -200,7 +213,7 @@ class TestSetupRuntimeProvisioning(unittest.TestCase):
     def test_run_provisioning_autoresolves_scripts_dir(self, mock_run_cmd, mock_write_cfg):
         mock_run_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-        expected_scripts_dir = str(Path(setup_runtime.__file__).resolve().parents[2] / "swarm" / "scripts")
+        expected_scripts_dir = str(Path(setup_runtime.__file__).resolve().parents[2] / "cloud-swarm" / "scripts")
         self.assertTrue(
             (Path(expected_scripts_dir) / "Dockerfile").is_file(),
             f"Expected Dockerfile to exist at {expected_scripts_dir}",
@@ -226,7 +239,7 @@ class TestSetupRuntimeProvisioning(unittest.TestCase):
     def test_run_provisioning_preserves_valid_scripts_dir(self, mock_run_cmd, mock_write_cfg):
         mock_run_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-        valid_dir = str(Path(setup_runtime.__file__).resolve().parents[2] / "swarm" / "scripts")
+        valid_dir = str(Path(setup_runtime.__file__).resolve().parents[2] / "cloud-swarm" / "scripts")
         setup_runtime.run_provisioning(
             project_id="test-proj-valid",
             scripts_dir=valid_dir,
@@ -330,7 +343,7 @@ class TestBuildAndDeployWorkerStaging(unittest.TestCase):
         self.repo_root = Path(self.temp_dir.name).resolve()
 
         self.skills_dir = self.repo_root / "skills"
-        self.swarm_scripts_dir = self.skills_dir / "swarm" / "scripts"
+        self.swarm_scripts_dir = self.skills_dir / "cloud-swarm" / "scripts"
         self.swarm_scripts_dir.mkdir(parents=True, exist_ok=True)
         (self.swarm_scripts_dir / "Dockerfile").write_text("FROM python:3.11-slim\n", encoding="utf-8")
 
@@ -378,7 +391,7 @@ class TestBuildAndDeployWorkerStaging(unittest.TestCase):
                 observed_staged["staged_rules_exists"] = staged_rules.is_dir()
                 observed_staged["staged_agents_exists"] = staged_agents.is_dir()
                 observed_staged["other_skill_copied"] = (staged_skills / "poteto-mode" / "SKILL.md").is_file()
-                observed_staged["recursion_prevented"] = not (staged_skills / "swarm" / "scripts").exists()
+                observed_staged["recursion_prevented"] = not (staged_skills / "cloud-swarm" / "scripts").exists()
                 observed_staged["git_ignored"] = not (staged_skills / ".git").exists()
                 observed_staged["pycache_ignored"] = not (staged_skills / "__pycache__").exists()
                 observed_staged["pytest_cache_ignored"] = not (staged_skills / ".pytest_cache").exists()
@@ -507,16 +520,44 @@ class TestSetupRuntimePlatformValidation(unittest.TestCase):
                 self.assertIn("not writable", res["error"])
 
     def test_parse_model_config_success(self):
-        res = setup_runtime.parse_model_config()
-        self.assertTrue(res["installed"])
-        self.assertTrue(res["ok"])
-        self.assertGreater(res["roles_count"], 0)
-        self.assertIn("arena runners", res["roles"])
-        self.assertEqual(res["roles"]["arena runners"], ["inherit", "flash", "pro"])
-        self.assertIn("swarm workers", res["roles"])
-        self.assertEqual(res["roles"]["swarm workers"], ["flash"])
-        self.assertIn("feature", res["roles"])
-        self.assertEqual(res["roles"]["feature"], ["inherit"])
+        with isolated_home():
+            res = setup_runtime.parse_model_config()
+            self.assertTrue(res["installed"])
+            self.assertTrue(res["ok"])
+            self.assertGreater(res["roles_count"], 0)
+            self.assertIn("arena runners", res["roles"])
+            self.assertEqual(res["roles"]["arena runners"], ["inherit", "flash", "pro"])
+            self.assertIn("swarm workers", res["roles"])
+            self.assertEqual(res["roles"]["swarm workers"], ["flash"])
+            self.assertIn("feature", res["roles"])
+            self.assertEqual(res["roles"]["feature"], ["inherit"])
+
+
+    def test_check_skill_collisions_absent(self):
+        with tempfile.TemporaryDirectory() as tmp_root:
+            (Path(tmp_root) / "skills" / "poteto-mode").mkdir(parents=True, exist_ok=True)
+            res = setup_runtime.check_skill_collisions(plugin_root=tmp_root)
+            self.assertTrue(res["ok"])
+            self.assertFalse(res["collision"])
+            self.assertIsNone(res["error"])
+            self.assertTrue(res["required"])
+            self.assertEqual(res["path"], str((Path(tmp_root).resolve() / "skills" / "swarm")))
+
+        repo_res = setup_runtime.check_skill_collisions()
+        self.assertTrue(repo_res["ok"])
+        self.assertFalse(repo_res["collision"])
+
+    def test_check_skill_collisions_present(self):
+        with tempfile.TemporaryDirectory() as tmp_root:
+            swarm_dir = Path(tmp_root) / "skills" / "swarm"
+            swarm_dir.mkdir(parents=True, exist_ok=True)
+            res = setup_runtime.check_skill_collisions(plugin_root=tmp_root)
+            self.assertFalse(res["ok"])
+            self.assertTrue(res["collision"])
+            self.assertTrue(res["required"])
+            self.assertEqual(res["path"], str(swarm_dir.resolve()))
+            self.assertIn("Legacy skills/swarm directory shadows Antigravity built-in swarm", res["error"])
+            self.assertIn(str(swarm_dir.resolve()), res["error"])
 
     def test_parse_model_config_missing_file(self):
         res = setup_runtime.parse_model_config(config_path="/nonexistent/agystack-models.md")
@@ -536,37 +577,51 @@ class TestSetupRuntimePlatformValidation(unittest.TestCase):
             self.assertIn("No model roles defined", res["error"])
 
     def test_check_platform_all_passing(self):
-        res = setup_runtime.check_platform()
-        self.assertTrue(res["ok"])
-        self.assertTrue(res["hook_contract"]["ok"])
-        self.assertEqual(res["hook_contract"]["decision"], "deny")
-        self.assertTrue(res["artifact_dir"]["ok"])
-        self.assertTrue(res["artifact_dir"]["writable"])
-        self.assertTrue(res["model_config"]["ok"])
+        with isolated_home() as tmp_home:
+            res = setup_runtime.check_platform()
+            self.assertTrue(res["ok"])
+            self.assertTrue(res["hook_contract"]["ok"])
+            self.assertEqual(res["hook_contract"]["decision"], "deny")
+            self.assertTrue(res["artifact_dir"]["ok"])
+            self.assertTrue(res["artifact_dir"]["writable"])
+            self.assertTrue(Path(res["artifact_dir"]["path"]).is_relative_to(tmp_home))
+            self.assertTrue(res["model_config"]["ok"])
+            self.assertEqual(res["model_config"]["path"], str((REPO_ROOT / "agystack-models.md").resolve()))
+            self.assertTrue(res["skill_collisions"]["ok"])
+            self.assertFalse(res["skill_collisions"]["collision"])
 
     def test_doctor_platform_overall_status_ok_exit_0(self):
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 0)
-                report = json.loads(mock_out.getvalue().strip())
-                self.assertEqual(report["status"], "OK")
-                self.assertTrue(report["platform"]["ok"])
-                self.assertEqual(report["safety_hook"]["decision"], "deny")
-                self.assertTrue(report["artifact_dir"]["writable"])
-                self.assertIn("arena runners", report["model_config"]["roles"])
-
-    def test_doctor_platform_failure_exits_1(self):
-        with patch("setup_runtime.check_hook_contract", return_value={"ok": False, "required": True, "error": "Hook failure"}):
+        with isolated_home() as tmp_home:
             with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
                 with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
                     with self.assertRaises(SystemExit) as cm:
                         setup_runtime.main()
-                    self.assertEqual(cm.exception.code, 1)
+                    self.assertEqual(cm.exception.code, 0)
                     report = json.loads(mock_out.getvalue().strip())
-                    self.assertEqual(report["status"], "ERROR")
-                    self.assertFalse(report["platform"]["ok"])
+                    self.assertEqual(report["status"], "OK")
+                    self.assertTrue(report["platform"]["ok"])
+                    self.assertEqual(report["safety_hook"]["decision"], "deny")
+                    self.assertTrue(report["artifact_dir"]["writable"])
+                    self.assertTrue(Path(report["artifact_dir"]["path"]).is_relative_to(tmp_home))
+                    self.assertEqual(report["model_config"]["path"], str((REPO_ROOT / "agystack-models.md").resolve()))
+                    self.assertIn("arena runners", report["model_config"]["roles"])
+                    self.assertIn("swarm workers", report["model_config"]["roles"])
+                    self.assertTrue(report["skill_collisions"]["ok"])
+
+    def test_doctor_platform_failure_exits_1(self):
+        with isolated_home():
+            with patch(
+                "setup_runtime.check_hook_contract",
+                return_value={"ok": False, "required": True, "error": "Hook failure"},
+            ):
+                with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+                    with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                        with self.assertRaises(SystemExit) as cm:
+                            setup_runtime.main()
+                        self.assertEqual(cm.exception.code, 1)
+                        report = json.loads(mock_out.getvalue().strip())
+                        self.assertEqual(report["status"], "ERROR")
+                        self.assertFalse(report["platform"]["ok"])
 
 
 class TestSetupRuntimeProvisioner(unittest.TestCase):
@@ -717,7 +772,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             project_id="my-project-123",
             region="us-central1",
             image_tag="us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest",
-            scripts_dir="skills/swarm/scripts",
+            scripts_dir="skills/cloud-swarm/scripts",
             service_account="custom-sa@example.com",
         )
 
@@ -744,7 +799,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             project_id="my-project-123",
             region="us-central1",
             image_tag="us-central1-docker.pkg.dev/my-project-123/agystack/worker:latest",
-            scripts_dir="skills/swarm/scripts",
+            scripts_dir="skills/cloud-swarm/scripts",
             service_account="custom-sa@example.com",
         )
 
@@ -799,7 +854,7 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         summary = setup_runtime.run_provisioning(
             project_id="test-proj-full",
             region="us-central1",
-            scripts_dir="skills/swarm/scripts",
+            scripts_dir="skills/cloud-swarm/scripts",
             bucket_name="custom-bucket",
             service_account="custom-sa@developer.gserviceaccount.com",
         )

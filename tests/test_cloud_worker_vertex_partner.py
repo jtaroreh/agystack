@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "skills" / "swarm" / "scripts"))
+sys.path.insert(0, str(REPO_ROOT / "skills" / "cloud-swarm" / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "skills" / "setup-agystack" / "scripts"))
 
 import cloud_worker
