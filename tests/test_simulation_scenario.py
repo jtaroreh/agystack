@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 

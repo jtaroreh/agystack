@@ -79,3 +79,25 @@ def test_all_skills_match_directory():
         skill_name = name_match.group(1).strip().strip("'\"")
         assert skill_name == dir_name, f"{skill_file} name '{skill_name}' does not match dir '{dir_name}'"
 
+
+def test_cloud_swarm_skill_name():
+    cloud_swarm_file = REPO_ROOT / "skills" / "cloud-swarm" / "SKILL.md"
+    assert cloud_swarm_file.exists()
+    content = cloud_swarm_file.read_text(encoding="utf-8")
+    parts = content.split("---", 2)
+    name_match = re.search(r"^name:\s*(.+)$", parts[1], re.MULTILINE)
+    assert name_match and name_match.group(1).strip().strip("'\"") == "cloud-swarm"
+
+
+def test_no_swarm_skill_collision():
+    skills_dir = REPO_ROOT / "skills"
+    assert not (skills_dir / "swarm").exists(), "skills/swarm must not exist (shadows Antigravity built-in swarm skill)"
+    for skill_file in sorted(skills_dir.glob("*/SKILL.md")):
+        content = skill_file.read_text(encoding="utf-8")
+        parts = content.split("---", 2)
+        assert len(parts) >= 3, f"{skill_file} invalid frontmatter structure"
+        name_match = re.search(r"^name:\s*(.+)$", parts[1], re.MULTILINE)
+        assert name_match, f"{skill_file} missing 'name:' in frontmatter"
+        skill_name = name_match.group(1).strip().strip("'\"")
+        assert skill_name != "swarm", f"{skill_file} declares 'name: swarm' and shadows Antigravity's built-in swarm skill"
+

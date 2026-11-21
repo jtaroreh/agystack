@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "skills/swarm/scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills/cloud-swarm/scripts"
 sys.path.insert(0, str(SCRIPTS))
 import cloud_dispatch
 import cloud_worker

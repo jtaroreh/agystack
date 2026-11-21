@@ -4,9 +4,9 @@ import sys
 import unittest
 from pathlib import Path
 
-SWARM_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"
+SWARM_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts"
 if not SWARM_SCRIPTS_DIR.exists():
-    SWARM_SCRIPTS_DIR = Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "skills" / "swarm" / "scripts"
+    SWARM_SCRIPTS_DIR = Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "skills" / "cloud-swarm" / "scripts"
 
 sys.path.insert(0, str(SWARM_SCRIPTS_DIR))
 

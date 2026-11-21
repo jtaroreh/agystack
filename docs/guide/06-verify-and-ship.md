@@ -48,7 +48,7 @@ It writes `.agents/skills/verify-<app>/`, agent-facing instructions with exact L
 
 From then on, "verify it in the app" is a step any agent can execute, in this repo, with no setup conversation.
 
-Once the verify skill works, a [`/swarm`](../../skills/swarm/SKILL.md) can split a full pass by feature-map entry and aggregate the results.
+Once the verify skill works, a [`/cloud-swarm`](../../skills/cloud-swarm/SKILL.md) or local fan-out can split a full pass by feature-map entry and aggregate the results.
 
 ## Keep the verification skill honest
 

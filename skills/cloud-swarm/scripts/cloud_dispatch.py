@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLI dispatcher script called by /swarm or /orchestrate to launch Cloud Run Job
+CLI dispatcher script called by /cloud-swarm or /orchestrate to launch Cloud Run Job
 for parallel swarm agent execution.
 Constructs and executes gcloud run jobs execute, streams status, and aggregates results.
 """
@@ -18,6 +18,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 try:
     from storage_messenger import StorageMessenger
 except ImportError:
@@ -26,16 +30,15 @@ except ImportError:
 try:
     from worker.partner_engine import PARTNER_MODEL_ALIASES, is_partner_model
 except ImportError:
-    try:
-        from skills.swarm.scripts.worker.partner_engine import PARTNER_MODEL_ALIASES, is_partner_model
-    except ImportError:
-        is_partner_model = None
-        PARTNER_MODEL_ALIASES = {}
+    is_partner_model = None
+    PARTNER_MODEL_ALIASES = {}
 
 try:
     from worker.execution import LIMIT_ENV, TERMINAL_STATES, resolve_execution_limits
 except ImportError:
-    from skills.swarm.scripts.worker.execution import LIMIT_ENV, TERMINAL_STATES, resolve_execution_limits
+    LIMIT_ENV = {}
+    TERMINAL_STATES = set()
+    resolve_execution_limits = None
 
 
 TIER3_DEDICATED_MODELS = {
@@ -405,71 +408,37 @@ def parse_worker_logs(log_output: str) -> List[Dict[str, Any]]:
     return results
 
 
-try:
-    from transcript_projector import (
-        TELEMETRY_REGEX,
-        ShadowTranscriptProjector,
-        cleanup_session,
-        format_conversation_url,
-        get_task_brain_dir,
-        get_task_conversation_id,
-        initialize_shadow_transcript,
-        is_telemetry_line,
-        parse_telemetry_line,
-        resolve_app_data_dir,
-    )
-except ImportError:
-    from skills.swarm.scripts.transcript_projector import (
-        TELEMETRY_REGEX,
-        ShadowTranscriptProjector,
-        cleanup_session,
-        format_conversation_url,
-        get_task_brain_dir,
-        get_task_conversation_id,
-        initialize_shadow_transcript,
-        is_telemetry_line,
-        parse_telemetry_line,
-        resolve_app_data_dir,
-    )
+from transcript_projector import (
+    TELEMETRY_REGEX,
+    ShadowTranscriptProjector,
+    cleanup_session,
+    format_conversation_url,
+    get_task_brain_dir,
+    get_task_conversation_id,
+    initialize_shadow_transcript,
+    is_telemetry_line,
+    parse_telemetry_line,
+    resolve_app_data_dir,
+)
 
-try:
-    from swarm_dashboard import (
-        MILESTONE_REGEX,
-        STATUS_BADGES,
-        SwarmDashboardWriter,
-        TaskDashboardState,
-        colorize,
-        format_cloud_logging_url,
-        format_cloud_run_execution_url,
-        format_cloud_run_url,
-        format_elapsed_time,
-        format_gcs_console_url,
-        format_gcs_url,
-        format_log_viewer_url,
-        format_monitored_line,
-        format_status_badge,
-        format_tool_snippet,
-        parse_milestone_log,
-    )
-except ImportError:
-    from skills.swarm.scripts.swarm_dashboard import (
-        MILESTONE_REGEX,
-        STATUS_BADGES,
-        SwarmDashboardWriter,
-        TaskDashboardState,
-        colorize,
-        format_cloud_logging_url,
-        format_cloud_run_execution_url,
-        format_cloud_run_url,
-        format_elapsed_time,
-        format_gcs_console_url,
-        format_gcs_url,
-        format_log_viewer_url,
-        format_monitored_line,
-        format_status_badge,
-        format_tool_snippet,
-        parse_milestone_log,
-    )
+from swarm_dashboard import (
+    MILESTONE_REGEX,
+    STATUS_BADGES,
+    SwarmDashboardWriter,
+    TaskDashboardState,
+    colorize,
+    format_cloud_logging_url,
+    format_cloud_run_execution_url,
+    format_cloud_run_url,
+    format_elapsed_time,
+    format_gcs_console_url,
+    format_gcs_url,
+    format_log_viewer_url,
+    format_monitored_line,
+    format_status_badge,
+    format_tool_snippet,
+    parse_milestone_log,
+)
 
 __all__ = [
     "TELEMETRY_REGEX",
@@ -1175,21 +1144,14 @@ try:
         handle_mailbox_steer,
     )
 except ImportError:
-    try:
-        from skills.swarm.scripts.dispatch.mailbox_controller import (
-            handle_mailbox_list,
-            handle_mailbox_reply,
-            handle_mailbox_steer,
-        )
-    except ImportError:
-        _disp_dir = Path(__file__).resolve().parent / "dispatch"
-        if str(_disp_dir) not in sys.path:
-            sys.path.insert(0, str(_disp_dir))
-        from mailbox_controller import (  # type: ignore
-            handle_mailbox_list,
-            handle_mailbox_reply,
-            handle_mailbox_steer,
-        )
+    _disp_dir = Path(__file__).resolve().parent / "dispatch"
+    if str(_disp_dir) not in sys.path:
+        sys.path.insert(0, str(_disp_dir))
+    from mailbox_controller import (  # type: ignore
+        handle_mailbox_list,
+        handle_mailbox_reply,
+        handle_mailbox_steer,
+    )
 
 
 def failed_task_count(report_items: List[Dict[str, Any]], task_count: int) -> int:

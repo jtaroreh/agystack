@@ -29,7 +29,7 @@ class TestReactiveCoordinationRules(unittest.TestCase):
             content,
         )
 
-        swarm_file = SKILLS_DIR / "swarm" / "SKILL.md"
+        swarm_file = SKILLS_DIR / "cloud-swarm" / "SKILL.md"
         swarm_content = swarm_file.read_text(encoding="utf-8")
         self.assertIn(
             "Active Liveness & Non-Blocking Monitoring (Cloud Run Swarms Only):",
@@ -56,18 +56,12 @@ class TestReactiveCoordinationRules(unittest.TestCase):
         )
         self.assertIn("{PARENT_CONVERSATION_ID}", content)
 
-    def test_arena_and_swarm_skills_have_reactive_protocol(self):
+    def test_arena_skill_has_reactive_protocol(self):
         arena_content = (SKILLS_DIR / "arena" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn('TimerCondition: "never"', arena_content)
         self.assertIn("ZERO tool calls", arena_content)
         self.assertIn("send_message", arena_content)
         self.assertIn("{PARENT_CONVERSATION_ID}", arena_content)
-
-        swarm_content = (SKILLS_DIR / "swarm" / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn('TimerCondition: "never"', swarm_content)
-        self.assertIn("ZERO tool calls", swarm_content)
-        self.assertIn("send_message", swarm_content)
-        self.assertIn("{PARENT_CONVERSATION_ID}", swarm_content)
 
     def test_agents_md_has_delegation_thresholds(self):
         agents_file = RULES_DIR / "AGENTS.md"

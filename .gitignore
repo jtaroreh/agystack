@@ -30,7 +30,7 @@ dist/
 .venv/
 venv/
 env/
-skills/swarm/scripts/skills/
-skills/swarm/scripts/rules/
-skills/swarm/scripts/agents/
+skills/cloud-swarm/scripts/skills/
+skills/cloud-swarm/scripts/rules/
+skills/cloud-swarm/scripts/agents/
 

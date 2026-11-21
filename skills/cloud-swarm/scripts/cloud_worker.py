@@ -21,6 +21,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 try:
     from storage_messenger import StorageMessenger
 except ImportError:
@@ -171,7 +175,8 @@ def emit_agent_response(
 try:
     from worker.execution import CREDENTIAL_PATTERNS as CREDENTIAL_PATTERNS, scrub_credentials
 except ImportError:
-    from skills.swarm.scripts.worker.execution import CREDENTIAL_PATTERNS as CREDENTIAL_PATTERNS, scrub_credentials
+    CREDENTIAL_PATTERNS = []
+    def scrub_credentials(text): return text
 
 
 class TokenShield:
@@ -262,20 +267,12 @@ class TokenShield:
 
 
 
-try:
-    from worker.agent_hooks import (
-        StagnancyTracker as StagnancyTracker,
-        ToolInvocationRecord as ToolInvocationRecord,
-        create_agent_hooks as create_agent_hooks,
-        create_ask_orchestrator_tool as create_ask_orchestrator_tool,
-    )
-except ImportError:
-    from skills.swarm.scripts.worker.agent_hooks import (
-        StagnancyTracker as StagnancyTracker,
-        ToolInvocationRecord as ToolInvocationRecord,
-        create_agent_hooks as create_agent_hooks,
-        create_ask_orchestrator_tool as create_ask_orchestrator_tool,
-    )
+from worker.agent_hooks import (
+    StagnancyTracker as StagnancyTracker,
+    ToolInvocationRecord as ToolInvocationRecord,
+    create_agent_hooks as create_agent_hooks,
+    create_ask_orchestrator_tool as create_ask_orchestrator_tool,
+)
 
 
 def get_env_var(name: str, default: Optional[str] = None, required: bool = False) -> str:
@@ -690,42 +687,22 @@ def parse_porcelain_status(stdout: str) -> List[str]:
     return modified_files
 
 
-try:
-    from worker.execution import ExecutionLimits, evaluate_agent_status, limits_for_task, run_bounded_shell, write_diagnostic
-except ImportError:
-    from skills.swarm.scripts.worker.execution import ExecutionLimits, evaluate_agent_status, limits_for_task, run_bounded_shell, write_diagnostic
+from worker.execution import ExecutionLimits, evaluate_agent_status, limits_for_task, run_bounded_shell, write_diagnostic
 
-
-try:
-    from worker.partner_engine import (
-        PARTNER_MODEL_ALIASES as PARTNER_MODEL_ALIASES,
-        PARTNER_MODELS as PARTNER_MODELS,
-        WORKSPACE_TOOLS as WORKSPACE_TOOLS,
-        execute_claude_model_agent as execute_claude_model_agent,
-        execute_deepseek_model_agent as execute_deepseek_model_agent,
-        execute_fable_model_agent as execute_fable_model_agent,
-        execute_partner_model_agent as execute_partner_model_agent,
-        execute_workspace_tool as execute_workspace_tool,
-        is_deepseek_model as is_deepseek_model,
-        is_fable_model as is_fable_model,
-        is_partner_model as is_partner_model,
-        measure_partner_client_startup as measure_partner_client_startup,
-    )
-except ImportError:
-    from skills.swarm.scripts.worker.partner_engine import (
-        PARTNER_MODEL_ALIASES as PARTNER_MODEL_ALIASES,
-        PARTNER_MODELS as PARTNER_MODELS,
-        WORKSPACE_TOOLS as WORKSPACE_TOOLS,
-        execute_claude_model_agent as execute_claude_model_agent,
-        execute_deepseek_model_agent as execute_deepseek_model_agent,
-        execute_fable_model_agent as execute_fable_model_agent,
-        execute_partner_model_agent as execute_partner_model_agent,
-        execute_workspace_tool as execute_workspace_tool,
-        is_deepseek_model as is_deepseek_model,
-        is_fable_model as is_fable_model,
-        is_partner_model as is_partner_model,
-        measure_partner_client_startup as measure_partner_client_startup,
-    )
+from worker.partner_engine import (
+    PARTNER_MODEL_ALIASES as PARTNER_MODEL_ALIASES,
+    PARTNER_MODELS as PARTNER_MODELS,
+    WORKSPACE_TOOLS as WORKSPACE_TOOLS,
+    execute_claude_model_agent as execute_claude_model_agent,
+    execute_deepseek_model_agent as execute_deepseek_model_agent,
+    execute_fable_model_agent as execute_fable_model_agent,
+    execute_partner_model_agent as execute_partner_model_agent,
+    execute_workspace_tool as execute_workspace_tool,
+    is_deepseek_model as is_deepseek_model,
+    is_fable_model as is_fable_model,
+    is_partner_model as is_partner_model,
+    measure_partner_client_startup as measure_partner_client_startup,
+)
 def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None) -> str:
     """
     Resolves the worker model for a task, respecting per-task overrides in task_item,

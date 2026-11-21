@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts"))
 
 import swarm_dashboard
 from cloud_dispatch import (

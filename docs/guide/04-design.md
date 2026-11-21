@@ -1,6 +1,6 @@
 # Design before you write code
 
-One attempt at a hard design locks in the first shape the model thought of. `/architect` settles types and boundaries before implementation. `/arena` runs several attempts at the same brief and merges the best parts. `/interrogate` has other models try to break the result. When the job is coverage rather than design synthesis, `/swarm` fans out slices or races and aggregates their results.
+One attempt at a hard design locks in the first shape the model thought of. `/architect` settles types and boundaries before implementation. `/arena` runs several attempts at the same brief and merges the best parts. `/interrogate` has other models try to break the result. When the job is coverage rather than design synthesis, `/cloud-swarm` (or local fan-out) fans out slices or races and aggregates their results.
 
 ![Three robots draft competing bridge models at their own tables under /architect, /arena, and /interrogate panels, while a judge robot with a clipboard inspects skeptically.](./images/design.jpg)
 
@@ -56,15 +56,15 @@ The panel comes from your [`/setup-agystack`](../../skills/setup-agystack/SKILL.
 /arena this, 5 candidates. the cache key format is expensive to change later.
 ```
 
-## Cover slices and races with `/swarm`
+## Cover slices and races with `/cloud-swarm`
 
 ```text
-/swarm check every package under packages/ against its check.sh. one worker per package. one report.
+/cloud-swarm check every package under packages/ against its check.sh. one worker per package. one report.
 ```
 
-[`/swarm`](../../skills/swarm/SKILL.md) fans N workers across independent slices, coverage matrices, gauntlet lanes, exploration partitions, or declared race arms. Each worker gets its own scope and check, then reports `PASS`, `ISSUES`, or `BLOCKED`. The parent waits for the workers and returns one compact report with any gaps or dropouts.
+[`/cloud-swarm`](../../skills/cloud-swarm/SKILL.md) fans N workers across Google Cloud Run for independent slices, coverage matrices, gauntlet lanes, exploration partitions, or declared race arms (or uses local `invoke_subagent` fan-out for 8 or fewer workers). Each worker gets its own scope and check, then reports `PASS`, `ISSUES`, or `BLOCKED`. The parent waits for the workers and returns one compact report with any gaps or dropouts.
 
-Reach for it when parallelism buys coverage or lets independent checks race. `/arena` gives every worker the same design or code brief, then picks a base and grafts the best parts. `/swarm` covers slices or runs a race with a selection rule declared up front. It does not use the base-selection and grafting ceremony.
+Reach for it when parallelism buys coverage or lets independent checks race. `/arena` gives every worker the same design or code brief, then picks a base and grafts the best parts. `/cloud-swarm` covers slices or runs a race with a selection rule declared up front. It does not use the base-selection and grafting ceremony.
 
 ## Break it with `/interrogate`
 
@@ -83,7 +83,7 @@ You might be wondering whether every change needs this. No. Most changes need no
 - A small, finished change you're unsure about needs `/interrogate` alone.
 - A change that crosses function boundaries or moves ownership earns `/architect`, which brings `/arena` with it.
 - A standalone decision where independent attempts would help, like naming, formats, or an algorithm, is `/arena` directly.
-- A coverage matrix, set of parallel checks, or race with declared arms is `/swarm`.
+- A coverage matrix, set of parallel checks, or race with declared arms is `/cloud-swarm` (or local fan-out).
 - A contested design that's expensive to reverse gets `/architect`, then `/interrogate` before shipping.
 
 `/poteto-mode` already applies this ladder. Boundary-crossing work triggers `/architect` on its own, so you reach for these directly mainly when you want more or less scrutiny than the default.

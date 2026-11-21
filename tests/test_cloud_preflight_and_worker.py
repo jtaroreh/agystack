@@ -10,7 +10,7 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts"))
 import cloud_worker
 from cloud_dispatch import (
     build_gcloud_command,
@@ -954,7 +954,7 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         manifest_path = self.temp_dir / "manifest.json"
         manifest_path.write_text(manifest_serialized, encoding="utf-8")
 
-        dispatch_script = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts" / "cloud_dispatch.py"
+        dispatch_script = Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts" / "cloud_dispatch.py"
         cmd = [
             sys.executable,
             str(dispatch_script),
@@ -1259,7 +1259,7 @@ class TestSecureSwarmAndManifestStaging(unittest.TestCase):
         self.assertNotIn("AIzaSySuperSecretKey", update_env_env)
 
     def test_cli_dispatch_omits_secrets_from_env_vars_when_using_set_secrets_or_runtime_config(self):
-        dispatch_script = Path(__file__).resolve().parent.parent / "skills" / "swarm" / "scripts" / "cloud_dispatch.py"
+        dispatch_script = Path(__file__).resolve().parent.parent / "skills" / "cloud-swarm" / "scripts" / "cloud_dispatch.py"
         manifest_path = self.temp_dir / "manifest_empty.json"
         manifest_path.write_text("[]", encoding="utf-8")
 

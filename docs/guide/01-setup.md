@@ -54,7 +54,7 @@ Run:
 
 You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default later, delete that role's line, or just run `/setup-agystack` again.
 
-You might be wondering what happens if you use Auto. Set a role to `inherit-parent` or `auto` and agystack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for every `/swarm` worker unless a race names a model for each arm.
+You might be wondering what happens if you use Auto. Set a role to `inherit-parent` or `auto` and agystack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for every `/cloud-swarm` or local fan-out worker unless a race names a model for each arm.
 
 ## Accept the verification offer, or don't
 

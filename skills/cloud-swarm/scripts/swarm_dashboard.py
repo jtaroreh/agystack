@@ -17,20 +17,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-try:
-    from transcript_projector import (
-        format_conversation_url,
-        is_telemetry_line,
-        parse_telemetry_line,
-        resolve_app_data_dir,
-    )
-except ImportError:
-    from skills.swarm.scripts.transcript_projector import (
-        format_conversation_url,
-        is_telemetry_line,
-        parse_telemetry_line,
-        resolve_app_data_dir,
-    )
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from transcript_projector import (
+    format_conversation_url,
+    is_telemetry_line,
+    parse_telemetry_line,
+    resolve_app_data_dir,
+)
 
 STATUS_BADGES: Dict[str, str] = {
     "QUEUED": "⏳ Queued",
