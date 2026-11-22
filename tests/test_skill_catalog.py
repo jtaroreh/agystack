@@ -46,8 +46,8 @@ def test_readme_indexes_all_principles():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     for skill_file in get_principle_skills():
         slug = skill_file.parent.name.replace("principle-", "")
-        assert (f"./skills/{skill_file.parent.name}/SKILL.md" in readme or 
-                f"skills/{skill_file.parent.name}" in readme or 
+        assert (f"./skills/{skill_file.parent.name}/SKILL.md" in readme or
+                f"skills/{skill_file.parent.name}" in readme or
                 slug in readme), f"README.md missing reference to {skill_file.parent.name}"
 
 
@@ -55,8 +55,8 @@ def test_guide_indexes_all_principles():
     guide_principles = (REPO_ROOT / "docs" / "guide" / "08-principles.md").read_text(encoding="utf-8")
     for skill_file in get_principle_skills():
         slug = skill_file.parent.name.replace("principle-", "")
-        assert (skill_file.parent.name in guide_principles or 
-                f"skills/{skill_file.parent.name}" in guide_principles or 
+        assert (skill_file.parent.name in guide_principles or
+                f"skills/{skill_file.parent.name}" in guide_principles or
                 slug in guide_principles), f"08-principles.md missing reference to {skill_file.parent.name}"
 
 
@@ -73,7 +73,9 @@ def test_all_skills_match_directory():
         frontmatter = parts[1]
 
         name_match = re.search(r"^name:\s*(.+)$", frontmatter, re.MULTILINE)
+        desc_match = re.search(r"^description:\s*(.+)$", frontmatter, re.MULTILINE)
         assert name_match, f"{skill_file} missing 'name:' in frontmatter"
+        assert desc_match, f"{skill_file} missing 'description:' in frontmatter"
 
         dir_name = skill_file.parent.name
         skill_name = name_match.group(1).strip().strip("'\"")

@@ -273,8 +273,8 @@ class _LocalBlob:
             flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
             try:
                 fd = os.open(str(self.path), flags, 0o666)
-            except FileExistsError:
-                raise FileExistsError(f"Target object already exists: {self.path}")
+            except FileExistsError as err:
+                raise FileExistsError(f"Target object already exists: {self.path}") from err
             with open(fd, "w", encoding="utf-8") as f:
                 f.write(data)
         else:
@@ -354,7 +354,7 @@ class StorageMessenger:
             try:
                 from google.cloud import storage
                 self.client = storage.Client()
-            except Exception:
+            except Exception as err:
                 token = None
                 try:
                     import storage_uploader
@@ -365,7 +365,7 @@ class StorageMessenger:
                     self.client = _GcsRestClient(token)
                 else:
                     if bool(os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN_TASK_INDEX")):
-                        raise RuntimeError("GCS credentials unavailable in Cloud Run environment; cannot use local fallback")
+                        raise RuntimeError("GCS credentials unavailable in Cloud Run environment; cannot use local fallback") from err
                     import tempfile
                     self.client = _LocalClient(Path(tempfile.gettempdir()) / "agystack_storage")
 
@@ -610,16 +610,16 @@ class StorageMessenger:
             obj_path = self._inbox_steer_path(task_index, steer_seq)
             blob = self.bucket.blob(obj_path)
 
-            def _upload_blob():
+            def _upload_blob(target_blob=blob, target_envelope=envelope):
                 try:
-                    blob.upload_from_string(
-                        envelope.to_json(),
+                    target_blob.upload_from_string(
+                        target_envelope.to_json(),
                         content_type="application/json",
                         if_generation_match=0,
                     )
                 except TypeError:
-                    blob.upload_from_string(
-                        envelope.to_json(),
+                    target_blob.upload_from_string(
+                        target_envelope.to_json(),
                         content_type="application/json",
                     )
 

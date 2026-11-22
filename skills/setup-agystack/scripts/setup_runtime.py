@@ -26,7 +26,7 @@ def check_gcloud():
     res = run_cmd(["gcloud", "--version"], check=False)
     if res.returncode != 0:
         return {"installed": False, "account": None}
-    
+
     res = run_cmd(["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"], check=False)
     account = res.stdout.strip()
     return {"installed": True, "account": account if account else None}
@@ -718,7 +718,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
         f"--location={region}",
         f"--project={project_id}"
     ], check=False)
-    
+
     if res.returncode != 0:
         run_cmd([
             "gcloud", "artifacts", "repositories", "create", "agystack",
@@ -726,7 +726,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
             f"--location={region}",
             f"--project={project_id}"
         ])
-    
+
     staged_dirs = []
     scripts_path = Path(scripts_dir).resolve()
     repo_root = scripts_path.parents[2] if len(scripts_path.parents) >= 3 else scripts_path
@@ -748,7 +748,7 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
             if src.is_dir():
                 dst_resolved = dst.resolve()
 
-                def _ignore_copy(directory, contents):
+                def _ignore_copy(directory, contents, dst_resolved=dst_resolved):
                     dir_p = Path(directory).resolve()
                     ignored = set()
                     for item in contents:
@@ -777,14 +777,14 @@ def build_and_deploy_worker(project_id, region, image_tag, scripts_dir, job_name
                 shutil.rmtree(staged, ignore_errors=True)
             except Exception:
                 pass
-    
+
     print("Creating/Updating Cloud Run Job...")
     res = run_cmd([
         "gcloud", "run", "jobs", "describe", job_name,
         f"--region={region}",
         f"--project={project_id}"
     ], check=False)
-    
+
     action = "update" if res.returncode == 0 else "create"
     cmd = [
         "gcloud", "run", "jobs", action, job_name,
@@ -819,11 +819,11 @@ def write_runtime_config(project_id, region, job_name, image_tag, auth_mode="ver
         config["service_account"] = service_account
     if secrets:
         config["secrets"] = secrets
-    
+
     paths = target_paths or [
         Path.home() / ".gemini" / "config" / "plugins" / "agystack" / "agystack-runtime.json"
     ]
-    
+
     for p in paths:
         p = Path(p)
         try:
@@ -865,7 +865,7 @@ def run_provisioning(
     enable_apis(project_id)
     ensure_gcs_bucket(bucket_name, project_id, region)
     sa_email = configure_iam_permissions(project_id, service_account)
-    
+
     configured_secrets = dict(secrets) if isinstance(secrets, dict) else {}
     if gh_token or secret_name:
         sec_name = secret_name or "agystack-gh-token"
@@ -907,9 +907,9 @@ def main():
     parser.add_argument("--bucket", type=str, help="GCS bucket name for swarm results")
     parser.add_argument("--service-account", type=str, help="Cloud Run compute service account")
     parser.add_argument("--check-model-garden", action="store_true", help="Check Vertex AI Model Garden partner model availability and permissions")
-    
+
     args = parser.parse_args()
-    
+
     if args.check_model_garden:
         proj = args.project or get_active_project()
         status = check_model_garden(project_id=proj, region=args.region)
@@ -926,24 +926,24 @@ def main():
         status["active_project"] = get_active_project()
         print(json.dumps(status, indent=2))
         return
-        
+
     if args.list_projects:
         projects = list_projects()
         print(json.dumps(projects, indent=2))
         return
-        
+
     project_id = args.project
     if args.create_project:
         create_project(args.create_project)
         project_id = args.create_project
-    
+
     if args.auto_provision:
         if not project_id:
             project_id = get_active_project()
             if not project_id:
                 print("Error: No project specified and no active project found. Use --project or --create-project.")
                 sys.exit(1)
-                
+
         run_provisioning(
             project_id=project_id,
             region=args.region,

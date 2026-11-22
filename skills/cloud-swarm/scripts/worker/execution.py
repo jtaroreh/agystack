@@ -149,7 +149,7 @@ def run_bounded_shell(command, repo_dir, timeout_s, *, label="command"):
 
     readers = [
         threading.Thread(target=drain, args=(stream, buffer), daemon=True)
-        for stream, buffer in zip((process.stdout, process.stderr), buffers)
+        for stream, buffer in zip((process.stdout, process.stderr), buffers, strict=True)
     ]
     for reader in readers:
         reader.start()

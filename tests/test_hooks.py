@@ -93,11 +93,12 @@ class TestPostToolLintHook(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(json.loads(result.stdout.strip()), {})
 
-            if shutil.which("ruff"):
-                formatted_content = temp_py.read_text(encoding="utf-8")
-                self.assertNotEqual(formatted_content, "x=1;y=2\n")
-                self.assertIn("x = 1", formatted_content)
-                self.assertIn("y = 2", formatted_content)
+            if not shutil.which("ruff"):
+                self.skipTest("ruff not installed")
+            formatted_content = temp_py.read_text(encoding="utf-8")
+            self.assertNotEqual(formatted_content, "x=1;y=2\n")
+            self.assertIn("x = 1", formatted_content)
+            self.assertIn("y = 2", formatted_content)
 
     def test_replace_file_content_never_formats(self):
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp_dir:
@@ -170,8 +171,9 @@ class TestPostToolLintHook(unittest.TestCase):
                 }
                 result = run_hook(json.dumps(payload))
                 self.assertEqual(result.returncode, 0)
-                if shutil.which("ruff"):
-                    self.assertIn("a = 10", temp_py.read_text(encoding="utf-8"))
+                if not shutil.which("ruff"):
+                    self.skipTest("ruff not installed")
+                self.assertIn("a = 10", temp_py.read_text(encoding="utf-8"))
 
 
 class TestPreToolSafetyHook(unittest.TestCase):

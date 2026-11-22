@@ -5,37 +5,54 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build-and-release:
+    needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - name: Install dependencies
+      - name: Verify release tag matches manifest versions
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          tag_version="${GITHUB_REF_NAME#v}"
+          python3 - "$tag_version" <<'PY'
+          import json
+          import sys
+          import tomllib
+          from pathlib import Path
 
-      - name: Validate manifest and run test suite
-        run: |
-          pytest -v tests/test_plugin_manifest.py
-          pytest -v tests/test_skill_catalog.py
+          tag_version = sys.argv[1]
+          plugin_version = json.loads(Path("plugin.json").read_text(encoding="utf-8"))["version"]
+          pyproject_version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          marketplace_version = json.loads(Path("docs/marketplace-submission.json").read_text(encoding="utf-8"))["version"]
+
+          versions = {
+              "tag": tag_version,
+              "plugin.json": plugin_version,
+              "pyproject.toml": pyproject_version,
+              "docs/marketplace-submission.json": marketplace_version,
+          }
+          if len(set(versions.values())) != 1:
+              raise SystemExit(f"Release version mismatch: {versions}")
+          print(f"Verified release version parity: {tag_version}")
+          PY
 
       - name: Package plugin distribution archive
         run: |
           bash scripts/package-plugin.sh
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: dist/*.zip
           generate_release_notes: true

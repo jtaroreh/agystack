@@ -39,8 +39,8 @@ def validate_task_target(
             return "all"
         try:
             task_idx = int(cleaned)
-        except ValueError:
-            raise ValueError(f"Invalid task target '{task}': must be an integer index or 'all'")
+        except ValueError as err:
+            raise ValueError(f"Invalid task target '{task}': must be an integer index or 'all'") from err
     elif isinstance(task, int):
         task_idx = task
     else:
