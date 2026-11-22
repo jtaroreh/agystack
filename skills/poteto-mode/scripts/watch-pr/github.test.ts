@@ -1,14 +1,20 @@
 import { describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ChecksUnavailable,
-  GhGitHubReader,
   WatcherQueryError,
+  buildReviewThreads,
   mapRollupNode,
   orderStack,
+  parseFastCheck,
   parsePullRequest,
-  parseReviewThreads,
+  parseReviewThreadPage,
   resolveChecks,
   resolveContext,
+  resolveReviewThreads,
 } from "./github.ts";
 import {
   fakeReader,
@@ -120,6 +126,37 @@ describe("rollup node mapping", () => {
     ).toMatchObject({ kind: "code-review-gate" });
   });
 
+  it("classifies a Code Review Gate waiting on an owner approval as the gate", () => {
+    expect(
+      mapRollupNode({
+        __typename: "CheckRun",
+        name: "Code Review Gate",
+        status: "COMPLETED",
+        conclusion: "ACTION_REQUIRED",
+        description: "1 of 2 policies",
+      })
+    ).toMatchObject({
+      kind: "code-review-gate",
+      reportedState: "ACTION_REQUIRED",
+    });
+  });
+
+  it("classifies a fast-path Code Review Gate waiting on an owner approval as the gate", () => {
+    expect(
+      parseFastCheck({
+        name: "Code Review Gate",
+        state: "ACTION_REQUIRED",
+        bucket: "fail",
+      })
+    ).toMatchObject({
+      kind: "code-review-gate",
+      reportedState: "ACTION_REQUIRED",
+    });
+    expect(
+      parseFastCheck({ name: "ci", state: "ACTION_REQUIRED", bucket: "fail" })
+    ).toMatchObject({ kind: "failed", reportedState: "ACTION_REQUIRED" });
+  });
+
   it("maps StatusContext states and drops unknown typenames", () => {
     expect(
       mapRollupNode({
@@ -199,6 +236,7 @@ it("annotates Bugbot threads with distinct review-pass counts", () => {
       repository: {
         pullRequest: {
           reviewThreads: {
+            pageInfo: { hasNextPage: false, endCursor: null },
             nodes: [
               {
                 id: "one",
@@ -251,10 +289,105 @@ it("annotates Bugbot threads with distinct review-pass counts", () => {
       },
     },
   };
-  const threads = parseReviewThreads(response);
+  const threads = buildReviewThreads(parseReviewThreadPage(response).threads);
   expect(threads).toHaveLength(2);
   expect(threads.map((thread) => thread.isBugbot)).toEqual([true, true]);
   expect(threads.map((thread) => thread.bugbotReviewPasses)).toEqual([3, 3]);
+});
+
+describe("review thread pagination", () => {
+  const thread = (id: string, resolved = false) => ({
+    id,
+    firstComment: {
+      authorLogin: "someone",
+      body: "please fix",
+      path: "a.ts",
+      line: 1,
+      createdAt: "now",
+    },
+    resolved,
+  });
+
+  it("keeps walking pages until the cursor is exhausted", async () => {
+    const reader = fakeReader({
+      threadPages: [
+        { threads: [thread("one")], endCursor: "next" },
+        { threads: [thread("two")], endCursor: "last" },
+        { threads: [thread("three")], endCursor: null },
+      ],
+    });
+    const threads = await resolveReviewThreads(reader, context);
+    expect(threads.map((item) => item.id)).toEqual(["one", "two", "three"]);
+    expect(reader.calls).toEqual([
+      "reviewThreadPage:null",
+      "reviewThreadPage:next",
+      "reviewThreadPage:last",
+    ]);
+  });
+
+  it("sees an unresolved thread that sits past the first page", async () => {
+    const reader = fakeReader({
+      threadPages: [
+        { threads: [thread("early", true)], endCursor: "next" },
+        { threads: [thread("late")], endCursor: null },
+      ],
+    });
+    const threads = await resolveReviewThreads(reader, context);
+    expect(threads.map((item) => item.id)).toEqual(["late"]);
+  });
+
+  it("stops after a single page when the cursor is exhausted", async () => {
+    const reader = fakeReader({
+      threadPages: [{ threads: [thread("only")], endCursor: null }],
+    });
+    expect((await resolveReviewThreads(reader, context)).length).toBe(1);
+    expect(reader.calls).toEqual(["reviewThreadPage:null"]);
+  });
+
+  it("counts Bugbot review passes across every page", async () => {
+    const bugbot = (id: string, runId: string) => ({
+      id,
+      firstComment: {
+        authorLogin: "bugbot",
+        body: `RUN_ID: ${runId}`,
+        path: "a.ts",
+        line: 1,
+        createdAt: "now",
+      },
+      resolved: false,
+    });
+    const reader = fakeReader({
+      threadPages: [
+        { threads: [bugbot("one", "run-1")], endCursor: "next" },
+        { threads: [bugbot("two", "run-2")], endCursor: null },
+      ],
+    });
+    const threads = await resolveReviewThreads(reader, context);
+    expect(threads.map((item) => item.bugbotReviewPasses)).toEqual([2, 2]);
+  });
+
+  it("drops resolved threads from later pages too", async () => {
+    const reader = fakeReader({
+      threadPages: [
+        { threads: [thread("one")], endCursor: "next" },
+        { threads: [thread("two", true)], endCursor: null },
+      ],
+    });
+    expect(
+      (await resolveReviewThreads(reader, context)).map((item) => item.id)
+    ).toEqual(["one"]);
+  });
+
+  it("rejects a page that omits pageInfo instead of assuming one page", async () => {
+    const response = {
+      data: {
+        repository: {
+          pullRequest: { reviewThreads: { nodes: [] } },
+        },
+      },
+    };
+    expect(() => parseReviewThreadPage(response)).toThrow(WatcherQueryError);
+  });
 });
 
 describe("context and stack discovery", () => {
@@ -289,124 +422,77 @@ describe("context and stack discovery", () => {
       {
         number: parsePrNumber(41),
         headRefName: "base-feature",
+        isCrossRepository: false,
         baseRefName: "main",
       },
       {
         number: context.number,
         headRefName: "feature",
+        isCrossRepository: false,
         baseRefName: "base-feature",
       },
       {
         number: parsePrNumber(43),
         headRefName: "upstack",
+        isCrossRepository: false,
         baseRefName: "feature",
       },
     ]);
     expect(ordered.map((item) => Number(item.number))).toEqual([41, 42, 43]);
   });
-});
 
-describe("review thread pagination", () => {
-  it("paginates GraphQL reviewThreads across pages and resolves over 100 threads", async () => {
-    const page1Nodes = Array.from({ length: 70 }, (_, i) => ({
-      id: `thread-${i}`,
-      isResolved: false,
-      comments: {
-        nodes: [
-          {
-            body: `thread body ${i}`,
-            createdAt: "2026-10-21T00:00:00Z",
-            path: `file-${i}.ts`,
-            line: i + 1,
-            author: { login: `author-${i}` },
-          },
-        ],
-      },
-    }));
-
-    const page2Nodes = Array.from({ length: 50 }, (_, i) => ({
-      id: `thread-${70 + i}`,
-      isResolved: false,
-      comments: {
-        nodes: [
-          {
-            body: `thread body ${70 + i}`,
-            createdAt: "2026-10-21T00:00:00Z",
-            path: `file-${70 + i}.ts`,
-            line: i + 1,
-            author: { login: `author-${70 + i}` },
-          },
-        ],
-      },
-    }));
-
-    const capturedCalls: string[][] = [];
-    const reader = new GhGitHubReader(async (argv) => {
-      capturedCalls.push([...argv]);
-      const afterArg = argv.find((arg) => arg.startsWith("after="));
-      if (!afterArg) {
-        return {
-          data: {
-            repository: {
-              pullRequest: {
-                reviewThreads: {
-                  pageInfo: {
-                    hasNextPage: true,
-                    endCursor: "cursor-page-1",
-                  },
-                  nodes: page1Nodes,
-                },
-              },
-            },
-          },
-        };
-      }
-      expect(afterArg).toBe("after=cursor-page-1");
-      return {
-        data: {
-          repository: {
-            pullRequest: {
-              reviewThreads: {
-                pageInfo: {
-                  hasNextPage: false,
-                  endCursor: null,
-                },
-                nodes: page2Nodes,
-              },
-            },
-          },
-        },
-      };
-    });
-
-    const threads = await reader.reviewThreads(context);
-    expect(threads).toHaveLength(120);
-    expect(capturedCalls).toHaveLength(2);
-    expect(threads[0].id).toBe("thread-0");
-    expect(threads[119].id).toBe("thread-119");
+  it("does not use a fork's same-named head as a stack parent", () => {
+    const ordered = orderStack(context, [
+      { number: parsePrNumber(41), headRefName: "base-feature", baseRefName: "main", isCrossRepository: true },
+      { number: context.number, headRefName: "feature", baseRefName: "base-feature", isCrossRepository: false },
+    ]);
+    expect(ordered.map((item) => Number(item.number))).toEqual([42]);
   });
 
-  it("handles nodes array directly in parseReviewThreads", () => {
-    const nodes = [
-      {
-        id: "direct-node-1",
-        isResolved: false,
-        comments: {
-          nodes: [
-            {
-              body: "comment 1",
-              createdAt: "now",
-              path: "test.ts",
-              line: 1,
-              author: { login: "alice" },
-            },
-          ],
-        },
-      },
-    ];
-    const threads = parseReviewThreads(nodes);
-    expect(threads).toHaveLength(1);
-    expect(threads[0].id).toBe("direct-node-1");
+  it("does not attach upstream branch children to a fork head", () => {
+    const ordered = orderStack(context, [
+      { number: context.number, headRefName: "feature", baseRefName: "main", isCrossRepository: true },
+      { number: parsePrNumber(43), headRefName: "upstack", baseRefName: "feature", isCrossRepository: false },
+    ]);
+    expect(ordered.map((item) => Number(item.number))).toEqual([42]);
+  });
+
+  it("terminates when an unrelated fork opens main against main", () => {
+    const program = `import { orderStack } from ${JSON.stringify(import.meta.dir + "/github.ts")};
+      console.log(JSON.stringify(orderStack(${JSON.stringify(context)}, [
+        { number: 41, headRefName: "main", baseRefName: "main", isCrossRepository: true },
+        { number: 42, headRefName: "feature", baseRefName: "main", isCrossRepository: false }
+      ])));`;
+    const child = spawnSync(process.execPath, ["-e", program], { encoding: "utf8", timeout: 2000 });
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(0);
+    expect(JSON.parse(child.stdout).map((item: { number: number }) => item.number)).toEqual([42]);
+  });
+
+  it("requests and parses fork identity from gh before stack discovery", () => {
+    const directory = mkdtempSync(join(tmpdir(), "watch-pr-fork-"));
+    try {
+      writeFileSync(join(directory, "gh"), `#!/bin/sh
+case "$*" in
+  *number,headRefName,baseRefName,isCrossRepository*) ;;
+  *) exit 2 ;;
+esac
+printf '%s\\n' '[{"number":42,"headRefName":"feature","baseRefName":"main","isCrossRepository":true}]'
+`, { mode: 0o755 });
+      const program = `import { GhGitHubReader } from ${JSON.stringify(import.meta.dir + "/github.ts")};
+        console.log(JSON.stringify(await new GhGitHubReader().openPullRequests({ owner: "owner", repo: "repo" })));`;
+      const child = spawnSync(process.execPath, ["-e", program], {
+        encoding: "utf8", timeout: 2000,
+        env: { ...process.env, PATH: directory + ":" + process.env.PATH },
+      });
+      expect(child.error).toBeUndefined();
+      expect(child.status).toBe(0);
+      expect(JSON.parse(child.stdout)).toEqual([
+        { number: 42, headRefName: "feature", baseRefName: "main", isCrossRepository: true },
+      ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
