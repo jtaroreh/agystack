@@ -84,7 +84,7 @@ two steps:
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
 
-that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by model tier: fast mechanical code and exploration runs on `flash`, while judgment, complex tasks, and deep code run on `pro`. the default review panel is `pro` / `flash` / `inherit`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
+that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by model tier: exploration, investigators, and swarm workers run on `flash`, while implementation, judgment, and synthesis roles use `inherit` (your active chat model). the default review and runner panel is `inherit` / `flash` / `pro`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
 
 ## usage
 
@@ -92,7 +92,7 @@ use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/potet
 
 ### just use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/poteto-mode/SKILL.md)
 
-this skill is the main shortcut. i use it whenever i need the agent to do rigorous engineering work. it comes with twenty-three playbooks:
+this skill is the main shortcut. i use it whenever i need the agent to do rigorous engineering work. it comes with 23 playbooks:
 
 ```
 /poteto-mode this pr has a subtle bug where the scroll drifts every 750ms even when idle. repro
@@ -105,7 +105,7 @@ morning.
 ```
 
 <details>
-<summary>the twenty-three playbooks</summary>
+<summary>the 23 playbooks</summary>
 
 | playbook | for |
 |---|---|
@@ -206,13 +206,14 @@ Or trigger `/cloud-swarm` right in chat:
 | [`/why`](./skills/why/SKILL.md) | you want to know why something was built this way. discovers available MCPs at run time and queries each evidence category in parallel (source control, issue tracker, long-form docs, real-time chat, infra observability, error tracking, analytics warehouse). |
 | [`/recall`](./skills/recall/SKILL.md) | you're starting or resuming work and want your recent context on a topic rebuilt from your own chat history and the shared record, handed back as a tight current-state brief. |
 | [`/blast-radius`](./skills/blast-radius/SKILL.md) | you have a small-looking change and want to know what else it could break, with the one fact it's safe because of proven by running code, not asserted. |
-| `/grill-me` | your requirements are underspecified or ambiguous and you want Socratic pressure testing before kicking off architecture or autonomous execution ([guide](./docs/guide/04-design.md#flesh-out-ambiguous-requirements-with-grill-me)). |
+| [`/in-your-own-words`](./skills/in-your-own-words/SKILL.md) | you want the agent to restate goal, problem, scope, and plan before proposing or writing code. |
 | [`/architect`](./skills/architect/SKILL.md) | you're about to write code that crosses a function boundary and want the caller's usage, types, and module shape settled first. |
 | [`/arena`](./skills/arena/SKILL.md) | you want N parallel attempts at the same thing, then to grab the best parts of each. |
 | [`/cloud-swarm`](./skills/cloud-swarm/SKILL.md) | you want N parallel workers across different slices or races in Cloud Run, then one aggregated report. |
 | [`/interrogate`](./skills/interrogate/SKILL.md) | you have a diff and want several different models to try to break it, including a strict code-quality lens. |
 | [`/automate-me`](./skills/automate-me/SKILL.md) | you want your own `-mode` skill, drafted from how you've actually worked. |
 | [`/deslop`](./skills/deslop/SKILL.md) | you want to clean defensive code, redundant guards, and AI bloat out of diffs before commit. |
+| [`/correct`](./skills/correct/SKILL.md) | an agent hit a recurring mistake and you want to harden the repo with architectural or test checks before adding prompt text. |
 | [`/setup-agystack`](./skills/setup-agystack/SKILL.md) | you want to pick which models agystack uses per role. detects your models and writes a config rule. |
 | [`/reflect`](./skills/reflect/SKILL.md) | a long task landed and you want the recipe captured as a skill edit. |
 | [`/teach`](./skills/teach/SKILL.md) | you want to actually understand a change or subsystem, not just have it summarized. runs how + why and weaves one plain explanation, built up diagram by diagram. |
@@ -220,13 +221,18 @@ Or trigger `/cloud-swarm` right in chat:
 | [`/no-comments`](./skills/no-comments/SKILL.md) | strip comments before review; spawns Comment Sicko, fixes accepted findings, offers encodings for claimed constraints. |
 | [`/typescript-best-practices`](./skills/typescript-best-practices/SKILL.md) | you're reading or editing typescript. grounds the type-system-discipline principle in syntax. |
 | [`/figure-it-out`](./skills/figure-it-out/SKILL.md) | no bundled playbook fits. designs a rigorous, auditable playbook for the task. |
+| [`/loop`](./skills/loop/SKILL.md) | you want iterative edits run against a concrete `--verify` command with reactive `schedule` wakeups until green. |
 | [`/show-me-your-work`](./skills/show-me-your-work/SKILL.md) | you want a reviewable decision trail. logs decisions to a tsv you can commit. |
+| [`/ketchup`](./skills/ketchup/SKILL.md) | you want a status brief under 100 words on an autonomous run or background task, with artifact links and selectable picks. |
 | [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) | your project has no scripted way to prove app behavior. generates a project-local verify skill with a feature map, for any language or platform. |
+| [`/create-formal-verification-skill`](./skills/create-formal-verification-skill/SKILL.md) | you need formal model checking (TLA+, Alloy, Dafny) for high-consequence concurrency, consensus, complex state machines, or critical parsers. |
 | [`/maintain-verification-skill`](./skills/maintain-verification-skill/SKILL.md) | your verify skill's feature map has drifted from the app. source wave + one live pass, at most one PR of proven corrections. |
+| [`/benchmark-checklist`](./skills/benchmark-checklist/SKILL.md) | you are reporting performance numbers or speedups and want to check them against the Seven Performance Verification Questions first. |
 | [`/unslop`](./skills/unslop/SKILL.md) | you're cleaning up writing. removes AI tells. |
 | [`/bro`](./skills/bro/SKILL.md) | you want the last message restated in plain human language, no jargon. |
 | [`/technical-writing`](./skills/technical-writing/SKILL.md) | layered doc standard (Diátaxis + Google developer style + STE + Global English) for docs, RFCs, readmes, PR descriptions, commit messages. |
 | [`/statechart`](./skills/statechart/SKILL.md) | you want to model system states, transitions, invariants, and failure modes as native Mermaid diagrams. |
+| [`/sharpen`](./skills/sharpen/SKILL.md) | you want a deeper version of a prompt rebuilt around raw inputs, expert methods, and external checks. |
 
 </details>
 
@@ -260,7 +266,6 @@ figure it out:     /poteto-mode i'm stepping away. migrate every caller from the
                    right when i'm back.
 how:               /how do we cancel runs? do we have an n+1 when we look up every run to cancel?
 why:               /why is this feature flag not on yet?
-grill-me:          my idea is rough. probe my assumptions and grill me before we design anything.
 architect:         design this instrumentation to be high signal with no false positives. /architect
                    this first.
 arena:             /arena take my prompt to the arena verbatim. i want to compare their proposals
@@ -288,10 +293,10 @@ agystack also ships [comment-sicko](./agents/comment-sicko.md), a read-only comm
 
 ## principles
 
-twenty-three short skills, one principle each. `poteto-mode` indexes them inline and reads that index at task start. the standalone files are there so other skills can reference a principle by name, and so the index can point at the full rule for each.
+twenty-four short skills, one principle each. `poteto-mode` indexes them inline and reads that index at task start. the standalone files are there so other skills can reference a principle by name, and so the index can point at the full rule for each.
 
 <details>
-<summary>all twenty-three principles</summary>
+<summary>all twenty-four principles</summary>
 
 | principle | group | rule |
 |---|---|---|
