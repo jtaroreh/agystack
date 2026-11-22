@@ -1626,7 +1626,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
     session_id = args.session_id or f"swarm-{int(time.time())}"
     env_vars["SWARM_SESSION_ID"] = session_id
     env_vars["SESSION_ID"] = session_id
-    for name, env_key in LIMIT_ENV.items():
+    for _name, env_key in LIMIT_ENV.items():
         if env_key in os.environ:
             env_vars[env_key] = os.environ[env_key]
     if args.orchestrator_timeout:
@@ -1830,7 +1830,7 @@ Tier 3: Dedicated GPU Cluster Endpoints (Self-Hosted, Not Serverless)
                 log_read_args.extend(["--project", project])
                 log_cmd_str += f" --project={project}"
 
-            for attempt in range(2):
+            for _attempt in range(2):
                 try:
                     log_res = subprocess.run(
                         log_read_args,

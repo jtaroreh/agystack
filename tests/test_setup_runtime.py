@@ -143,14 +143,15 @@ class TestSetupRuntimeDoctor(unittest.TestCase):
             "gcloud": {"installed": False, "version": None, "ok": False, "error": "not found", "required": False},
         }
 
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 0)
-                output = json.loads(mock_out.getvalue().strip())
-                self.assertTrue(output["bun"]["ok"])
-                self.assertTrue(output["gh"]["ok"])
+        with isolated_home():
+            with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    with self.assertRaises(SystemExit) as cm:
+                        setup_runtime.main()
+                    self.assertEqual(cm.exception.code, 0)
+                    output = json.loads(mock_out.getvalue().strip())
+                    self.assertTrue(output["bun"]["ok"])
+                    self.assertTrue(output["gh"]["ok"])
 
     @patch("setup_runtime.check_dependencies")
     def test_doctor_main_exit_failure_missing_gh(self, mock_check_deps):
@@ -161,11 +162,12 @@ class TestSetupRuntimeDoctor(unittest.TestCase):
             "gcloud": {"installed": True, "version": "583.0.0", "ok": True, "error": None, "required": False},
         }
 
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO):
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 1)
+        with isolated_home():
+            with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    with self.assertRaises(SystemExit) as cm:
+                        setup_runtime.main()
+                    self.assertEqual(cm.exception.code, 1)
 
     @patch("setup_runtime.check_dependencies")
     def test_doctor_main_exit_failure_bun_sub_v1(self, mock_check_deps):
@@ -174,11 +176,12 @@ class TestSetupRuntimeDoctor(unittest.TestCase):
             "gh": {"installed": True, "version": "2.97.0", "ok": True, "error": None, "required": True},
         }
 
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO):
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 1)
+        with isolated_home():
+            with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    with self.assertRaises(SystemExit) as cm:
+                        setup_runtime.main()
+                    self.assertEqual(cm.exception.code, 1)
 
     @patch("setup_runtime.check_dependencies")
     def test_doctor_main_evaluates_all_required_metadata(self, mock_check_deps):
@@ -188,23 +191,24 @@ class TestSetupRuntimeDoctor(unittest.TestCase):
             "gt": {"installed": False, "version": None, "ok": False, "error": "not found", "required": False},
             "gcloud": {"installed": False, "version": None, "ok": False, "error": "not found", "required": False},
         }
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO):
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 0)
+        with isolated_home():
+            with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    with self.assertRaises(SystemExit) as cm:
+                        setup_runtime.main()
+                    self.assertEqual(cm.exception.code, 0)
 
-        mock_check_deps.return_value = {
-            "bun": {"installed": True, "version": "1.3.14", "ok": True, "error": None, "required": True},
-            "gh": {"installed": False, "version": None, "ok": False, "error": "gh not found", "required": True},
-            "gt": {"installed": True, "version": "0.21.0", "ok": True, "error": None, "required": False},
-            "gcloud": {"installed": True, "version": "583.0.0", "ok": True, "error": None, "required": False},
-        }
-        with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
-            with patch("sys.stdout", new_callable=io.StringIO):
-                with self.assertRaises(SystemExit) as cm:
-                    setup_runtime.main()
-                self.assertEqual(cm.exception.code, 1)
+            mock_check_deps.return_value = {
+                "bun": {"installed": True, "version": "1.3.14", "ok": True, "error": None, "required": True},
+                "gh": {"installed": False, "version": None, "ok": False, "error": "gh not found", "required": True},
+                "gt": {"installed": True, "version": "0.21.0", "ok": True, "error": None, "required": False},
+                "gcloud": {"installed": True, "version": "583.0.0", "ok": True, "error": None, "required": False},
+            }
+            with patch("sys.argv", ["setup_runtime.py", "--doctor"]):
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    with self.assertRaises(SystemExit) as cm:
+                        setup_runtime.main()
+                    self.assertEqual(cm.exception.code, 1)
 
 
 class TestSetupRuntimeProvisioning(unittest.TestCase):

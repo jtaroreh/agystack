@@ -518,7 +518,7 @@ def execute_claude_model_agent(
         last_tool = ""
         last_text = ""
 
-        for turn in range(max_turns):
+        for _turn in range(max_turns):
             last_text = ""
             consumed += 1
             response = client.messages.create(
@@ -828,7 +828,7 @@ def execute_deepseek_model_agent(
         last_tool = ""
         last_text = ""
 
-        for turn in range(max_turns):
+        for _turn in range(max_turns):
             if consumed >= max_turns:
                 return exhaustion_result(repo_dir, max_turns, consumed, last_tool, last_text)
             last_text = ""

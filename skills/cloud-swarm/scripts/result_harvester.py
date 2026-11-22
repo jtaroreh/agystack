@@ -47,7 +47,7 @@ def extract_pareto_frontier(
     for i, trial_a in enumerate(candidates):
         ma, sa = points[i]
         dominated = False
-        for j, trial_b in enumerate(candidates):
+        for j, _trial_b in enumerate(candidates):
             if i == j:
                 continue
             mb, sb = points[j]

@@ -37,7 +37,7 @@ def emit_tool_invocation(
 ) -> None:
     cw = sys.modules.get("cloud_worker")
     if cw and hasattr(cw, "emit_tool_invocation"):
-        return cw.emit_tool_invocation(task_index, tool_name, args, call_id=call_id, *extra_args, **kwargs)
+        return cw.emit_tool_invocation(task_index, tool_name, args, call_id, *extra_args, **kwargs)
 
 
 def emit_tool_result(
@@ -56,9 +56,9 @@ def emit_tool_result(
             task_index,
             tool_name,
             output,
-            success=success,
-            call_id=call_id,
-            duration_s=duration_s,
+            success,
+            call_id,
+            duration_s,
             *extra_args,
             **kwargs,
         )

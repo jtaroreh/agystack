@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -172,19 +173,20 @@ class TestSimulationScenarioWorkflow(unittest.TestCase):
         )
 
     def test_end_to_end_simulation_run(self):
-        result = run_simulation(
-            model="gemini-2.5-flash",
-            project="test-agystack-project",
-            gcs_bucket="test-swarm-results",
-            tasks=3,
-            skip_live_probe=True,
-            temp_base_dir=self.base_dir,
-        )
+        with contextlib.chdir(self.base_dir):
+            result = run_simulation(
+                model="gemini-2.5-flash",
+                project="test-agystack-project",
+                gcs_bucket="test-swarm-results",
+                tasks=3,
+                skip_live_probe=True,
+                temp_base_dir=self.base_dir,
+            )
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["tasks"], 3)
         self.assertEqual(len(result["harvested_scores"]), 3)
 
-        out_slices = Path(".slices/harvested_scores.json")
+        out_slices = self.base_dir / ".slices" / "harvested_scores.json"
         self.assertTrue(out_slices.is_file())
         with open(out_slices, "r", encoding="utf-8") as f:
             slices_data = json.load(f)
@@ -211,10 +213,11 @@ class TestSimulationScenarioWorkflow(unittest.TestCase):
             "--skip-live-probe",
             "--tasks", "3",
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(cmd, cwd=self.base_dir, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, f"CLI exited with {proc.returncode}:\n{proc.stderr}")
         self.assertIn("SWARM SIMULATION REPORT", proc.stdout)
         self.assertIn("[STATUS: PASS]", proc.stdout)
+        self.assertTrue((self.base_dir / ".slices" / "harvested_scores.json").is_file())
 
 
 if __name__ == "__main__":
