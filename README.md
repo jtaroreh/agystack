@@ -201,6 +201,7 @@ Or trigger `/cloud-swarm` right in chat:
 | skill | use it when |
 |---|---|
 | [`/agystack`](./skills/agystack/SKILL.md) | default entry point for any non-trivial task on Antigravity (twin of poteto-mode). |
+| [`/agystack-help`](./skills/agystack-help/SKILL.md) | you have a question about agystack setup, skills, playbooks, or prompts without starting edits yet. |
 | [`/poteto-mode`](./skills/poteto-mode/SKILL.md) | default entry point for any non-trivial task. |
 | [`/how`](./skills/how/SKILL.md) | you want a walkthrough of how a subsystem works. |
 | [`/why`](./skills/why/SKILL.md) | you want to know why something was built this way. discovers available MCPs at run time and queries each evidence category in parallel (source control, issue tracker, long-form docs, real-time chat, infra observability, error tracking, analytics warehouse). |
