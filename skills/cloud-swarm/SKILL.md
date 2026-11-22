@@ -25,6 +25,7 @@ Open a todolist with one entry per phase before launching anything.
 5. Execution routing:
    - For 8 or fewer workers (and unless `agystack-runtime.json` specifies `"runtime": "cloud-run"`), use local `invoke_subagent` fan-out (see `skills/poteto-mode/references/antigravity-tools.md`).
    - For more than 8 workers or when `agystack-runtime.json` specifies `"runtime": "cloud-run"`, use Cloud Run dispatch.
+6. **Exact SHAs and measurement method.** When workers verify or measure commits, name the exact SHAs in each brief. When a worker measures performance or counts, also name the method (sample count, what one sample is, and execution order). Require every worker to echo both in its result.
 
 ## Phase B: Fan out (Cloud Run Dispatch)
 
@@ -125,14 +126,17 @@ Before launching cloud swarms, match the model to the project's Model Garden ena
      - *Dashboard Reflection:* `SwarmDashboardWriter` captures steering dispatches to display `STEER_PENDING: <instruction>` under `Active Phase / Tool` and clears the pending status once `STEER_APPLIED` is acknowledged.
    - **Subprocess Timeout Guards:** Shell command execution and verification scripts are bounded by explicit environment timeouts (`COMMAND_TIMEOUT`, `VERIFY_TIMEOUT`), preventing hanging processes from stalling container lifecycle.
 
-Every brief stands alone. Include goal, scope, exact slice, verification command, and expected report format (`[STATUS: PASS]`, `[STATUS: ISSUES]`, or `[STATUS: BLOCKED]` with evidence).
+Every brief stands alone. Include goal, scope, exact slice or race arm, exact SHAs and measurement method when applicable, verification command, and expected report format (`[STATUS: PASS]`, `[STATUS: ISSUES]`, or `[STATUS: BLOCKED]` with evidence). A worker that can prove a defect reports `[STATUS: ISSUES]` and lists every issue it can prove, not only the first.
+
+If a worker drops out or fails to report, proceed with `N-1` and note the dropout explicitly.
 
 ## Phase C: Aggregate & Early Harvest
 
 1. `cloud_dispatch.py` automatically harvests candidate patches from GCS into `.slices/<session_id>/task-<i>/` and displays candidate patch file locations in the execution summary.
-2. Apply selection rule (first pass, rank all, best-of): rank candidates by score delta descending.
-3. **Candidate Integration Protocol:** Apply the winning `patch.diff` to a local worktree (`git apply .slices/<session_id>/task-<i>/patch.diff`), run local verification, and commit. If verified, re-baseline and evaluate subsequent candidates sequentially. Never merge or compose multiple candidate patches simultaneously without intermediate verification (`principle-sequence-verifiable-units`).
-4. Build a compact result table, one-line evidenced issues, and explicit dropouts.
+2. **SHA and measurement-method echo gate.** Inspect terminal results and drop any result that omits the exact SHAs or measurement method named in its brief. Respawn or re-dispatch that slice once. After a second miss, record a gap. A gap never counts as a pass. For coverage sweeps, every required slice needs a result.
+3. Apply the selection rule declared up front (`first pass`, `rank all`, or `best-of`): rank candidates by score delta descending. Do not paste raw worker dumps.
+4. **Candidate Integration Protocol:** Apply the winning `patch.diff` to a local worktree (`git apply .slices/<session_id>/task-<i>/patch.diff`), run local verification, and commit. If verified, re-baseline and evaluate subsequent candidates sequentially. Never merge or compose multiple candidate patches simultaneously without intermediate verification (`principle-sequence-verifiable-units`).
+5. Build a compact result table, one-line evidenced issues, and explicit gaps or `N-1` dropouts.
 
 ## Phase D: Report
 

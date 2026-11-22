@@ -4,7 +4,7 @@ Code examples for each rule in `SKILL.md`. The underlying principles are languag
 
 ## Branded types
 
-Brand primitives so they can't be mixed up. Validate once at creation; downstream code trusts the type.
+Brand primitives so they can't be mixed up. Validate once at the boundary, and create branded types only via verifying type guards (`input is AgentId`) instead of raw `as` casts. Downstream code trusts the type.
 
 ```ts
 type AgentId = string & { readonly __brand: "AgentId" };
@@ -131,33 +131,65 @@ function handle(input: unknown) {
 
 External sources include RPC payloads, `JSON.parse`, `postMessage`, IPC, file contents, environment variables, database results.
 
-## No `as` casts
+## Schemas before hand-rolled guards
 
-Every `as` is a potential runtime crash. Cast only after the type system has verified the claim.
+Before writing a property-by-property type guard for external data, look for the repository's existing runtime schema library and schemas. Let one schema own validation and derive the TypeScript type from it instead of keeping a schema, a duplicate interface, and a guard that can drift apart.
 
 ```ts
-// Don't
-const user = data as User;
+import { z } from "zod";
 
-// Do. Earn the cast at the boundary.
-function parseUser(data: unknown): User {
-  if (typeof data !== "object" || data === null) {
-    throw new Error("expected object");
-  }
-  if (!("id" in data) || typeof (data as Record<string, unknown>).id !== "string") {
-    throw new Error("expected id");
-  }
-  // ... validate all fields
-  return data as User; // OK, earned cast after full validation
+const UserSchema = z.object({
+  id: z.string().uuid(),
+  role: z.enum(["admin", "member"]),
+});
+
+type User = z.infer<typeof UserSchema>;
+
+function parseUser(input: unknown): User {
+  return UserSchema.parse(input);
 }
 ```
 
-When refactoring an `as` out of existing code, identify why TypeScript can't infer:
+Use `safeParse` when failure is an expected branch, or the equivalent inference helper when the repository uses another schema library, such as TypeBox, ArkType, or Valibot. Never add a new runtime schema dependency unprompted for one guard. Prefer the schema system the codebase already trusts.
+
+## No `as` casts
+
+Every `as` is a potential runtime crash. Narrow with schemas, verifying type guards, or `satisfies` instead.
+
+```ts
+import { z } from "zod";
+
+// Don't
+const user = data as User;
+
+// Don't. Half-checked guard that leaves fields unverified.
+function isUser(data: unknown): data is User {
+  return typeof data === "object" && data !== null && "id" in data;
+}
+
+// Do. Validate with the repo schema and infer the type.
+const userSchema = z.object({ id: z.string(), name: z.string() });
+type User = z.infer<typeof userSchema>;
+
+function parseUser(data: unknown): User {
+  return userSchema.parse(data);
+}
+```
+
+When the type comes first, annotate the validator with the type it proves so the compiler rejects a validator that proves less than the type:
+
+```ts
+type User = { id: string; name: string };
+
+const userSchema: z.ZodType<User> = z.object({ id: z.string(), name: z.string() });
+```
+
+When refactoring an `as` out of existing code, identify why TypeScript cannot infer:
 
 - Missing discriminant: add one, switch to a discriminated union.
 - Overly wide source type (e.g. `Record<string, unknown>`): narrow it.
-- Untyped boundary: add a parse function or schema.
-- Genuinely inexpressible: use a branded type or `satisfies`.
+- Untyped boundary: parse with the schema that owns the shape. Add a schema only where none exists.
+- Genuinely inexpressible: use a branded type guard or `satisfies`.
 
 ## Narrowing hierarchy
 
@@ -249,7 +281,7 @@ Validate once where data crosses in; trust types inside. See the **boundary-disc
 
 ## Schema-derived types
 
-When a `.proto`, OpenAPI spec, GraphQL schema, or database migration already defines a shape, derive from the generated types instead of duplicating them. Recommend an existing schema library (such as Zod, TypeBox, ArkType, or Valibot) only when the target project already uses one; never introduce a new runtime schema dependency unprompted.
+When a `.proto`, OpenAPI spec, GraphQL schema, or database migration already defines a shape, derive from the generated types instead of duplicating them.
 
 ```ts
 // Don't. Duplicate shape, drifts when the schema changes.
