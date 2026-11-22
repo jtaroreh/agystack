@@ -54,16 +54,16 @@ Do not leave the user to do the work. Complete the deployment end-to-end for the
 
 ### 2. Detect available models
 
-Enumerate the model tiers you can pass to `invoke_subagent` (local) and `cloud_dispatch.py` (Cloud Run):
+Enumerate the Gemini 4 models and `thought_level` effort tiers for `delegate_task`, `swarm`, and `cloud_dispatch.py` (never use legacy `flash` or `pro` tiers):
 
-**Local subagent tiers (`invoke_subagent`):**
-- `pro`: High-capability tier (maximum reasoning budget for complex code, architecture, and hard tasks)
-- `flash`: Balanced fast tier (fast execution for exploration and standard generation)
-- `flash_lite`: Lightweight tier (minimal latency for quick lookups)
-- `inherit` (or `auto`): Inherit parent chat model
+**Permitted Gemini 4 models & effort balancing (`thought_level`):**
+- **`gemini-4-neon` (Primary preference — `low`, `medium`, `high` [default], `xhigh`):** Balanced frontier reasoning & coding model. Use `xhigh` for hardest tasks, `bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`, and synthesis/cross-judging; use `high` for `feature, refactoring`, `how explainer`, and lead panel runners.
+- **`gemini-4-argon` (`low`, `medium`, `high` [default]):** Deep logic, multi-step math, and strict situational oversight. Use `high` for diverse panel perspectives (`arena`, `architect`, `interrogate`) and cross-judging.
+- **`gemini-4-hydrogen` (`low`, `medium` [default], `high`, `xhigh`):** High-speed, high-efficiency execution. Use `medium` for codebase exploration (`how explorer`, `why investigators`), high-volume `swarm workers`, and fast panel diversity.
+- **Native `invoke_subagent` fallback:** When a workflow uses Antigravity's `invoke_subagent` (whose `Model` enum only accepts `inherit` / `flash` / `pro` / `flash_lite`), always pass `Model: "inherit"` (never `flash` or `pro`), or dispatch via `delegate_task` / `swarm` to target the exact Gemini 4 model and `thought_level`.
 
 **Cloud Run swarm model tiers (`cloud_dispatch.py`):**
-- **Tier 1 (Zero-Friction MaaS):** `gemini-4-argon`, `gemini-3.8-flash`, `deepseek-v4.1-flash` (Instant on global Vertex endpoint, zero forms).
+- **Tier 1 (Zero-Friction MaaS):** `gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen` (Instant on global Vertex endpoint, zero forms).
 - **Tier 2 (Gated Partner MaaS):** `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-opus` (Requires one-time Console agreement).
 - **Tier 3 (Dedicated GPU Endpoint):** Open-weights models like `glm-5-3-flash` requiring dedicated 8x H100/B200 GPU instances.
 
@@ -83,29 +83,28 @@ Write to `.agents/plugins/agystack/agystack-models.md` if installed workspace-lo
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
-# Antigravity model tiers for invoke_subagent:
-# - pro        (High-capability tier: deep reasoning, large refactors, complex design)
-# - flash      (Balanced fast tier: exploration, reading, standard code generation)
-# - flash_lite (Lightweight tier: fast mechanical lookups)
-# - inherit    (Runs on the active parent chat session model)
+# Only Gemini 4 models are permitted (never use legacy `flash` or `pro` tiers):
+# - gemini-4-neon-{low,medium,high,xhigh}     (Primary preference: balanced frontier reasoning & coding)
+# - gemini-4-argon-{low,medium,high}           (Deep logic, multi-step math, and strict oversight)
+# - gemini-4-hydrogen-{low,medium,high,xhigh}  (High-speed execution, exploration, and swarm workers)
 
-feature, refactoring: pro
-bug-fix: pro
-perf-issue: pro
-hillclimb: pro
-judgment and prose: pro
-hardest tasks: pro
-how explorer: flash
-how explainer: pro
-why investigators: flash
-why synthesizer: pro
-reflect tooling: pro
-reflect judgment, divergent, synthesizer: pro
-arena runners: pro, flash, inherit
-arena cross-judge pool: pro, flash, inherit
-swarm workers: flash
-architect runners: pro, flash, inherit
-interrogate reviewers: pro, flash, inherit
+feature, refactoring: gemini-4-neon-high
+bug-fix: gemini-4-neon-xhigh
+perf-issue: gemini-4-neon-xhigh
+hillclimb: gemini-4-neon-xhigh
+judgment and prose: gemini-4-neon-xhigh
+hardest tasks: gemini-4-neon-xhigh
+how explorer: gemini-4-hydrogen-medium
+how explainer: gemini-4-neon-high
+why investigators: gemini-4-hydrogen-medium
+why synthesizer: gemini-4-neon-xhigh
+reflect tooling: gemini-4-neon-high
+reflect judgment, divergent, synthesizer: gemini-4-neon-xhigh
+arena runners: gemini-4-neon-high, gemini-4-argon-high, gemini-4-hydrogen-medium
+arena cross-judge pool: gemini-4-neon-xhigh, gemini-4-argon-high
+swarm workers: gemini-4-hydrogen-medium
+architect runners: gemini-4-neon-high, gemini-4-argon-high, gemini-4-hydrogen-medium
+interrogate reviewers: gemini-4-neon-high, gemini-4-argon-high, gemini-4-hydrogen-medium
 ```
 
 ### 6. Confirm

@@ -72,7 +72,7 @@ For 8 or fewer independent parallel workers, verification lanes, or candidate ra
 
 ### Recipe
 
-1. **Batch Spawn:** Dispatch all workers in a single `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Worker (<slice>)"`, `Workspace: "branch"`, and the model resolved from `swarm workers` in `~/.gemini/config/plugins/agystack/agystack-models.md` (default: `flash`).
+1. **Batch Spawn:** Dispatch all workers in a single turn with `Workspace: "branch"`, using `delegate_task` / `swarm` with the model resolved from `swarm workers` in `~/.gemini/config/plugins/agystack/agystack-models.md` (default: `gemini-4-hydrogen-medium`), or `invoke_subagent` with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Worker (<slice>)"`, and `Model: "inherit"` (never `flash` or `pro`).
 2. **Mandatory Reporting Contract:** In each worker's prompt, provide `{PARENT_CONVERSATION_ID}` and mandate that upon completing work and verification, the worker MUST invoke `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"` and its findings/status.
 3. **Reactive Watchdog Protocol:**
    - Arm a single unconditional watchdog deadline: `schedule(DurationSeconds: 300..600, Prompt="Watchdog: local fan-out timed out", TimerCondition: "never")`.
@@ -184,23 +184,23 @@ Every playbook completion requires concrete proof on the real target surface bef
 
 ## Models
 
-Antigravity subagents use native `invoke_subagent` model tiers. Model tiers (`inherit`, `pro`, `flash`, `flash_lite`) represent Gemini depth and compute budget tiers, not cross-family priors.
+Only Gemini 4 models are permitted (`gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`), with `gemini-4-neon` as the primary preference. Legacy `flash` and `pro` tiers are disallowed.
 
-- `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.8 Flash High with Antigravity 2.12.2 ADC support)
-- `pro` (High-capability tier)
-- `flash` (Balanced fast tier: fast exploration, standard implementation, and reviews)
-- `flash_lite` (Lightweight tier: fast mechanical scans and lookups)
+- `gemini-4-neon` (`thought_level`: `low`, `medium`, `high` [default], `xhigh`): Primary model for coding, refactoring, debugging, deep judgment, and synthesis.
+- `gemini-4-argon` (`thought_level`: `low`, `medium`, `high` [default]): Heavy logic, multi-step math, and strict situational oversight for diverse panel reviews.
+- `gemini-4-hydrogen` (`thought_level`: `low`, `medium` [default], `high`, `xhigh`): High-speed, high-efficiency execution for codebase exploration, investigations, and high-volume swarm workers.
+- `inherit` (Native `invoke_subagent` fallback): When using Antigravity's `invoke_subagent` (whose schema only accepts `inherit` / `flash` / `pro` / `flash_lite`), always pass `Model: "inherit"` (never `flash` or `pro`). Use `delegate_task` or `swarm` whenever targeting a specific Gemini 4 model and `thought_level`.
 
-| Role / Intent | Antigravity Model Tier |
+| Role / Intent | Gemini 4 Model & Effort (`thought_level`) |
 | --- | --- |
-| Primary reasoning / difficult tasks | `inherit` (runs on your active chat model, e.g. Gemini 3.8 Flash High) |
-| Fast mechanical scanning / exploration | `flash` or `flash_lite` |
-| Deep judgment, prose, architecture | `inherit` or `pro` |
-| Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` |
+| Hardest tasks, bugs, perf, judgment, synthesis | `gemini-4-neon-xhigh` |
+| Core feature implementation, refactoring, explainers | `gemini-4-neon-high` |
+| Fast exploration, investigation, swarm workers | `gemini-4-hydrogen-medium` |
+| Multi-model review panels | `gemini-4-neon-high`, `gemini-4-argon-high`, `gemini-4-hydrogen-medium` |
 
 Read per-role overrides from `~/.gemini/config/plugins/agystack/agystack-models.md` (or `.agents/plugins/agystack/agystack-models.md`). If a line is missing, use the defaults above.
 
-Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One subagent runs per list entry.
+Keep panels diverse across the permitted Gemini 4 models (`gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`). One subagent runs per list entry.
 
 ## Antigravity Slash Commands & Multi-Agent Capabilities
 

@@ -5,7 +5,7 @@ description: "Use for \"interrogate\", \"adversarial review\", \"multi-model rev
 
 # Interrogate
 
-Spawn one reviewer per configured model to adversarially review code changes. Independent models evaluate code across thinking budgets (`pro`, `flash`, `inherit`) to surface blind spots. Consensus across models represents high-confidence signal; lone-model findings are lower-confidence but worth noting.
+Spawn one reviewer per configured model to adversarially review code changes. Independent Gemini 4 models evaluate code across thinking budgets (`gemini-4-neon-high`, `gemini-4-argon-high`, `gemini-4-hydrogen-medium`) to surface blind spots. Consensus across models represents high-confidence signal; lone-model findings are lower-confidence but worth noting.
 
 The deliverable is a synthesized verdict. Do not auto-apply edits.
 
@@ -27,16 +27,16 @@ Launch all reviewers in a single turn using `invoke_subagent`. Simulating review
 
 Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/agystack-models.md` when present, or fall back to defaults:
 
-| Subagent | Default model tier |
+| Subagent | Default Gemini 4 model & effort |
 |---|---|
-| Reviewer A | `pro` |
-| Reviewer B | `flash` |
-| Reviewer C | `inherit` |
+| Reviewer A | `gemini-4-neon-high` |
+| Reviewer B | `gemini-4-argon-high` |
+| Reviewer C | `gemini-4-hydrogen-medium` |
 
-For each reviewer:
+For each reviewer (using `delegate_task` for explicit Gemini 4 model/effort, or `invoke_subagent` with `Model: "inherit"` — never `flash` or `pro`):
 - `TypeName`: `research` (or `self`)
-- `Role`: `Adversarial Reviewer (<model tier>)`
-- `Model`: configured tier (or `pro`, `flash`, `inherit`)
+- `Role`: `Adversarial Reviewer (<model>)`
+- `Model`: configured Gemini 4 model + `thought_level` (or `inherit` for `invoke_subagent`)
 - `Workspace`: `inherit`
 
 Fill `references/reviewer-prompt.md` with:
