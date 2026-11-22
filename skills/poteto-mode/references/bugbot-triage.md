@@ -40,7 +40,7 @@ Use `candidate` for one or two examples. Use `recurring` after multiple real dis
 ### Upstack or stack-local usage Bugbot cannot see
 
 - Confidence: candidate
-- Skip when: Bugbot flags an export, component, helper, or file as unused, and `gt ls -s`, upper-stack diffs, or PR context shows it is used by a later PR in the stack.
+- Skip when: Bugbot flags an export, component, helper, or file as unused, and the active forge's PR list and diffs (`gh pr list` or `origin pr list`), upper-stack diffs, or PR context show it is used by a later PR in the stack.
 - Do not skip when: The current PR is not part of a stack, the symbol is public API, or the supposed upstack use cannot be verified.
 - Example signal: "Exported component is never used" with a human reply like "used upstack".
 
@@ -95,18 +95,18 @@ Append new candidate learnings here during or after babysitting when they look t
 - Example signal: "masks do not affect hit-testing", "overlay blocks wheel scroll", "ignores deltaMode", "runs in the IntersectionObserver callback before React applies state".
 - Source: one sticky-occlusion PR: six Bugbot passes, roughly eighteen findings, every one fixed rather than dismissed.
 
-### Contract-test drift claims are cheaply verifiable — run the test first
+### Run the test first on contract-test drift claims
 
 - Confidence: candidate
-- Skip when: Never skip the verification itself; it costs one command. When a PR
+- Skip when: Never skip the verification itself, because it costs one command. When a PR
   ships a contract test that pins protocol or documentation prose (regexes over
   a SKILL.md, snapshot of doc wording), and Bugbot claims "the test no longer
   matches the doc" (or vice versa), run that test on the PR tip before
-  classifying. A red run confirms the claim empirically; a green run is a
+  classifying. A red run confirms the claim empirically, and a green run is a
   concrete disproof for the dismissal reply.
-- Do not skip when: n/a — this is a verification shortcut, not a dismissal
-  pattern. Note that repeat-pass lean-dismiss heuristics would misfire here:
-  prose-pinning tests drift precisely BECAUSE earlier fix rounds edit the prose.
+- Do not skip when: Not applicable. This is a verification shortcut, not a dismissal
+  pattern. Note that repeat-pass lean-dismiss heuristics would misfire here,
+  because prose-pinning tests drift precisely when earlier fix rounds edit the prose.
 - Example signal: "Contract test omits the pre-fix wait" on a PR whose earlier
   fix commits reworded the pinned passage; the test run on the tip failed on
   exactly the cited assertion.
@@ -127,7 +127,7 @@ Append new candidate learnings here during or after babysitting when they look t
 - Skip when: The finding asks to broaden a narrow error condition (a specific
   `errno`, error code, or status class) into a catch-all, and that narrowness
   encodes a real distinction. The canonical shape is a dependency fallback
-  gated on `ENOENT`: "binary is not installed" is a different situation from
+  gated on `ENOENT`, where "binary is not installed" is a different situation from
   "the command ran and failed". Retrying on any non-zero exit would re-run a
   legitimate failure (not found, expired auth, network) against the fallback
   and then report the fallback's error, hiding the true one.
