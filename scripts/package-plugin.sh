@@ -104,7 +104,9 @@ build_archive() {
     -x "*.venv*" \
     -x "*node_modules*" \
     -x "*.test.ts" \
-    -x "*.test-helper.ts"
+    -x "*.test-helper.ts" \
+    -x "*/scripts/test/*" \
+    -x "*/scripts/test/"
   printf '%s\n' "${archive}"
 }
 
@@ -124,17 +126,24 @@ required = [
     "agystack-models.md",
     "agystack-runtime.json.example",
     "hooks.json.example",
+    "skills/statechart/scripts/statechart",
+    "skills/statechart/scripts/statechart.ts",
+    "skills/statechart/scripts/pipeline.ts",
 ]
 missing = [r for r in required if r not in names]
 if missing:
     raise SystemExit(f"Error: archive missing required files: {missing}")
-forbidden = [
-    n for n in names
-    if n.endswith(".test.ts")
-    or n.endswith(".test-helper.ts")
-    or "__pycache__" in n.split("/")
-    or "node_modules" in n.split("/")
-]
+def is_forbidden(name: str) -> bool:
+    parts = name.split("/")
+    return (
+        name.endswith(".test.ts")
+        or name.endswith(".test-helper.ts")
+        or "__pycache__" in parts
+        or "node_modules" in parts
+        or any(parts[i : i + 2] == ["scripts", "test"] for i in range(len(parts) - 1))
+    )
+
+forbidden = [n for n in names if is_forbidden(n)]
 if forbidden:
     raise SystemExit(f"Error: archive contains forbidden entries: {forbidden[:10]}")
 ' "${archive}"

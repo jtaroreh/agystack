@@ -226,6 +226,7 @@ Or trigger `/cloud-swarm` right in chat:
 | [`/ketchup`](./skills/ketchup/SKILL.md) | you want a status brief under 100 words on an autonomous run or background task, with artifact links and selectable picks. |
 | [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) | your project has no scripted way to prove app behavior. generates a project-local verify skill with a feature map, for any language or platform. |
 | [`/create-formal-verification-skill`](./skills/create-formal-verification-skill/SKILL.md) | you need formal model checking (TLA+, Alloy, Dafny) for high-consequence concurrency, consensus, complex state machines, or critical parsers. |
+| [`/maintain-formal-verification-skill`](./skills/maintain-formal-verification-skill/SKILL.md) | your project's formal verification model or harness has drifted from the code. diffs covered commits, updates from code, and proves with a scratch break. |
 | [`/maintain-verification-skill`](./skills/maintain-verification-skill/SKILL.md) | your verify skill's feature map has drifted from the app. source wave + one live pass, at most one PR of proven corrections. |
 | [`/benchmark-checklist`](./skills/benchmark-checklist/SKILL.md) | you are reporting performance numbers or speedups and want to check them against the Seven Performance Verification Questions first. |
 | [`/unslop`](./skills/unslop/SKILL.md) | you're cleaning up writing. removes AI tells. |

@@ -1,8 +1,11 @@
-.PHONY: test lint typecheck doctor package-check ci clean
+.PHONY: test test-statechart lint typecheck doctor package-check ci clean
 
 test:
 	uv run pytest -v --timeout=60 tests/
 	cd skills/poteto-mode/scripts && bun test
+
+test-statechart:
+	node --test skills/statechart/scripts/test/pipeline.test.ts skills/statechart/scripts/test/messages.test.ts skills/statechart/scripts/test/chart.test.ts skills/statechart/scripts/test/cli.test.ts
 
 lint:
 	uv run ruff check .
