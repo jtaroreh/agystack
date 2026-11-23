@@ -237,22 +237,20 @@ export function parseFastCheck(value: unknown): T.Check {
   const details = checkDetails(object, "name");
   const state = string(object.state, "check.state").toUpperCase();
   const bucket = string(object.bucket, "check.bucket");
-  if (
-    bucket === "fail" ||
-    ["FAILURE", "ERROR", "ACTION_REQUIRED"].includes(state)
-  )
+  if (state === "ACTION_REQUIRED") return gateOr("failed", details, state);
+  if (bucket === "fail" || ["FAILURE", "ERROR"].includes(state))
     return { ...details, kind: "failed", reportedState: state };
-  if (bucket === "pending") return pendingOrGate(details, state);
+  if (bucket === "pending") return gateOr("pending", details, state);
   if (bucket === "pass")
     return { ...details, kind: "passed", reportedState: state };
   if (bucket === "skipping")
     return { ...details, kind: "skipped", reportedState: state };
   return { ...details, kind: "failed", reportedState: state };
 }
-// The owner-approval gate is excluded from pending everywhere, so the rule has
-// one home. Classifying it as pending on either read path makes the watcher
-// wait on a human, which is the behaviour #172004 removed from the Python.
-function pendingOrGate(
+const OWNER_APPROVAL_GATE_CHECK = "Code Review Gate";
+
+function gateOr(
+  kind: "pending" | "failed",
   details: {
     readonly name: string;
     readonly description: string;
@@ -261,14 +259,14 @@ function pendingOrGate(
   },
   reportedState: string
 ): T.Check {
-  return details.name === "Code Review Gate"
+  return details.name === OWNER_APPROVAL_GATE_CHECK
     ? {
         ...details,
         kind: "code-review-gate",
-        name: "Code Review Gate",
+        name: OWNER_APPROVAL_GATE_CHECK,
         reportedState,
       }
-    : { ...details, kind: "pending", reportedState };
+    : { ...details, kind, reportedState };
 }
 export function mapRollupNode(value: unknown): T.Check | null {
   const object = record(value, "rollup node");
@@ -288,22 +286,19 @@ export function mapRollupNode(value: unknown): T.Check | null {
         ? object.conclusion.toUpperCase()
         : "";
     if (status !== "COMPLETED")
-      return pendingOrGate({ ...details, link }, "PENDING");
+      return gateOr("pending", { ...details, link }, "PENDING");
     if (conclusion === "SUCCESS")
       return { ...details, link, kind: "passed", reportedState: "SUCCESS" };
     if (conclusion === "NEUTRAL" || conclusion === "SKIPPED")
       return { ...details, link, kind: "skipped", reportedState: conclusion };
-    return {
-      ...details,
-      link,
-      kind: "failed",
-      reportedState: conclusion === "ACTION_REQUIRED" ? conclusion : "FAILURE",
-    };
+    if (conclusion === "ACTION_REQUIRED")
+      return gateOr("failed", { ...details, link }, conclusion);
+    return { ...details, link, kind: "failed", reportedState: "FAILURE" };
   }
   const state =
     typeof object.state === "string" ? object.state.toUpperCase() : "";
   if (state === "PENDING" || state === "EXPECTED")
-    return pendingOrGate({ ...details, link }, "PENDING");
+    return gateOr("pending", { ...details, link }, "PENDING");
   return state === "SUCCESS"
     ? { ...details, link, kind: "passed", reportedState: state }
     : { ...details, link, kind: "failed", reportedState: state || "FAILURE" };
@@ -357,27 +352,13 @@ function passKey(comment: T.ReviewComment | null): string | null {
   }
   return null;
 }
-export function parseReviewThreads(value: unknown): readonly T.ReviewThread[] {
-  let nodes: readonly unknown[];
-  if (Array.isArray(value)) {
-    nodes = value;
-  } else if (
-    isRecord(value) &&
-    "nodes" in value &&
-    Array.isArray(value.nodes)
-  ) {
-    nodes = value.nodes;
-  } else {
-    nodes = list(
-      at(value, ["data", "repository", "pullRequest", "reviewThreads", "nodes"]),
-      "reviewThreads.nodes"
-    );
-  }
-  const threads: {
-    readonly id: string;
-    readonly firstComment: T.ReviewComment | null;
-    readonly resolved: boolean;
-  }[] = [];
+export function parseReviewThreadPage(value: unknown): T.ReviewThreadPage {
+  const reviewThreads = record(
+    at(value, ["data", "repository", "pullRequest", "reviewThreads"]),
+    "reviewThreads"
+  );
+  const nodes = list(reviewThreads.nodes, "reviewThreads.nodes");
+  const threads: T.RawReviewThread[] = [];
   for (const node of nodes) {
     const thread = record(node, "review thread");
     if (typeof thread.isResolved !== "boolean")
@@ -392,6 +373,18 @@ export function parseReviewThreads(value: unknown): readonly T.ReviewThread[] {
       resolved: thread.isResolved,
     });
   }
+  const page = record(reviewThreads.pageInfo, "reviewThreads.pageInfo");
+  if (typeof page.hasNextPage !== "boolean")
+    missing("reviewThreads.pageInfo.hasNextPage", page.hasNextPage);
+  const cursor = optionalString(
+    page.endCursor,
+    "reviewThreads.pageInfo.endCursor"
+  );
+  return { threads, endCursor: page.hasNextPage && cursor ? cursor : null };
+}
+export function buildReviewThreads(
+  threads: readonly T.RawReviewThread[]
+): readonly T.ReviewThread[] {
   const keys = new Set<string>();
   let keyless = false;
   for (const thread of threads) {
@@ -462,11 +455,6 @@ function graphqlArgs(
 }
 
 export class GhGitHubReader implements T.GitHubReader {
-  constructor(
-    private readonly runJsonFn: (
-      argv: readonly [string, ...string[]]
-    ) => Promise<unknown> = runJson
-  ) {}
   async originRepo(): Promise<T.Repository | null> {
     const result = await run(["git", "remote", "get-url", "origin"]);
     return result.code === 0 ? parseRemote(result.stdout) : null;
@@ -511,11 +499,14 @@ export class GhGitHubReader implements T.GitHubReader {
       "--limit",
       "300",
       "--json",
-      "number,headRefName,baseRefName",
+      "number,headRefName,baseRefName,isCrossRepository",
     ]);
     return list(value, "open PRs").map((item, index) => {
       const object = record(item, `open PRs[${index}]`);
+      if (typeof object.isCrossRepository !== "boolean")
+        missing(`open PRs[${index}].isCrossRepository`, object.isCrossRepository);
       return {
+        isCrossRepository: object.isCrossRepository,
         number: parsePrNumber(object.number, `open PRs[${index}].number`),
         headRefName: string(
           object.headRefName,
@@ -584,32 +575,13 @@ export class GhGitHubReader implements T.GitHubReader {
     );
     return { checks, endCursor: page.hasNextPage && cursor ? cursor : null };
   }
-  async reviewThreads(
-    context: T.PrContext
-  ): Promise<readonly T.ReviewThread[]> {
-    const allNodes: unknown[] = [];
-    let cursor: string | null = null;
-    while (true) {
-      const argv = graphqlArgs(REVIEW_THREADS_QUERY, context);
-      if (cursor !== null) argv.push("-f", `after=${cursor}`);
-      const value = await (this.runJsonFn ?? runJson)(argv);
-      const threads = record(
-        at(value, ["data", "repository", "pullRequest", "reviewThreads"]),
-        "reviewThreads"
-      );
-      const nodes = list(threads.nodes, "reviewThreads.nodes");
-      allNodes.push(...nodes);
-      const page = record(threads.pageInfo, "reviewThreads.pageInfo");
-      if (typeof page.hasNextPage !== "boolean")
-        missing("reviewThreads.pageInfo.hasNextPage", page.hasNextPage);
-      const endCursor = optionalString(
-        page.endCursor,
-        "reviewThreads.pageInfo.endCursor"
-      );
-      if (!page.hasNextPage || !endCursor) break;
-      cursor = endCursor;
-    }
-    return parseReviewThreads(allNodes);
+  async reviewThreadPage(
+    context: T.PrContext,
+    after: string | null
+  ): Promise<T.ReviewThreadPage> {
+    const argv = graphqlArgs(REVIEW_THREADS_QUERY, context);
+    if (after !== null) argv.push("-f", `after=${after}`);
+    return parseReviewThreadPage(await runJson(argv));
   }
   async commitRollups(
     context: T.PrContext
@@ -659,6 +631,19 @@ export async function resolveChecks(
       : "fast path and GraphQL rollup were empty";
   throw new ChecksUnavailable(`could not read PR checks: ${suffix}`);
 }
+export async function resolveReviewThreads(
+  reader: T.GitHubReader,
+  context: T.PrContext
+): Promise<readonly T.ReviewThread[]> {
+  const threads: T.RawReviewThread[] = [];
+  let after: string | null = null;
+  do {
+    const page = await reader.reviewThreadPage(context, after);
+    threads.push(...page.threads);
+    after = page.endCursor;
+  } while (after !== null);
+  return buildReviewThreads(threads);
+}
 export async function resolveContext(args: {
   readonly reader: T.GitHubReader;
   readonly owner: string | null;
@@ -688,7 +673,11 @@ export function orderStack(
   open: readonly T.OpenPullRequest[]
 ): T.NonEmpty<T.PrContext> {
   const byNumber = new Map(open.map((pr) => [pr.number, pr]));
-  const byHead = new Map(open.map((pr) => [pr.headRefName, pr]));
+  // A base ref belongs to this repository. A fork head with the same name
+  // cannot be its parent, even when that name is the default branch.
+  const byHead = new Map(
+    open.filter((pr) => !pr.isCrossRepository).map((pr) => [pr.headRefName, pr])
+  );
   const children = new Map<string, T.OpenPullRequest[]>();
   for (const pr of open)
     children.set(pr.baseRefName, [...(children.get(pr.baseRefName) ?? []), pr]);
@@ -710,6 +699,7 @@ export function orderStack(
   ]);
   const up: T.OpenPullRequest[] = [];
   const visit = (parent: T.OpenPullRequest): void => {
+    if (parent.isCrossRepository) return;
     for (const child of children.get(parent.headRefName) ?? []) {
       if (seen.has(child.number)) continue;
       seen.add(child.number);
