@@ -76,11 +76,11 @@ Enumerate the model tiers you can pass to `invoke_subagent` (local), `cloud_disp
 
 If `~/.gemini/config/plugins/agystack/agystack-models.md` exists, read its current role assignments. Otherwise start from skill defaults.
 
-### 4. Map and confirm
-
 Present two presets to the user (or allow per-role customization):
 - **Preset 1: Universal / Gemini 3.8 Flash Compatible (Default).** Uses universal tiers (`inherit`, `flash`, and `pro`) so sessions running Gemini 3.8 Flash or any active parent model work out of the box without hardcoded model assumptions.
 - **Preset 2: Gemini 4 Effort-Balanced (Neon / Argon / Hydrogen).** Uses Gemini 4 effort-suffixed identifiers (`gemini-4-neon-xhigh`, `gemini-4-neon-high`, `gemini-4-argon-high`, and `gemini-4-hydrogen-medium`). Boundary translation automatically maps these to `pro`, `inherit`, and `flash` for `invoke_subagent`, strips effort suffixes to base Vertex AI model IDs (`gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`) for `/cloud-swarm`, and passes exact effort-suffixed IDs to native `swarm`.
+
+### 4. Map and confirm
 
 Show every role with its model tier and confirm:
 - Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`, `hardest tasks`, `how explorer`, `how explainer`, `why investigators`, `why synthesizer`, `reflect tooling`, `reflect judgment, divergent, synthesizer`, `swarm workers`
