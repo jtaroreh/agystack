@@ -887,6 +887,90 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(mock_write_cfg.call_args[1].get("service_account"), "custom-sa@developer.gserviceaccount.com")
         self.assertEqual(summary.get("service_account"), "custom-sa@developer.gserviceaccount.com")
 
+    def test_normalize_model_for_surface(self):
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-neon-xhigh", "invoke_subagent"),
+            {
+                "raw": "gemini-4-neon-xhigh",
+                "base_model": "gemini-4-neon",
+                "thought_level": "xhigh",
+                "surface": "invoke_subagent",
+                "resolved": "pro",
+            },
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-argon-high", "invoke_subagent")["resolved"],
+            "inherit",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-hydrogen-medium", "invoke_subagent")["resolved"],
+            "flash",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-3.8-flash-high", "invoke_subagent")["resolved"],
+            "flash",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("flash_lite", "invoke_subagent")["resolved"],
+            "flash_lite",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("orchestrator", "invoke_subagent")["resolved"],
+            "inherit",
+        )
+
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-neon-xhigh", "cloud_swarm")["resolved"],
+            "gemini-4-neon",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-argon-high", "cloud_swarm")["resolved"],
+            "gemini-4-argon",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-hydrogen-medium", "cloud_swarm")["resolved"],
+            "gemini-4-hydrogen",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("orchestrator", "cloud_swarm")["resolved"],
+            "gemini-3.8-flash",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface(
+                "inherit", "cloud_swarm", default_model="gemini-4-neon-high"
+            )["resolved"],
+            "gemini-4-neon",
+        )
+
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-neon-xhigh", "native_swarm")["resolved"],
+            "gemini-4-neon-xhigh",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("neon", "native_swarm")["resolved"],
+            "gemini-4-neon-high",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("argon", "native_swarm")["resolved"],
+            "gemini-4-argon-high",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("hydrogen", "native_swarm")["resolved"],
+            "gemini-4-hydrogen-medium",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("flash", "native_swarm")["resolved"],
+            "gemini-3.8-flash-high",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("orchestrator", "native_swarm")["resolved"],
+            "gemini-pro-orchestrator-g1-pro",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-pro-orchestrator-neon", "native_swarm")["resolved"],
+            "gemini-pro-orchestrator-neon",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

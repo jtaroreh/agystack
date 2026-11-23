@@ -93,12 +93,19 @@ class TestVertexPartnerModelResolution(unittest.TestCase):
             "gemini-3.8-flash",
             "gemini-3.1-pro",
             "gemini-3.1-flash-lite",
+            "gemini-4-neon",
             "gemini-4-argon",
+            "gemini-4-hydrogen",
+            "neon",
             "argon",
+            "hydrogen",
+            "gemini-4-neon-xhigh",
+            "gemini-4-hydrogen-medium",
             "flash",
             "pro",
         ]
         for model in gemini_models:
+            self.assertFalse(is_partner_model(model))
             resolved = resolve_worker_model(model)
             self.assertFalse(is_partner_model(resolved))
 
@@ -682,7 +689,9 @@ class TestModelGardenPreflightProbe(unittest.TestCase):
         self.assertTrue(result["model_garden_verified"])
         self.assertEqual(result["project_id"], "test-project")
         self.assertEqual(result["region"], "us-central1")
+        self.assertIn("gemini-4-neon", result["serverless_models"])
         self.assertIn("gemini-4-argon", result["serverless_models"])
+        self.assertIn("gemini-4-hydrogen", result["serverless_models"])
         self.assertIn("deepseek-v4.1-flash-maas", result["serverless_models"])
         self.assertIn("claude-3-5-sonnet-v2@20241022", result["partner_models"])
         self.assertIn("claude-3-opus@20240229", result["partner_models"])
