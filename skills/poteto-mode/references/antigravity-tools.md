@@ -73,13 +73,18 @@ For 8 or fewer independent parallel workers, verification lanes, or candidate ra
 ### Recipe
 
 1. **Batch Spawn:** Dispatch all workers in a single `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Worker (<slice>)"`, `Workspace: "branch"`, and the model resolved from `swarm workers` in `~/.gemini/config/plugins/agystack/agystack-models.md` (default: `flash`).
-2. **Mandatory Reporting Contract:** In each worker's prompt, provide `{PARENT_CONVERSATION_ID}` and mandate that upon completing work and verification, the worker MUST invoke `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"` and its findings/status.
-3. **Reactive Watchdog Protocol:**
+2. **Standalone Brief, SHAs, and Measurement Method:** Give each writing worker its own writable workspace (`Workspace: "branch"`). Every brief stands alone with goal, scope, exact slice or race arm, verification command, and report format (`PASS`, `ISSUES`, or `BLOCKED` with evidence). A worker proving a defect lists every provable issue, not only the first. When workers verify or measure commits, name the exact SHAs in each brief, and for measurements also name the method, including sample count, what one sample is, and execution order. Require every worker to echo both in its `send_message` result.
+3. **Mandatory Reporting Contract:** In each worker's prompt, provide `{PARENT_CONVERSATION_ID}` and mandate that upon completing work and verification, the worker MUST invoke `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"` and its findings and status.
+4. **Reactive Watchdog Protocol:**
    - Arm a single unconditional watchdog deadline: `schedule(DurationSeconds: 300..600, Prompt="Watchdog: local fan-out timed out", TimerCondition: "never")`.
    - Yield the coordinator turn immediately with ZERO tool calls (`tool_calls: []`).
    - On each `send_message` arrival, process results and yield immediately with ZERO tool calls while workers remain active.
    - When all workers complete, cancel the watchdog timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)`.
    - See Rule 4 in `rules/AGENTS.md` for full reactive wakeup and watchdog requirements.
+5. **Aggregation, `N-1` Dropout Rule, and Echo Gate:**
+   - If a worker drops out or fails to report before the watchdog deadline (`manage_subagents(Action: "list")`), proceed with `N-1` and record the dropout explicitly.
+   - Drop any result that omits the exact SHAs or measurement method named in its brief, and respawn that worker once. After a second miss, record a gap. A gap never counts as a pass.
+   - For coverage sweeps, every required slice needs a result. For races, apply the selection rule declared up front (`first pass`, `rank all`, or `best-of`), verify winning candidates sequentially, and never paste raw worker dumps or bulk-merge candidate diffs.
 
 ## Parallel Cloud Agent Execution (Cloud Run Runtime)
 
