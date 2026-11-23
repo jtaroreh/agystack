@@ -74,8 +74,8 @@ If `~/.gemini/config/plugins/agystack/agystack-models.md` exists, read its curre
 ### 4. Map and confirm
 
 Show every role with its model tier and confirm:
-- Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `swarm workers`
-- Panel roles: `arena runners`, `architect runners`, `interrogate reviewers`
+- Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`, `hardest tasks`, `how explorer`, `how explainer`, `why investigators`, `why synthesizer`, `reflect tooling`, `reflect judgment, divergent, synthesizer`, `swarm workers`
+- Panel roles: `arena runners`, `arena cross-judge pool`, `architect runners`, `interrogate reviewers`
 
 ### 5. Write the model rule
 
@@ -83,29 +83,29 @@ Write to `.agents/plugins/agystack/agystack-models.md` if installed workspace-lo
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
-# Antigravity model tiers for invoke_subagent:
+# Antigravity invoke_subagent model tiers:
+# - inherit    (Runs on the active parent chat session model, e.g. Gemini 3.8 Flash High)
 # - pro        (High-capability tier: deep reasoning, large refactors, complex design)
-# - flash      (Balanced fast tier: exploration, reading, standard code generation)
-# - flash_lite (Lightweight tier: fast mechanical lookups)
-# - inherit    (Runs on the active parent chat session model)
+# - flash      (Fast / balanced reasoning tier: exploration, reading, standard generation)
+# - flash_lite (Lightweight tier: fast mechanical scans and lookups)
 
-feature, refactoring: pro
-bug-fix: pro
-perf-issue: pro
-hillclimb: pro
-judgment and prose: pro
-hardest tasks: pro
+feature, refactoring: inherit
+bug-fix: inherit
+perf-issue: inherit
+hillclimb: inherit
+judgment and prose: inherit
+hardest tasks: inherit
 how explorer: flash
-how explainer: pro
+how explainer: inherit
 why investigators: flash
-why synthesizer: pro
-reflect tooling: pro
-reflect judgment, divergent, synthesizer: pro
-arena runners: pro, flash, inherit
-arena cross-judge pool: pro, flash, inherit
+why synthesizer: inherit
+reflect tooling: inherit
+reflect judgment, divergent, synthesizer: inherit
+arena runners: inherit, flash, pro
+arena cross-judge pool: inherit, flash, pro
 swarm workers: flash
-architect runners: pro, flash, inherit
-interrogate reviewers: pro, flash, inherit
+architect runners: inherit, flash, pro
+interrogate reviewers: inherit, flash, pro
 ```
 
 ### 6. Confirm
@@ -114,4 +114,4 @@ Confirm that the model rule and runtime settings are active for new sessions.
 
 ### 7. Offer a verification skill (optional)
 
-If the project lacks an end-to-end verification harness, offer `/create-verification-skill`.
+If the project lacks an end-to-end verification harness, offer `/create-verification-skill`. For high-consequence concurrency, consensus, complex state machines, or critical parsers, also offer `/create-formal-verification-skill`.
