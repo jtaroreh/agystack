@@ -36,7 +36,7 @@ Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/agy
 For each reviewer:
 - `TypeName`: `research` (or `self`)
 - `Role`: `Adversarial Reviewer (<model tier>)`
-- `Model`: configured tier (or `pro`, `flash`, `inherit`)
+- `Model`: configured tier (or `pro`, `flash`, `inherit`). When `agystack-models.md` specifies Gemini 4 effort-suffixed entries (`gemini-4-neon-high`, `gemini-4-argon-high`, `gemini-4-hydrogen-medium`), translate them to the `invoke_subagent` enum (`pro`, `inherit`, `flash`). If an account only has access to a single model tier (such as Gemini 3.8 Flash) or hits HTTP 429 `RESOURCE_EXHAUSTED` on `pro` or `flash`, fall back to `Model: "inherit"` so all panel slots complete.
 - `Workspace`: `inherit`
 
 Fill `references/reviewer-prompt.md` with:

@@ -189,19 +189,46 @@ Every playbook completion requires concrete proof on the real target surface bef
 
 ## Models
 
-Antigravity subagents use native `invoke_subagent` model tiers. Model tiers (`inherit`, `pro`, `flash`, `flash_lite`) represent Gemini depth and compute budget tiers, not cross-family priors.
+Antigravity subagents use native `invoke_subagent` model tiers (`inherit`, `pro`, `flash`, `flash_lite`), while `/cloud-swarm` and native `swarm` accept concrete model identifiers and effort suffixes.
 
-- `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.8 Flash High with Antigravity 2.12.2 ADC support)
+### Universal `invoke_subagent` Tiers
+
+- `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.8 Flash High or Gemini 4 Neon with Antigravity 2.12.2 ADC support)
 - `pro` (High-capability tier)
 - `flash` (Balanced fast tier: fast exploration, standard implementation, and reviews)
 - `flash_lite` (Lightweight tier: fast mechanical scans and lookups)
 
+### Gemini 4 Family & Effort Suffixes
+
+`agystack-models.md` also supports Gemini 4 family identifiers with optional `-low`, `-medium`, `-high`, or `-xhigh` effort suffixes:
+- `gemini-4-neon` (`gemini-4-neon-{low,medium,high,xhigh}`): Frontier reasoning and coding tier.
+- `gemini-4-argon` (`gemini-4-argon-{low,medium,high}`): Deep reasoning and systems engineering tier.
+- `gemini-4-hydrogen` (`gemini-4-hydrogen-{low,medium,high,xhigh}`): High-speed execution and verification tier.
+
+### Cross-Surface Boundary Translation
+
+Because each execution surface enforces its own schema, model identifiers configured in `agystack-models.md` translate deterministically at each tool boundary (`setup_runtime.normalize_model_for_surface`):
+
+| Configured `agystack-models.md` Entry | `invoke_subagent` (`Model` enum) | `/cloud-swarm` (Vertex AI / AI Studio) | Native `swarm` |
+| --- | --- | --- | --- |
+| `inherit` / `auto` | `inherit` | Active parent base model or `gemini-3.8-flash` | `inherit` |
+| `pro` / `gemini-4-neon` / `gemini-4-neon-{low,medium,high,xhigh}` | `pro` | `gemini-3.1-pro` / `gemini-4-neon` (suffix stripped) | `gemini-4-neon-high` (or exact suffixed ID) |
+| `gemini-4-argon` / `gemini-4-argon-{low,medium,high}` | `inherit` | `gemini-4-argon` (suffix stripped) | `gemini-4-argon-high` (or exact suffixed ID) |
+| `flash` / `gemini-4-hydrogen` / `gemini-4-hydrogen-{low,medium,high,xhigh}` | `flash` | `gemini-3.8-flash` / `gemini-4-hydrogen` (suffix stripped) | `gemini-4-hydrogen-medium` (or exact suffixed ID) |
+| `gemini-3.8-flash` / `gemini-3.8-flash-high` | `flash` | `gemini-3.8-flash` (suffix stripped) | `gemini-3.8-flash-high` |
+| `flash_lite` / `gemini-3.1-flash-lite` | `flash_lite` | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` |
+| `orchestrator` / `gemini-pro-orchestrator-*` | `inherit` | Active parent base model or `gemini-3.8-flash` | `gemini-pro-orchestrator-g1-pro` (or exact ID) |
+
+### Quota / Single-Tier Fallback
+
+If an account only has access to a single model tier (such as Gemini 3.8 Flash) or encounters HTTP 429 `RESOURCE_EXHAUSTED` when spawning a `pro` or `flash` subagent via `invoke_subagent`, fall back immediately to `Model: "inherit"` so all subagents and multi-reviewer panel slots complete on the active session model without dropping coverage.
+
 | Role / Intent | Antigravity Model Tier |
 | --- | --- |
-| Primary reasoning / difficult tasks | `inherit` (runs on your active chat model, e.g. Gemini 3.8 Flash High) |
-| Fast mechanical scanning / exploration | `flash` or `flash_lite` |
-| Deep judgment, prose, architecture | `inherit` or `pro` |
-| Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` |
+| Primary reasoning / difficult tasks | `inherit` (runs on your active chat model, e.g. Gemini 3.8 Flash High or Gemini 4 Neon) |
+| Fast mechanical scanning / exploration | `flash` or `flash_lite` (or `gemini-4-hydrogen-medium`) |
+| Deep judgment, prose, architecture | `inherit` or `pro` (or `gemini-4-neon-xhigh`, `gemini-4-argon-high`) |
+| Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` (or Neon, Argon, Hydrogen) |
 
 Read per-role overrides from `~/.gemini/config/plugins/agystack/agystack-models.md` (or `.agents/plugins/agystack/agystack-models.md`). If a line is missing, use the defaults above.
 

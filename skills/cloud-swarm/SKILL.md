@@ -37,7 +37,7 @@ Before launching cloud swarms, match the model to the project's Model Garden ena
 
 | Tier | Models | Endpoint Type | Friction | Setup Required |
 |---|---|---|---|---|
-| **Tier 1: Native MaaS** | `gemini-4-argon`, `gemini-3.8-flash`, `deepseek-v4.1-flash` | Global Serverless | **Zero** | Instant via existing ADC / project IAM |
+| **Tier 1: Native MaaS** | `gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-3.8-flash`, `deepseek-v4.1-flash` | Global Serverless | **Zero** | Instant via existing ADC / project IAM |
 | **Tier 2: Gated Partner MaaS** | `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-opus` | Regional Serverless | **Low / One-Time** | Console agreement click-through required |
 | **Tier 3: Dedicated GPU** | `glm-5-3-flash`, `llama-3.3-70b` | Dedicated Endpoint | **High** | Dedicated 8x H100/B200 GPU instance provisioning |
 
