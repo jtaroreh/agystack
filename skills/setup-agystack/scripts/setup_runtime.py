@@ -102,6 +102,108 @@ PYTHON_DEPENDENCY_SPECS = (
 )
 
 
+def _strip_effort_suffix(model_str: str):
+    cleaned = (model_str or "").strip()
+    norm = cleaned.lower().replace("_", "-")
+    for level in ("xhigh", "high", "medium", "low"):
+        suffix = f"-{level}"
+        if norm.endswith(suffix) and len(norm) > len(suffix):
+            return norm[: -len(suffix)], level
+    return norm, None
+
+
+_CANONICAL_BASE_MODELS = {
+    "neon": "gemini-4-neon",
+    "gemini-neon": "gemini-4-neon",
+    "gemini-4-neon": "gemini-4-neon",
+    "argon": "gemini-4-argon",
+    "gemini-argon": "gemini-4-argon",
+    "gemini-4-argon": "gemini-4-argon",
+    "gemini-4": "gemini-4-argon",
+    "hydrogen": "gemini-4-hydrogen",
+    "gemini-hydrogen": "gemini-4-hydrogen",
+    "gemini-4-hydrogen": "gemini-4-hydrogen",
+    "flash": "gemini-3.8-flash",
+    "gemini": "gemini-3.8-flash",
+    "gemini-3.8-flash": "gemini-3.8-flash",
+    "pro": "gemini-3.1-pro",
+    "gemini-3.1-pro": "gemini-3.1-pro",
+    "flash-lite": "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
+    "deepseek": "deepseek-v4.1-flash",
+    "deepseek-flash": "deepseek-v4.1-flash",
+    "deepseek-4.1": "deepseek-v4.1-flash",
+    "deepseek-v4.1": "deepseek-v4.1-flash",
+    "deepseek-4.1-flash": "deepseek-v4.1-flash",
+    "deepseek-v4.1-flash": "deepseek-v4.1-flash",
+    "deepseek-v4.1-flash-maas": "deepseek-v4.1-flash",
+    "inherit": "inherit",
+    "auto": "inherit",
+    "inherit-parent": "inherit",
+    "orchestrator": "inherit",
+    "gemini-pro-orchestrator-g1-pro": "inherit",
+    "gemini-pro-orchestrator-neon": "inherit",
+    "": "inherit",
+}
+
+
+def normalize_model_for_surface(
+    raw_model: str,
+    surface: str = "invoke_subagent",
+    default_model: str = "gemini-3.8-flash",
+) -> dict:
+    cleaned = (raw_model or "").strip()
+    norm_raw = cleaned.lower().replace("_", "-")
+    base_token, thought_level = _strip_effort_suffix(cleaned)
+    base_model = _CANONICAL_BASE_MODELS.get(base_token, base_token)
+
+    if surface == "invoke_subagent":
+        if base_model in ("gemini-4-neon", "gemini-3.1-pro") or base_token.startswith(
+            ("claude-opus", "claude-sonnet", "claude-3")
+        ):
+            resolved = "pro"
+        elif base_model in ("gemini-4-hydrogen", "gemini-3.8-flash", "deepseek-v4.1-flash"):
+            resolved = "flash"
+        elif base_model == "gemini-3.1-flash-lite":
+            resolved = "flash_lite"
+        else:
+            resolved = "inherit"
+    elif surface == "cloud_swarm":
+        def_base_token, _ = _strip_effort_suffix(default_model or "")
+        def_canonical = _CANONICAL_BASE_MODELS.get(def_base_token, def_base_token)
+        normalized_default_model = (
+            "gemini-3.8-flash" if (not def_canonical or def_canonical == "inherit") else def_canonical
+        )
+        resolved = normalized_default_model if base_model == "inherit" else base_model
+    elif surface == "native_swarm":
+        if thought_level is not None or norm_raw.startswith("gemini-pro-orchestrator-"):
+            resolved = norm_raw
+        elif base_model == "gemini-4-neon":
+            resolved = "gemini-4-neon-high"
+        elif base_model == "gemini-4-argon":
+            resolved = "gemini-4-argon-high"
+        elif base_model == "gemini-4-hydrogen":
+            resolved = "gemini-4-hydrogen-medium"
+        elif base_model == "gemini-3.8-flash":
+            resolved = "gemini-3.8-flash-high"
+        elif base_model == "gemini-3.1-pro":
+            resolved = "gemini-4-neon-high"
+        elif base_token == "orchestrator":
+            resolved = "gemini-pro-orchestrator-g1-pro"
+        else:
+            resolved = base_model
+    else:
+        resolved = base_model
+
+    return {
+        "raw": raw_model,
+        "base_model": base_model,
+        "thought_level": thought_level,
+        "surface": surface,
+        "resolved": resolved,
+    }
+
+
 def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, import_fn=None):
     if run_cmd_fn is None:
         run_cmd_fn = run_cmd
@@ -116,7 +218,9 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
         "region": region,
         "anthropic_installed": False,
         "serverless_models": [
+            "gemini-4-neon",
             "gemini-4-argon",
+            "gemini-4-hydrogen",
             "gemini-3.8-flash",
             "gemini-3.1-pro",
             "deepseek-v4.1-flash-maas",

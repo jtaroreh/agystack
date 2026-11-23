@@ -703,6 +703,17 @@ from worker.partner_engine import (
     is_partner_model as is_partner_model,
     measure_partner_client_startup as measure_partner_client_startup,
 )
+def _strip_effort_suffix(model_str: str) -> str:
+    if not model_str:
+        return ""
+    cleaned = model_str.strip()
+    norm = cleaned.lower().replace("_", "-")
+    for suffix in ("-xhigh", "-high", "-medium", "-low"):
+        if norm.endswith(suffix) and len(cleaned) > len(suffix):
+            return cleaned[: -len(suffix)]
+    return cleaned
+
+
 def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None) -> str:
     """
     Resolves the worker model for a task, respecting per-task overrides in task_item,
@@ -722,20 +733,38 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
     else:
         candidate = os.environ.get("MODEL_OVERRIDE", "").strip()
 
-    default_model = (
+    raw_default = (
         os.environ.get("DEFAULT_SWARM_MODEL", "").strip()
         or os.environ.get("DEFAULT_MODEL", "").strip()
-        or "gemini-3.8-flash"
     )
+    stripped_default = _strip_effort_suffix(raw_default)
+    if not stripped_default or stripped_default.lower().replace("_", "-") in (
+        "inherit",
+        "auto",
+        "inherit-parent",
+        "orchestrator",
+        "gemini-pro-orchestrator-g1-pro",
+        "gemini-pro-orchestrator-neon",
+    ):
+        default_model = "gemini-3.8-flash"
+    else:
+        default_model = stripped_default
 
     alias_map = {
+        "neon": "gemini-4-neon",
+        "gemini-neon": "gemini-4-neon",
+        "gemini-4-neon": "gemini-4-neon",
+        "argon": "gemini-4-argon",
+        "gemini-argon": "gemini-4-argon",
+        "gemini-4-argon": "gemini-4-argon",
+        "gemini-4": "gemini-4-argon",
+        "hydrogen": "gemini-4-hydrogen",
+        "gemini-hydrogen": "gemini-4-hydrogen",
+        "gemini-4-hydrogen": "gemini-4-hydrogen",
         "flash": "gemini-3.8-flash",
         "pro": "gemini-3.1-pro",
         "flash_lite": "gemini-3.1-flash-lite",
         "flash-lite": "gemini-3.1-flash-lite",
-        "argon": "gemini-4-argon",
-        "gemini-argon": "gemini-4-argon",
-        "gemini-4": "gemini-4-argon",
         "gemini": "gemini-3.8-flash",
         "deepseek": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
         "deepseek-flash": "publishers/deepseek-ai/models/deepseek-v4.1-flash-maas",
@@ -748,17 +777,21 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
         "inherit": default_model,
         "inherit-parent": default_model,
         "inherit_parent": default_model,
+        "orchestrator": default_model,
+        "gemini-pro-orchestrator-g1-pro": default_model,
+        "gemini-pro-orchestrator-neon": default_model,
         "": default_model,
     }
     alias_map.update(PARTNER_MODEL_ALIASES)
 
-    norm = candidate.lower()
+    stripped_candidate = _strip_effort_suffix(candidate)
+    norm = stripped_candidate.lower()
     if norm in alias_map:
         return alias_map[norm]
     norm_hyphen = norm.replace("_", "-")
     if norm_hyphen in alias_map:
         return alias_map[norm_hyphen]
-    return candidate
+    return stripped_candidate
 
 
 def execute_task(

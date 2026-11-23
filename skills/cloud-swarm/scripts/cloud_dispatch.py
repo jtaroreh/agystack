@@ -1054,6 +1054,17 @@ def run_preflight(
             raise RuntimeError(f"Gemini API ping failed: {exc}") from exc
 
 
+def _strip_effort_suffix(model_str: str) -> str:
+    if not model_str:
+        return ""
+    cleaned = model_str.strip()
+    norm = cleaned.lower().replace("_", "-")
+    for suffix in ("-xhigh", "-high", "-medium", "-low"):
+        if norm.endswith(suffix) and len(cleaned) > len(suffix):
+            return cleaned[: -len(suffix)]
+    return cleaned
+
+
 def resolve_swarm_model(
     cli_model: Optional[str] = None,
     runtime_model: Optional[str] = None,
@@ -1067,6 +1078,17 @@ def resolve_swarm_model(
         or os.environ.get("GEMINI_MODEL", "").strip()
         or None
     )
+    if parent:
+        parent = _strip_effort_suffix(parent)
+        if parent.lower().replace("_", "-") in (
+            "inherit",
+            "auto",
+            "inherit-parent",
+            "orchestrator",
+            "gemini-pro-orchestrator-g1-pro",
+            "gemini-pro-orchestrator-neon",
+        ):
+            parent = None
 
     if cli_model and cli_model.strip():
         chosen = cli_model.strip()
@@ -1110,13 +1132,20 @@ def resolve_swarm_model(
 
     default_model = parent or "gemini-3.8-flash"
     tier_map = {
+        "neon": "gemini-4-neon",
+        "gemini-neon": "gemini-4-neon",
+        "gemini-4-neon": "gemini-4-neon",
+        "argon": "gemini-4-argon",
+        "gemini-argon": "gemini-4-argon",
+        "gemini-4-argon": "gemini-4-argon",
+        "gemini-4": "gemini-4-argon",
+        "hydrogen": "gemini-4-hydrogen",
+        "gemini-hydrogen": "gemini-4-hydrogen",
+        "gemini-4-hydrogen": "gemini-4-hydrogen",
         "flash": "gemini-3.8-flash",
         "pro": "gemini-3.1-pro",
         "flash_lite": "gemini-3.1-flash-lite",
         "flash-lite": "gemini-3.1-flash-lite",
-        "argon": "gemini-4-argon",
-        "gemini-argon": "gemini-4-argon",
-        "gemini-4": "gemini-4-argon",
         "gemini": "gemini-3.8-flash",
         "deepseek": "deepseek-v4.1-flash",
         "deepseek-flash": "deepseek-v4.1-flash",
@@ -1128,13 +1157,17 @@ def resolve_swarm_model(
         "auto": default_model,
         "inherit-parent": default_model,
         "inherit_parent": default_model,
+        "orchestrator": default_model,
+        "gemini-pro-orchestrator-g1-pro": default_model,
+        "gemini-pro-orchestrator-neon": default_model,
     }
-    norm_chosen = chosen.lower().replace("_", "-")
-    if chosen.lower() in tier_map:
-        return tier_map[chosen.lower()]
-    if norm_chosen in tier_map:
-        return tier_map[norm_chosen]
-    return chosen
+    stripped = _strip_effort_suffix(chosen)
+    norm_stripped = stripped.lower().replace("_", "-")
+    if stripped.lower() in tier_map:
+        return tier_map[stripped.lower()]
+    if norm_stripped in tier_map:
+        return tier_map[norm_stripped]
+    return stripped
 
 
 try:
@@ -1306,7 +1339,9 @@ def main() -> None:
 Vertex AI Model Garden Tiers for Cloud Swarms:
 -----------------------------------------------------------------------------------------
 Tier 1: Native MaaS (Instant Serverless, Zero Forms)
-  - gemini-4-argon              Global Vertex AI endpoint, deep reasoning
+  - gemini-4-neon               Global Vertex AI endpoint, frontier reasoning & coding
+  - gemini-4-argon              Global Vertex AI endpoint, deep reasoning & systems engineering
+  - gemini-4-hydrogen           Global Vertex AI endpoint, high-speed execution & verification
   - gemini-3.8-flash            Global Vertex AI endpoint, balanced speed
   - gemini-3.1-pro              Global Vertex AI endpoint, high capability
   - deepseek-v4.1-flash         Global Vertex AI endpoint (deepseek-ai namespace)
