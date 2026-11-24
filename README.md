@@ -71,7 +71,7 @@ Workspace-local install:
 git clone https://github.com/jtaroreh/agystack.git .agents/plugins/agystack
 ```
 
-Native Antigravity tools (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, and visual Artifacts) are documented in [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
+Native Antigravity tools (`invoke_subagent`, `run_workflow` / `/run-workflow`, `run_command`, `manage_task`, `schedule`, `ask_question`, **Orchestrator** model mode, native `/swarm`, `/boost`, `/teamwork`, and visual Artifacts) are documented in [`skills/poteto-mode/references/antigravity-tools.md`](./skills/poteto-mode/references/antigravity-tools.md).
 
 Restart Antigravity or open a new chat after install.
 

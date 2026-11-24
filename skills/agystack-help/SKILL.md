@@ -63,14 +63,16 @@ Antigravity separates user-facing slash commands from programmatic agent primiti
 | Command or capability | When to use |
 |---|---|
 | `/agystack` or `/poteto-mode` | Run any non-trivial task under the 23 playbooks and 24 principles |
+| **Orchestrator** (model mode) | Pair a frontier planner (`Gemini 4 Neon`/`Carbon`/`Claude Opus 5.5`) with a fast executor (`Gemini 4 Hydrogen`/`Claude Sonnet 5.5`) in one conversation |
+| `/run-workflow` (`run_workflow`) | Run predictable scripted `parallel()` / `pipeline()` sweeps across files or packages, or staged reviewer-fixer loops |
 | `/goal` with `schedule` | Drive overnight autonomous tasks, queue drains, and periodic audit ticks |
 | `/loop` with `--verify` | Run an inner-loop verification hillclimb against a command that exits `0` on success |
 | `/schedule` | Set one-shot wakeups (`DurationSeconds`) or recurring cron triggers (`CronExpression`) |
-| `/boost` | Trigger Antigravity's native multi-stage deep reasoning pipeline |
-| `/teamwork-preview` | Run Antigravity's native collaborative team roles across large projects |
-| Native `/swarm` | Coordinate Antigravity agents that collaborate on a shared board |
+| `/boost` | Trigger Antigravity's native multi-stage deep reasoning pipeline for hard problems |
+| `/teamwork` | Run Antigravity's native collaborative team roles across long-horizon multi-milestone projects |
+| Native `/swarm` | Coordinate Antigravity agents that collaborate on a shared message board (opt-in; never invoked unprompted outside `/swarm`) |
 
-Do not send overnight audit ticks or standing PR watch loops through `/loop`. Use `/goal` paired with `schedule` for standing autonomous ticks, and reserve [`/loop`](../loop/SKILL.md) strictly for inner-loop verification hillclimbs (`--verify "<command>"`). Use local `invoke_subagent` fan-out for 8 or fewer independent workers, and [`/cloud-swarm`](../cloud-swarm/SKILL.md) for more than 8 headless workers on Cloud Run.
+Do not send overnight audit ticks or standing PR watch loops through `/loop`. Use `/goal` paired with `schedule` for standing autonomous ticks, and reserve [`/loop`](../loop/SKILL.md) strictly for inner-loop verification hillclimbs (`--verify "<command>"`). Use local `invoke_subagent` fan-out for 8 or fewer independent workers, `/run-workflow` for deterministic scripted sweeps (`parallel()` / `pipeline()`), native `/swarm` for shared-board peer collaboration, and [`/cloud-swarm`](../cloud-swarm/SKILL.md) for more than 8 headless workers on Cloud Run.
 
 ### agystack skills
 

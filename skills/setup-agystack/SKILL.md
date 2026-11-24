@@ -56,19 +56,22 @@ Do not leave the user to do the work. Complete the deployment end-to-end for the
 
 Enumerate the model tiers you can pass to `invoke_subagent` (local), `cloud_dispatch.py` (Cloud Run), and native `swarm`:
 
-**Local subagent tiers (`invoke_subagent`):**
-- `pro`: High-capability tier (maximum reasoning budget for complex code, architecture, and hard tasks; target for `gemini-4-neon-*`)
-- `flash`: Balanced fast tier (fast execution for exploration and standard generation; target for `gemini-4-hydrogen-*` and `gemini-3.8-flash-*`)
+**Local subagent tiers (`invoke_subagent` and `/run-workflow`):**
+- `pro`: High-capability tier (maximum reasoning budget for complex code, architecture, and hard tasks; target for `gemini-4-neon-*` and `gemini-4-carbon-*`)
+- `flash`: Balanced fast tier (fast execution for exploration and standard generation; target for `gemini-4-hydrogen-*` and legacy `gemini-3.8-flash-*`)
 - `flash_lite`: Lightweight tier (minimal latency for quick lookups)
-- `inherit` (or `auto`): Inherit parent chat model (target for `gemini-4-argon-*` and universal parent inheritance)
+- `inherit` (or `auto`): Inherit parent chat model (target for `Orchestrator`, legacy `gemini-4-argon-*`, and universal parent inheritance)
 
-**Gemini 4 Effort-Balanced Identifiers (Cross-Surface Compatible):**
-- `gemini-4-neon-{low,medium,high,xhigh}`: Frontier reasoning & coding (translates to `pro` on `invoke_subagent`, `gemini-4-neon` on `/cloud-swarm`, exact ID on native `swarm`)
-- `gemini-4-argon-{low,medium,high}`: Deep reasoning & systems engineering (translates to `inherit` on `invoke_subagent`, `gemini-4-argon` on `/cloud-swarm`, exact ID on native `swarm`)
-- `gemini-4-hydrogen-{low,medium,high,xhigh}`: High-speed execution & verification (translates to `flash` on `invoke_subagent`, `gemini-4-hydrogen` on `/cloud-swarm`, exact ID on native `swarm`)
+**Flagship Antigravity Models & Gemini 4 Effort-Balanced Identifiers (Cross-Surface Compatible):**
+- `gemini-4-neon-{low,medium,high,xhigh}`: Flagship reasoning & coding with up to 512K context (translates to `pro` on `invoke_subagent`, `gemini-4-neon` on `/cloud-swarm`, exact ID on native `swarm`)
+- `gemini-4-carbon-{low,medium,high}`: Frontier reasoning & systems engineering on paid Pro, Ultra, and Enterprise (translates to `pro` on `invoke_subagent`, `gemini-4-carbon` on `/cloud-swarm`, exact ID on native `swarm`)
+- `gemini-4-hydrogen-{low,medium,high,xhigh}`: High-speed execution & verification; default model on all plans (translates to `flash` on `invoke_subagent`, `gemini-4-hydrogen` on `/cloud-swarm`, exact ID on native `swarm`)
+- **Orchestrator** (`gemini-pro-orchestrator`): Pairs a frontier planner (`Gemini 4 Neon`, `Gemini 4 Carbon`, or `Claude Opus 5.5`; Enterprise pairs `Gemini 4 Carbon` High + `Gemini 4 Hydrogen` High) with a fast executor (`Gemini 4 Hydrogen` or `Claude Sonnet 5.5`) inside one conversation.
+- **Partner reasoning models (non-trial paid plans):** `Claude Opus 5.5 (thinking)` and `Claude Sonnet 5.5 (thinking)`.
+- **Deprecated models (leaving November 30, 2026):** `Gemini 3.8 Flash`, `Gemini 4 Argon`, `Claude 4.6`, and `GPT-OSS-120b`. Legacy aliases (`gemini-4-argon-*`, `gemini-3.8-flash-*`) remain normalized for backward compatibility.
 
 **Cloud Run swarm model tiers (`cloud_dispatch.py`):**
-- **Tier 1 (Zero-Friction MaaS):** `gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-3.8-flash`, `deepseek-v4.1-flash` (Instant on global Vertex endpoint, zero forms).
+- **Tier 1 (Zero-Friction MaaS):** `gemini-4-neon`, `gemini-4-carbon`, `gemini-4-hydrogen`, `deepseek-v4.1-flash` (plus legacy `gemini-4-argon`, `gemini-3.8-flash` until Nov 30, 2026; instant on global Vertex endpoint, zero forms).
 - **Tier 2 (Gated Partner MaaS):** `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-opus` (Requires one-time Console agreement).
 - **Tier 3 (Dedicated GPU Endpoint):** Open-weights models like `glm-5-3-flash` requiring dedicated 8x H100/B200 GPU instances.
 
@@ -77,8 +80,8 @@ Enumerate the model tiers you can pass to `invoke_subagent` (local), `cloud_disp
 If `~/.gemini/config/plugins/agystack/agystack-models.md` exists, read its current role assignments. Otherwise start from skill defaults.
 
 Present two presets to the user (or allow per-role customization):
-- **Preset 1: Universal / Gemini 3.8 Flash Compatible (Default).** Uses universal tiers (`inherit`, `flash`, and `pro`) so sessions running Gemini 3.8 Flash or any active parent model work out of the box without hardcoded model assumptions.
-- **Preset 2: Gemini 4 Effort-Balanced (Neon / Argon / Hydrogen).** Uses Gemini 4 effort-suffixed identifiers (`gemini-4-neon-xhigh`, `gemini-4-neon-high`, `gemini-4-argon-high`, and `gemini-4-hydrogen-medium`). Boundary translation automatically maps these to `pro`, `inherit`, and `flash` for `invoke_subagent`, strips effort suffixes to base Vertex AI model IDs (`gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`) for `/cloud-swarm`, and passes exact effort-suffixed IDs to native `swarm`.
+- **Preset 1: Universal Tiers (Default).** Uses universal tiers (`inherit`, `flash`, and `pro`) so sessions running Gemini 4 Hydrogen, Neon, Carbon, Orchestrator, or any active parent model work out of the box without hardcoded model assumptions.
+- **Preset 2: Gemini 4 Effort-Balanced (Neon / Carbon / Hydrogen).** Uses Gemini 4 effort-suffixed identifiers (`gemini-4-neon-xhigh`, `gemini-4-neon-high`, `gemini-4-carbon-high`, and `gemini-4-hydrogen-medium`). Boundary translation automatically maps these to `pro` and `flash` for `invoke_subagent`, strips effort suffixes to base Vertex AI model IDs (`gemini-4-neon`, `gemini-4-carbon`, `gemini-4-hydrogen`) for `/cloud-swarm`, and passes exact effort-suffixed IDs to native `swarm`.
 
 ### 4. Map and confirm
 
@@ -90,22 +93,25 @@ Show every role with its model tier and confirm:
 
 Write to `.agents/plugins/agystack/agystack-models.md` if installed workspace-locally, otherwise `~/.gemini/config/plugins/agystack/agystack-models.md`.
 
-**Preset 1: Universal / Gemini 3.8 Flash Compatible (Default):**
+**Preset 1: Universal Tiers (Default):**
 
 ```
 # agystack model configuration. One line per role. Delete a line to fall back to the skill default.
 #
 # Supported Model Identifiers:
-# 1. Universal Tiers (Default, compatible with Gemini 3.8 Flash and any active parent session model):
-#    - inherit    (Runs on the active parent chat session model, e.g. Gemini 3.8 Flash High or Gemini 4 Neon)
+# 1. Universal Tiers (Default, compatible with Gemini 4 Hydrogen/Neon/Carbon, Orchestrator, and any active parent session model):
+#    - inherit    (Runs on the active parent chat session model, e.g. Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Hydrogen, or Orchestrator)
 #    - pro        (High-capability tier: deep reasoning, large refactors, complex design)
 #    - flash      (Fast / balanced reasoning tier: exploration, reading, standard generation)
 #    - flash_lite (Lightweight tier: fast mechanical scans and lookups)
 #
 # 2. Gemini 4 Effort-Balanced Identifiers (Automatically translated at each tool boundary):
-#    - gemini-4-neon-{low,medium,high,xhigh}     (maps to 'pro' on invoke_subagent, 'gemini-4-neon' on /cloud-swarm, exact ID on native swarm)
-#    - gemini-4-argon-{low,medium,high}          (maps to 'inherit' on invoke_subagent, 'gemini-4-argon' on /cloud-swarm, exact ID on native swarm)
-#    - gemini-4-hydrogen-{low,medium,high,xhigh} (maps to 'flash' on invoke_subagent, 'gemini-4-hydrogen' on /cloud-swarm, exact ID on native swarm)
+#    - gemini-4-neon-{low,medium,high,xhigh}     (512K context; maps to 'pro' on invoke_subagent, 'gemini-4-neon' on /cloud-swarm, exact ID on native swarm)
+#    - gemini-4-carbon-{low,medium,high}         (maps to 'pro' on invoke_subagent, 'gemini-4-carbon' on /cloud-swarm, exact ID on native swarm)
+#    - gemini-4-hydrogen-{low,medium,high,xhigh} (default on all plans; maps to 'flash' on invoke_subagent, 'gemini-4-hydrogen' on /cloud-swarm, exact ID on native swarm)
+#    - Legacy aliases retained for compatibility (leaving Nov 30, 2026): gemini-4-argon-{low,medium,high}, gemini-3.8-flash-{low,medium,high}, Claude 4.6, GPT-OSS-120b.
+#    - Partner models (paid plans): Claude Opus 5.5 (thinking), Claude Sonnet 5.5 (thinking).
+#    - Orchestrator mode: pairs a frontier planner (Gemini 4 Neon, Gemini 4 Carbon, or Claude Opus 5.5; Enterprise pairs Gemini 4 Carbon High + Gemini 4 Hydrogen High) with a fast executor (Gemini 4 Hydrogen or Claude Sonnet 5.5).
 
 feature, refactoring: inherit
 bug-fix: inherit
@@ -126,26 +132,26 @@ architect runners: inherit, flash, pro
 interrogate reviewers: inherit, flash, pro
 ```
 
-**Preset 2: Gemini 4 Effort-Balanced (Neon / Argon / Hydrogen):**
+**Preset 2: Gemini 4 Effort-Balanced (Neon / Carbon / Hydrogen):**
 
 ```
 feature, refactoring: gemini-4-neon-high
 bug-fix: gemini-4-neon-high
-perf-issue: gemini-4-argon-high
-hillclimb: gemini-4-argon-high
+perf-issue: gemini-4-carbon-high
+hillclimb: gemini-4-carbon-high
 judgment and prose: gemini-4-neon-high
 hardest tasks: gemini-4-neon-xhigh
 how explorer: gemini-4-hydrogen-medium
 how explainer: gemini-4-neon-high
 why investigators: gemini-4-hydrogen-medium
-why synthesizer: gemini-4-argon-high
+why synthesizer: gemini-4-carbon-high
 reflect tooling: gemini-4-hydrogen-medium
 reflect judgment, divergent, synthesizer: gemini-4-neon-high
-arena runners: gemini-4-neon-high, gemini-4-argon-high, gemini-4-hydrogen-high
-arena cross-judge pool: gemini-4-neon-high, gemini-4-argon-high, gemini-4-hydrogen-high
+arena runners: gemini-4-neon-high, gemini-4-carbon-high, gemini-4-hydrogen-high
+arena cross-judge pool: gemini-4-neon-high, gemini-4-carbon-high, gemini-4-hydrogen-high
 swarm workers: gemini-4-hydrogen-medium
-architect runners: gemini-4-neon-xhigh, gemini-4-argon-high, gemini-4-hydrogen-high
-interrogate reviewers: gemini-4-neon-high, gemini-4-argon-high, gemini-4-hydrogen-medium
+architect runners: gemini-4-neon-xhigh, gemini-4-carbon-high, gemini-4-hydrogen-high
+interrogate reviewers: gemini-4-neon-high, gemini-4-carbon-high, gemini-4-hydrogen-medium
 ```
 
 ### 6. Confirm

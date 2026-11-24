@@ -116,6 +116,9 @@ _CANONICAL_BASE_MODELS = {
     "neon": "gemini-4-neon",
     "gemini-neon": "gemini-4-neon",
     "gemini-4-neon": "gemini-4-neon",
+    "carbon": "gemini-4-carbon",
+    "gemini-carbon": "gemini-4-carbon",
+    "gemini-4-carbon": "gemini-4-carbon",
     "argon": "gemini-4-argon",
     "gemini-argon": "gemini-4-argon",
     "gemini-4-argon": "gemini-4-argon",
@@ -141,8 +144,10 @@ _CANONICAL_BASE_MODELS = {
     "auto": "inherit",
     "inherit-parent": "inherit",
     "orchestrator": "inherit",
+    "gemini-pro-orchestrator": "inherit",
     "gemini-pro-orchestrator-g1-pro": "inherit",
     "gemini-pro-orchestrator-neon": "inherit",
+    "gemini-pro-orchestrator-carbon": "inherit",
     "": "inherit",
 }
 
@@ -158,7 +163,7 @@ def normalize_model_for_surface(
     base_model = _CANONICAL_BASE_MODELS.get(base_token, base_token)
 
     if surface == "invoke_subagent":
-        if base_model in ("gemini-4-neon", "gemini-3.1-pro") or base_token.startswith(
+        if base_model in ("gemini-4-neon", "gemini-4-carbon", "gemini-3.1-pro") or base_token.startswith(
             ("claude-opus", "claude-sonnet", "claude-3")
         ):
             resolved = "pro"
@@ -176,10 +181,12 @@ def normalize_model_for_surface(
         )
         resolved = normalized_default_model if base_model == "inherit" else base_model
     elif surface == "native_swarm":
-        if thought_level is not None or norm_raw.startswith("gemini-pro-orchestrator-"):
+        if thought_level is not None or norm_raw == "gemini-pro-orchestrator" or norm_raw.startswith("gemini-pro-orchestrator-"):
             resolved = norm_raw
         elif base_model == "gemini-4-neon":
             resolved = "gemini-4-neon-high"
+        elif base_model == "gemini-4-carbon":
+            resolved = "gemini-4-carbon-high"
         elif base_model == "gemini-4-argon":
             resolved = "gemini-4-argon-high"
         elif base_model == "gemini-4-hydrogen":
@@ -219,6 +226,7 @@ def check_model_garden(project_id=None, region="us-central1", run_cmd_fn=None, i
         "anthropic_installed": False,
         "serverless_models": [
             "gemini-4-neon",
+            "gemini-4-carbon",
             "gemini-4-argon",
             "gemini-4-hydrogen",
             "gemini-3.8-flash",
