@@ -192,3 +192,38 @@ def test_pstack_0_15_48_ported_skills_have_disable_model_invocation():
         "Cursor-only make-bot-ui must not be bundled in agystack"
     )
 
+
+def _strip_code_spans(text: str) -> str:
+    without_fences = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    return re.sub(r"`[^`\n]*`", "", without_fences)
+
+
+def test_relative_markdown_links_resolve():
+    files_to_check = [
+        REPO_ROOT / "README.md",
+        *sorted((REPO_ROOT / "skills").glob("*/SKILL.md")),
+        *sorted((REPO_ROOT / "docs" / "guide").glob("*.md")),
+    ]
+    link_re = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+    broken: list[str] = []
+
+    for md_file in files_to_check:
+        cleaned = _strip_code_spans(md_file.read_text(encoding="utf-8"))
+        for match in link_re.finditer(cleaned):
+            raw_target = match.group(1).strip()
+            if (
+                raw_target.startswith(("http://", "https://", "mailto:", "file://", "#", "/"))
+                or "<" in raw_target
+                or ">" in raw_target
+            ):
+                continue
+            path_part = raw_target.split("#", 1)[0]
+            if not path_part:
+                continue
+            resolved = (md_file.parent / path_part).resolve()
+            if not resolved.exists():
+                rel_src = md_file.relative_to(REPO_ROOT).as_posix()
+                broken.append(f"{rel_src} -> {raw_target}")
+
+    assert not broken, "Broken relative markdown links found:\n" + "\n".join(broken)
+

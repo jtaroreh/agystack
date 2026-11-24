@@ -899,6 +899,21 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             },
         )
         self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-carbon-high", "invoke_subagent"),
+            {
+                "raw": "gemini-4-carbon-high",
+                "base_model": "gemini-4-carbon",
+                "thought_level": "high",
+                "surface": "invoke_subagent",
+                "resolved": "pro",
+            },
+        )
+        for alias in ("carbon", "gemini-carbon", "gemini-4-carbon", "gemini-4-carbon-low", "gemini-4-carbon-medium"):
+            self.assertEqual(
+                setup_runtime.normalize_model_for_surface(alias, "invoke_subagent")["resolved"],
+                "pro",
+            )
+        self.assertEqual(
             setup_runtime.normalize_model_for_surface("gemini-4-argon-high", "invoke_subagent")["resolved"],
             "inherit",
         )
@@ -923,6 +938,11 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
             setup_runtime.normalize_model_for_surface("gemini-4-neon-xhigh", "cloud_swarm")["resolved"],
             "gemini-4-neon",
         )
+        for alias in ("carbon", "gemini-carbon", "gemini-4-carbon", "gemini-4-carbon-low", "gemini-4-carbon-medium", "gemini-4-carbon-high"):
+            self.assertEqual(
+                setup_runtime.normalize_model_for_surface(alias, "cloud_swarm")["resolved"],
+                "gemini-4-carbon",
+            )
         self.assertEqual(
             setup_runtime.normalize_model_for_surface("gemini-4-argon-high", "cloud_swarm")["resolved"],
             "gemini-4-argon",
@@ -949,6 +969,14 @@ class TestSetupRuntimeProvisioner(unittest.TestCase):
         self.assertEqual(
             setup_runtime.normalize_model_for_surface("neon", "native_swarm")["resolved"],
             "gemini-4-neon-high",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("carbon", "native_swarm")["resolved"],
+            "gemini-4-carbon-high",
+        )
+        self.assertEqual(
+            setup_runtime.normalize_model_for_surface("gemini-4-carbon-medium", "native_swarm")["resolved"],
+            "gemini-4-carbon-medium",
         )
         self.assertEqual(
             setup_runtime.normalize_model_for_surface("argon", "native_swarm")["resolved"],

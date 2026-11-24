@@ -210,6 +210,39 @@ class TestAntigravityInvariants(unittest.TestCase):
         sharpen = _read_repo_file("skills/sharpen/SKILL.md")
         self.assertIn("prototype any choice an experiment can settle", sharpen)
 
+    def test_zero_teamwork_preview_leakage(self):
+        scan_paths = [REPO_ROOT / "README.md"]
+        for d in (SKILLS_DIR, REPO_ROOT / "rules", REPO_ROOT / "agents", REPO_ROOT / "docs"):
+            scan_paths.extend(sorted(d.rglob("*.md")))
+        hits: list[str] = []
+        for path in scan_paths:
+            rel = path.relative_to(REPO_ROOT)
+            if _is_excluded_skill_doc(rel):
+                continue
+            if "teamwork-preview" in path.read_text(encoding="utf-8"):
+                hits.append(rel.as_posix())
+        self.assertEqual(hits, [], f"Stale /teamwork-preview references found: {hits}")
+
+    def test_official_antigravity_docs_and_models_alignment(self):
+        tools_ref = _read_repo_file("skills/poteto-mode/references/antigravity-tools.md")
+        for token in (
+            "/run-workflow",
+            "run_workflow",
+            "Gemini 4 Neon",
+            "Gemini 4 Carbon",
+            "Gemini 4 Hydrogen",
+            "Orchestrator",
+            "/teamwork",
+            "/boost",
+            "LocalAgentConfig",
+            "CapabilitiesConfig",
+            "SubagentConfig",
+            "skills_paths",
+            "BuiltinTools",
+        ):
+            self.assertIn(token, tools_ref, f"antigravity-tools.md missing official docs token {token!r}")
+        self.assertNotIn("Subagents: [", tools_ref, "antigravity-tools.md still has stale Subagents array schema")
+
     def test_active_role_keys_defined_and_consumed(self):
         models_path = REPO_ROOT / "agystack-models.md"
         root_models = _parse_model_lines(models_path.read_text(encoding="utf-8"))

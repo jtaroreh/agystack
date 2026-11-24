@@ -743,8 +743,10 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
         "auto",
         "inherit-parent",
         "orchestrator",
+        "gemini-pro-orchestrator",
         "gemini-pro-orchestrator-g1-pro",
         "gemini-pro-orchestrator-neon",
+        "gemini-pro-orchestrator-carbon",
     ):
         default_model = "gemini-3.8-flash"
     else:
@@ -754,6 +756,9 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
         "neon": "gemini-4-neon",
         "gemini-neon": "gemini-4-neon",
         "gemini-4-neon": "gemini-4-neon",
+        "carbon": "gemini-4-carbon",
+        "gemini-carbon": "gemini-4-carbon",
+        "gemini-4-carbon": "gemini-4-carbon",
         "argon": "gemini-4-argon",
         "gemini-argon": "gemini-4-argon",
         "gemini-4-argon": "gemini-4-argon",
@@ -778,8 +783,10 @@ def resolve_worker_model(raw_model: Optional[str] = None, task_item: Any = None)
         "inherit-parent": default_model,
         "inherit_parent": default_model,
         "orchestrator": default_model,
+        "gemini-pro-orchestrator": default_model,
         "gemini-pro-orchestrator-g1-pro": default_model,
         "gemini-pro-orchestrator-neon": default_model,
+        "gemini-pro-orchestrator-carbon": default_model,
         "": default_model,
     }
     alias_map.update(PARTNER_MODEL_ALIASES)

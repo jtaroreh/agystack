@@ -14,7 +14,7 @@ Always operate on the most direct, authoritative surface for the task:
 
 | Cursor / pstack legacy | Antigravity Native Tool & Argument |
 | --- | --- |
-| `Task` tool | `invoke_subagent` with `Subagents: [{ TypeName, Role, Prompt, Model, Workspace }]` |
+| `Task` tool | `invoke_subagent` with flat parameters `TypeName`, `Role`, `Prompt`, `Model`, `Workspace` |
 | `subagent_type: generalPurpose` | `TypeName: "self"` (clone of parent context and capabilities) |
 | `subagent_type: "poteto-agent"` | `TypeName: "poteto-agent"` |
 | `subagent_type: "Comment Sicko"` | `TypeName: "comment-sicko"` |
@@ -24,7 +24,8 @@ Always operate on the most direct, authoritative surface for the task:
 | Subagent workspace isolation | `Workspace: "branch"` (isolated git branch/worktree) or `Workspace: "share"` |
 | `environment: "local"` | `Workspace: "inherit"` (default parent workspace) |
 | Worker iteration / message passing | `send_message` with `Recipient` and `Message` |
-| Parallel fan-out (Local N <= 8) | Single `invoke_subagent` call with multiple entries in `Subagents` array (see Local fan-out) |
+| Parallel fan-out (Local N <= 8) | Multiple concurrent `invoke_subagent` calls in one turn (see Local fan-out) |
+| Deterministic scripted sweeps | Dynamic Workflows (`/run-workflow`, `run_workflow` with `parallel()` / `pipeline()`) |
 | Parallel fan-out (Cloud N > 8) | `python3 "$(find ~/.gemini/config/plugins/agystack .agents/plugins/agystack skills/cloud-swarm/scripts -name "cloud_dispatch.py" 2>/dev/null | head -1)" --manifest <manifest-json> --parallelism 16` |
 | Cloud container worker | `python skills/cloud-swarm/scripts/cloud_worker.py` entrypoint in Cloud Run |
 | `AskQuestion` | `ask_question` tool for interactive questions |
@@ -66,13 +67,14 @@ For 8 or fewer independent parallel workers, verification lanes, or candidate ra
 
 | Need | Use |
 | --- | --- |
-| 8 or fewer independent workers, verification lanes | Local fan-out (`invoke_subagent`) |
-| Workers that talk to each other on a board | Native `/swarm` (preview, quota heavy, opt-in) |
-| More than 8 workers, headless, patch harvest from GCS | `/cloud-swarm` |
+| 8 or fewer independent workers, verification lanes | Local fan-out (`invoke_subagent`, multiple parallel calls in one turn) |
+| Deterministic scripted sweeps across files/packages or staged reviewer-fixer loops | Dynamic Workflows (`/run-workflow`, `run_workflow` with `parallel()` / `pipeline()`) |
+| Workers that talk to each other on a shared message board | Native `/swarm` (all plans, opt-in; never invoke unprompted outside `/swarm`) |
+| More than 8 workers, headless, patch harvest from GCS | `/cloud-swarm` (Cloud Run) |
 
 ### Recipe
 
-1. **Batch Spawn:** Dispatch all workers in a single `invoke_subagent` call with `TypeName: "poteto-agent"` (or `"self"`), `Role: "Worker (<slice>)"`, `Workspace: "branch"`, and the model resolved from `swarm workers` in `~/.gemini/config/plugins/agystack/agystack-models.md` (default: `flash`).
+1. **Batch Spawn:** Dispatch all workers as concurrent `invoke_subagent` calls in one turn with flat parameters `TypeName: "poteto-agent"` (or `"self"`), `Role: "Worker (<slice>)"`, `Workspace: "branch"`, and the model resolved from `swarm workers` in `~/.gemini/config/plugins/agystack/agystack-models.md` (default: `flash`).
 2. **Standalone Brief, SHAs, and Measurement Method:** Give each writing worker its own writable workspace (`Workspace: "branch"`). Every brief stands alone with goal, scope, exact slice or race arm, verification command, and report format (`PASS`, `ISSUES`, or `BLOCKED` with evidence). A worker proving a defect lists every provable issue, not only the first. When workers verify or measure commits, name the exact SHAs in each brief, and for measurements also name the method, including sample count, what one sample is, and execution order. Require every worker to echo both in its `send_message` result.
 3. **Mandatory Reporting Contract:** In each worker's prompt, provide `{PARENT_CONVERSATION_ID}` and mandate that upon completing work and verification, the worker MUST invoke `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"` and its findings and status.
 4. **Reactive Watchdog Protocol:**
@@ -189,21 +191,25 @@ Every playbook completion requires concrete proof on the real target surface bef
 
 ## Models
 
-Antigravity subagents use native `invoke_subagent` model tiers (`inherit`, `pro`, `flash`, `flash_lite`), while `/cloud-swarm` and native `swarm` accept concrete model identifiers and effort suffixes.
+Antigravity subagents and Dynamic Workflows use native model tiers (`inherit`, `pro`, `flash`, `flash_lite`), while `/cloud-swarm` and native `/swarm` accept concrete model identifiers and effort suffixes.
 
 ### Universal `invoke_subagent` Tiers
 
-- `inherit` (Inherits the active parent model, running your current session choice such as Gemini 3.8 Flash High or Gemini 4 Neon with Antigravity 2.12.2 ADC support)
-- `pro` (High-capability tier)
-- `flash` (Balanced fast tier: fast exploration, standard implementation, and reviews)
+- `inherit` (Inherits the active parent model, such as `Gemini 4 Neon`, `Gemini 4 Carbon`, `Gemini 4 Hydrogen`, or `Orchestrator`)
+- `pro` (High-capability tier: deep reasoning, complex architecture, and hard tasks)
+- `flash` (Balanced fast tier: fast exploration, standard implementation, and high-volume checks)
 - `flash_lite` (Lightweight tier: fast mechanical scans and lookups)
 
-### Gemini 4 Family & Effort Suffixes
+### Flagship Antigravity Models & Gemini 4 Effort Suffixes
 
-`agystack-models.md` also supports Gemini 4 family identifiers with optional `-low`, `-medium`, `-high`, or `-xhigh` effort suffixes:
-- `gemini-4-neon` (`gemini-4-neon-{low,medium,high,xhigh}`): Frontier reasoning and coding tier.
-- `gemini-4-argon` (`gemini-4-argon-{low,medium,high}`): Deep reasoning and systems engineering tier.
-- `gemini-4-hydrogen` (`gemini-4-hydrogen-{low,medium,high,xhigh}`): High-speed execution and verification tier.
+Per Google Antigravity's model catalog (`https://antigravity.google/docs/models.md`), `agystack-models.md` supports Gemini 4 family identifiers with optional `-low`, `-medium`, `-high`, or `-xhigh` effort suffixes:
+
+- **Gemini 4 Neon** (`gemini-4-neon-{low,medium,high,xhigh}`, up to 512K context): Flagship reasoning and coding model on paid Google AI Pro, Google AI Ultra, and Gemini Enterprise.
+- **Gemini 4 Carbon** (`gemini-4-carbon-{low,medium,high}`): Frontier reasoning and systems engineering model included on paid Google AI Pro, Google AI Ultra, and Gemini Enterprise.
+- **Gemini 4 Hydrogen** (`gemini-4-hydrogen-{low,medium,high,xhigh}`): Fast default model available on all plans (Free, Plus, Pro, Ultra, Enterprise).
+- **Orchestrator** (`gemini-pro-orchestrator`): Model selector mode (Pro, Ultra, Enterprise) pairing a frontier planner (`Gemini 4 Neon`, `Gemini 4 Carbon`, or `Claude Opus 5.5`; Enterprise pairs `Gemini 4 Carbon` High with `Gemini 4 Hydrogen` High) with a faster executor (`Gemini 4 Hydrogen` or `Claude Sonnet 5.5`) inside one conversation.
+- **Claude Opus 5.5 (thinking)** and **Claude Sonnet 5.5 (thinking)**: Partner reasoning models available on non-trial paid plans.
+- **Deprecated models (leaving November 30, 2026)**: `Gemini 3.8 Flash`, `Gemini 4 Argon`, `Claude 4.6`, and `GPT-OSS-120b`. `setup_runtime.py`, `cloud_dispatch.py`, and `cloud_worker.py` retain backward-compatible alias normalization for legacy strings (`gemini-4-argon-*`, `gemini-3.8-flash-*`) so existing configs keep working.
 
 ### Cross-Surface Boundary Translation
 
@@ -211,24 +217,25 @@ Because each execution surface enforces its own schema, model identifiers config
 
 | Configured `agystack-models.md` Entry | `invoke_subagent` (`Model` enum) | `/cloud-swarm` (Vertex AI / AI Studio) | Native `swarm` |
 | --- | --- | --- | --- |
-| `inherit` / `auto` | `inherit` | Active parent base model or `gemini-3.8-flash` | `inherit` |
+| `inherit` / `auto` | `inherit` | Active parent base model or default | `inherit` |
 | `pro` / `gemini-4-neon` / `gemini-4-neon-{low,medium,high,xhigh}` | `pro` | `gemini-3.1-pro` / `gemini-4-neon` (suffix stripped) | `gemini-4-neon-high` (or exact suffixed ID) |
-| `gemini-4-argon` / `gemini-4-argon-{low,medium,high}` | `inherit` | `gemini-4-argon` (suffix stripped) | `gemini-4-argon-high` (or exact suffixed ID) |
+| `gemini-4-carbon` / `gemini-4-carbon-{low,medium,high}` | `pro` | `gemini-4-carbon` (suffix stripped) | `gemini-4-carbon-high` (or exact suffixed ID) |
 | `flash` / `gemini-4-hydrogen` / `gemini-4-hydrogen-{low,medium,high,xhigh}` | `flash` | `gemini-3.8-flash` / `gemini-4-hydrogen` (suffix stripped) | `gemini-4-hydrogen-medium` (or exact suffixed ID) |
-| `gemini-3.8-flash` / `gemini-3.8-flash-high` | `flash` | `gemini-3.8-flash` (suffix stripped) | `gemini-3.8-flash-high` |
+| `gemini-4-argon` / `gemini-4-argon-{low,medium,high}` (legacy; Nov 30, 2026) | `inherit` | `gemini-4-argon` (suffix stripped) | `gemini-4-argon-high` (or exact suffixed ID) |
+| `gemini-3.8-flash` / `gemini-3.8-flash-high` (legacy; Nov 30, 2026) | `flash` | `gemini-3.8-flash` (suffix stripped) | `gemini-3.8-flash-high` |
 | `flash_lite` / `gemini-3.1-flash-lite` | `flash_lite` | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` |
-| `orchestrator` / `gemini-pro-orchestrator-*` | `inherit` | Active parent base model or `gemini-3.8-flash` | `gemini-pro-orchestrator-g1-pro` (or exact ID) |
+| `orchestrator` / `gemini-pro-orchestrator*` | `inherit` | Active parent base model or default | `gemini-pro-orchestrator-g1-pro` (or exact ID) |
 
 ### Quota / Single-Tier Fallback
 
-If an account only has access to a single model tier (such as Gemini 3.8 Flash) or encounters HTTP 429 `RESOURCE_EXHAUSTED` when spawning a `pro` or `flash` subagent via `invoke_subagent`, fall back immediately to `Model: "inherit"` so all subagents and multi-reviewer panel slots complete on the active session model without dropping coverage.
+If an account only has access to a single model tier (such as Gemini 4 Hydrogen) or encounters HTTP 429 `RESOURCE_EXHAUSTED` when spawning a `pro` or `flash` subagent via `invoke_subagent`, fall back immediately to `Model: "inherit"` so all subagents and multi-reviewer panel slots complete on the active session model without dropping coverage.
 
 | Role / Intent | Antigravity Model Tier |
 | --- | --- |
-| Primary reasoning / difficult tasks | `inherit` (runs on your active chat model, e.g. Gemini 3.8 Flash High or Gemini 4 Neon) |
+| Primary reasoning / difficult tasks | `inherit` (runs on your active chat model, e.g. Gemini 4 Neon, Gemini 4 Carbon, or Orchestrator) |
 | Fast mechanical scanning / exploration | `flash` or `flash_lite` (or `gemini-4-hydrogen-medium`) |
-| Deep judgment, prose, architecture | `inherit` or `pro` (or `gemini-4-neon-xhigh`, `gemini-4-argon-high`) |
-| Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` (or Neon, Argon, Hydrogen) |
+| Deep judgment, prose, architecture | `inherit` or `pro` (or `gemini-4-neon-xhigh`, `gemini-4-carbon-high`) |
+| Multi-model review panels | Diverse combination across `inherit`, `flash`, and `pro` (or Neon, Carbon, Hydrogen) |
 
 Read per-role overrides from `~/.gemini/config/plugins/agystack/agystack-models.md` (or `.agents/plugins/agystack/agystack-models.md`). If a line is missing, use the defaults above.
 
@@ -239,20 +246,28 @@ Keep panels diverse across available tiers (`inherit`, `flash`, `pro`). One suba
 ### User-Facing Slash Commands vs Programmatic Primitives
 
 There is a strict boundary between user-facing slash commands and programmatic agent tool primitives:
-- **User-Facing Slash Commands (`/boost`, `/teamwork-preview`, `/interrogate`, etc.)**: UI shortcuts entered directly by human users into the Antigravity chat prompt. Agents cannot execute slash commands as tool calls; agents recommend or suggest that the user invoke slash commands when appropriate, or initiate the underlying programmatic workflows.
-- **Programmatic Primitives (`invoke_subagent`, `run_command`, `schedule`, `ask_question`)**: Callable tool primitives executed by agents within tool execution turns. Automated multi-agent workflows, code reviews, and background tasks are implemented programmatically using these tools.
+- **User-Facing Slash Commands (`/run-workflow`, `/swarm`, `/boost`, `/teamwork`, `/interrogate`, etc.)**: UI shortcuts entered directly by human users into the Antigravity chat prompt. Agents cannot execute slash commands as tool calls; agents recommend or suggest that the user invoke slash commands when appropriate, or initiate the underlying programmatic workflows.
+- **Programmatic Primitives (`invoke_subagent`, `run_workflow`, `run_command`, `schedule`, `ask_question`)**: Callable tool primitives executed by agents within tool execution turns. Automated multi-agent workflows, code reviews, and background tasks are implemented programmatically using these tools.
 
-### `/boost`
+| Capability | Plan | Best For | Mechanics |
+| --- | --- | --- | --- |
+| **Orchestrator** (model mode) | Pro, Ultra, Enterprise | Day-to-day feature, bug fix, and refactor in one conversation | Frontier planner (`Gemini 4 Neon`/`Carbon`/`Claude Opus 5.5`; Enterprise pairs `Gemini 4 Carbon` High + `Gemini 4 Hydrogen` High) plans and reviews; faster executor (`Gemini 4 Hydrogen`/`Claude Sonnet 5.5`) runs tools and edits. |
+| **Subagents (`invoke_subagent`)** | All plans | Focused background delegation (`<= 8` workers, code delegates, review panels) | Flat parameters (`TypeName`, `Role`, `Prompt`, `Model`, `Workspace`); emit multiple concurrent calls in one turn for local fan-out. |
+| **Dynamic Workflows (`/run-workflow`, `run_workflow`)** | All plans | Predictable scripted fan-out across many files/packages or staged reviewer-fixer loops | Agent writes and runs a short Python script using `agent()`, `parallel()`, `pipeline()`, `phase()`, `log()`, JSON `schema`, `workspace`, `model`, and `type_name`. |
+| **Swarm (`/swarm`)** | All plans | Broad tasks dividing cleanly across independent files, packages, or tracks with peer coordination | Coordinator splits work across named workers, `@verifier`, and `@monitor` on one shared live message board (`@mentions`). Never invoke the native `swarm` tool unprompted outside `/swarm`. |
+| **Cloud Swarm (`/cloud-swarm`)** | GCP / Cloud Run | Headless batch sweeps with `> 8` workers and GCS patch harvesting | On-demand Cloud Run Jobs via `cloud_dispatch.py` and `cloud_worker.py` (`$0` when idle). |
+| **Boost (`/boost`)** | Paid plans | Hard rather than broad problems (tough bugs, race conditions, algorithms) | Iterative deep-reasoning pipeline (`Orchestrator` -> `DeepCoder`/`DeepInvestigator`) where workers implement, challenge, fix, and re-verify. |
+| **Teamwork (`/teamwork`)** | Paid plans | Long-horizon multi-milestone projects (repo migrations, simulations, formal proofs) | Starts with a Phase 1 scoping interview, then runs `Sentinel`, `Project Orchestrator`, `Workers`, and `Critic`/`Challenger`/`Auditor`/`Success Auditor` gates in `~/teamwork_projects/{PROJECT_NAME}`. |
 
-`/boost` is Antigravity's multi-agent reasoning pipeline for deep thinking, strategic planning, multiple perspectives, and rigorous verification. It dynamically orchestrates specialized reasoning stages and verification passes to tackle complex architectural questions and pressure-test solutions before implementation.
+### Antigravity Python SDK (`google-antigravity`)
 
-### `/teamwork-preview`
-
-`/teamwork-preview` is Antigravity's platform capability for collaborative agent teams working together on large projects with autonomous specialist roles. It coordinates multiple agents operating in parallel across distinct functional specializations (such as design, implementation, testing, and review) to drive multi-phase efforts to completion.
+For programmatic agent harnesses or eval runners built on the `google-antigravity` Python SDK:
+- Configure local sessions with `LocalAgentConfig`, `CapabilitiesConfig`, `SubagentConfig`, `skills_paths`, and `BuiltinTools`.
+- Point `skills_paths` at this plugin's `skills/` directory to load agystack skills deterministically inside SDK-driven agents.
 
 ### agystack Skills vs Native Platform Modes
 
-agystack skills (`/interrogate`, `/arena`, `/architect`, `/cloud-swarm`) build directly on Antigravity's programmatic primitives (`invoke_subagent`, `run_command`, `schedule`, artifacts). They orchestrate independent subagents across isolated context windows, diverse model tiers (`pro`, `flash`, `inherit`), and segregated workspaces with automated verification and synthesis.
+agystack skills (`/interrogate`, `/arena`, `/architect`, `/cloud-swarm`) build directly on Antigravity's programmatic primitives (`invoke_subagent`, `run_workflow`, `run_command`, `schedule`, Brain Artifacts). They orchestrate independent subagents across isolated context windows, diverse model tiers (`pro`, `flash`, `inherit`), and segregated workspaces (`Workspace: "branch"` or Cloud Run containers) with automated verification and synthesis.
 
 ## Paths
 

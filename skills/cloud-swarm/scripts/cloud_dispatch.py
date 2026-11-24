@@ -1135,6 +1135,9 @@ def resolve_swarm_model(
         "neon": "gemini-4-neon",
         "gemini-neon": "gemini-4-neon",
         "gemini-4-neon": "gemini-4-neon",
+        "carbon": "gemini-4-carbon",
+        "gemini-carbon": "gemini-4-carbon",
+        "gemini-4-carbon": "gemini-4-carbon",
         "argon": "gemini-4-argon",
         "gemini-argon": "gemini-4-argon",
         "gemini-4-argon": "gemini-4-argon",
@@ -1158,8 +1161,10 @@ def resolve_swarm_model(
         "inherit-parent": default_model,
         "inherit_parent": default_model,
         "orchestrator": default_model,
+        "gemini-pro-orchestrator": default_model,
         "gemini-pro-orchestrator-g1-pro": default_model,
         "gemini-pro-orchestrator-neon": default_model,
+        "gemini-pro-orchestrator-carbon": default_model,
     }
     stripped = _strip_effort_suffix(chosen)
     norm_stripped = stripped.lower().replace("_", "-")
@@ -1339,10 +1344,11 @@ def main() -> None:
 Vertex AI Model Garden Tiers for Cloud Swarms:
 -----------------------------------------------------------------------------------------
 Tier 1: Native MaaS (Instant Serverless, Zero Forms)
-  - gemini-4-neon               Global Vertex AI endpoint, frontier reasoning & coding
-  - gemini-4-argon              Global Vertex AI endpoint, deep reasoning & systems engineering
+  - gemini-4-neon               Global Vertex AI endpoint, frontier reasoning & coding (512K context)
+  - gemini-4-carbon             Global Vertex AI endpoint, frontier reasoning & systems engineering
   - gemini-4-hydrogen           Global Vertex AI endpoint, high-speed execution & verification
-  - gemini-3.8-flash            Global Vertex AI endpoint, balanced speed
+  - gemini-4-argon              Global Vertex AI endpoint (legacy; deprecated Nov 30, 2026)
+  - gemini-3.8-flash            Global Vertex AI endpoint (legacy; deprecated Nov 30, 2026)
   - gemini-3.1-pro              Global Vertex AI endpoint, high capability
   - deepseek-v4.1-flash         Global Vertex AI endpoint (deepseek-ai namespace)
 
