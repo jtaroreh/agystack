@@ -40,21 +40,16 @@ class TestReactiveCoordinationRules(unittest.TestCase):
             swarm_content,
         )
 
-    def test_reviewer_prompt_has_send_message_contract(self):
-        prompt_file = SKILLS_DIR / "interrogate" / "references" / "reviewer-prompt.md"
-        content = prompt_file.read_text(encoding="utf-8")
-        self.assertIn("send_message", content)
-        self.assertIn("{PARENT_CONVERSATION_ID}", content)
-        self.assertIn("Output & Handoff", content)
-
-    def test_interrogate_skill_has_zero_tool_yield(self):
+    def test_interrogate_skill_has_send_message_and_zero_tool_yield(self):
         skill_file = SKILLS_DIR / "interrogate" / "SKILL.md"
         content = skill_file.read_text(encoding="utf-8")
+        self.assertIn("send_message", content)
+        self.assertIn("{PARENT_CONVERSATION_ID}", content)
         self.assertIn('TimerCondition: "never"', content)
         self.assertTrue(
             "ZERO tools (`tool_calls: []`)" in content or "zero tool calls" in content
         )
-        self.assertIn("{PARENT_CONVERSATION_ID}", content)
+        self.assertIn('Workspace: "branch"', content)
 
     def test_arena_skill_has_reactive_protocol(self):
         arena_content = (SKILLS_DIR / "arena" / "SKILL.md").read_text(encoding="utf-8")

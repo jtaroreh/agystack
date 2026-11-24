@@ -84,7 +84,7 @@ two steps:
 
 new here? the [agystack guide](./docs/guide/README.md) walks you through a first real task, from setup and prompting through verification and overnight runs.
 
-that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by model tier: exploration, investigators, and swarm workers run on `flash`, while implementation, judgment, and synthesis roles use `inherit` (your active chat model). the default review and runner panel is `inherit` / `flash` / `pro`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
+that's it. the other skills are situational; the mode skill uses them for you as needed. out of the box on Antigravity the mode splits work by model tier: swarm workers run on `flash`, while implementation, judgment, and synthesis roles use `inherit` (your active chat model). the default review and runner panel is `inherit` / `flash` / `pro`. [`/setup-agystack`](./skills/setup-agystack/SKILL.md) changes any of it.
 
 ## usage
 
@@ -92,7 +92,7 @@ use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/potet
 
 ### just use [`/agystack`](./skills/agystack/SKILL.md) or [`/poteto-mode`](./skills/poteto-mode/SKILL.md)
 
-this skill is the main shortcut. i use it whenever i need the agent to do rigorous engineering work. it comes with 23 playbooks:
+this skill is the main shortcut. i use it whenever i need the agent to do rigorous engineering work. it comes with 22 playbooks:
 
 ```
 /poteto-mode this pr has a subtle bug where the scroll drifts every 750ms even when idle. repro
@@ -105,7 +105,7 @@ morning.
 ```
 
 <details>
-<summary>the 23 playbooks</summary>
+<summary>the 22 playbooks</summary>
 
 | playbook | for |
 |---|---|
@@ -124,7 +124,6 @@ morning.
 | [babysit](./skills/poteto-mode/playbooks/babysit.md) | drive a pr or a stack to merge-ready: conflicts, review threads, ci. |
 | [shipping](./skills/poteto-mode/playbooks/shipping.md) | independently verify a green stack, then land the contiguous verified run with graphite merge-when-ready. |
 | [autonomous run](./skills/poteto-mode/playbooks/autonomous-run.md) | drive a long task to completion without stopping. |
-| [orchestrate](./skills/poteto-mode/playbooks/orchestrate.md) | a standing project handed to one coordinator chat: multi-day, many stacked prs, fleets of subagents. |
 | [autopilot-full](./skills/poteto-mode/playbooks/autopilot-full.md) | run independent prs to merged with one owner per pr and root verification of each merge-ready head. |
 | [autopilot-stack](./skills/poteto-mode/playbooks/autopilot-stack.md) | build and verify one linear graphite stack for the operator to review and land. |
 | [session pickup](./skills/poteto-mode/playbooks/session-pickup.md) | resume or take over a prior agent's in-flight work. |

@@ -72,7 +72,7 @@ For a quick status instead of a full trail audit, run [`/ketchup`](../../skills/
 
 ## When the night holds a queue, not a task
 
-The contract above drives one task to one finish condition. Some nights hold more, such as a queue of independent changes or a multi-day program. Three playbooks scale the same trust up.
+The contract above drives one task to one finish condition. Some nights hold more, such as a queue of independent changes or a multi-day program. Two playbooks scale the same trust up, and native `/teamwork` paired with `/figure-it-out` handles multi-day multi-milestone programs.
 
 [Autopilot-full](../../skills/poteto-mode/playbooks/autopilot-full.md) runs a queue of independent PRs to merged. Each PR gets one `poteto-agent` owner carrying build through merge, and no owner merges on its own verdict. A verification swarm proves the code-ready head live, while rebases or minor fixes get a single fresh verifier (`git patch-id` preserves valid lanes across pure rebases). Only a clean verdict authorizes the merge via `gh` (or `origin pr`).
 
@@ -86,10 +86,10 @@ The contract above drives one task to one finish condition. Some nights hold mor
 /poteto-mode autopilot these five changes, but stack them, don't ship. i'll land the stack in the morning.
 ```
 
-[Orchestrate](../../skills/poteto-mode/playbooks/orchestrate.md) handles programs that outlive any single agent (multi-day, many stacked PRs, dozens of subagents under one standing coordinator chat). The coordinator authors briefs, drains completions, keeps the lowest unmerged PR green, and never edits code itself. If one agent could finish the work inside a single session, Orchestrate routes you back to the overnight contract above.
+For multi-day, multi-milestone programs that outlive a single agent session (repository-wide migrations, system simulations, formal proofs), pair [`/figure-it-out`](../../skills/figure-it-out/SKILL.md) with Antigravity's native `/teamwork`. Teamwork runs a Phase 1 scoping interview, then coordinates `Sentinel`, `Project Orchestrator`, specialized workers, and milestone audit gates (`Critic`, `Challenger`, `Auditor`, `Success Auditor`) in a dedicated project directory.
 
 ```text
-/poteto-mode orchestrate the store migration. own it until every package is converted and merged. i'll check in twice a day.
+/teamwork Migrate the store package across every consumer with full test coverage and milestone audits.
 ```
 
 When you automate staged triage, repro, and fix passes on a recurring `schedule`, keep two rules intact. Every stage can stop the line when a report fails to reproduce or looks too risky, and every stage hands over concrete evidence (screenshots, logs, and before-and-after proof) so a human can check intent before reading code.

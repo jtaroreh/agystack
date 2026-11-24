@@ -48,7 +48,7 @@ If cost is the worry, explain where tokens go and how to spend fewer. agystack s
 
 ## Start a task with `/agystack` or `/poteto-mode`
 
-`/agystack` and `/poteto-mode` are twin entry points that both load [`poteto-mode`](../poteto-mode/SKILL.md). Both match the task to one of 23 playbooks, copy its steps into the todo list, delegate non-trivial code edits (`> 50` lines or multi-file changes) to `poteto-agent` via `invoke_subagent`, and write deliverables (`implementation_plan.md`, `walkthrough.md`, domain reports) under `<appDataDir>/brain/<conversation-id>/`.
+`/agystack` and `/poteto-mode` are twin entry points that both load [`poteto-mode`](../poteto-mode/SKILL.md). Both match the task to one of 22 playbooks, copy its steps into the todo list, delegate non-trivial code edits (`> 50` lines or multi-file changes) to `poteto-agent` via `invoke_subagent`, and write deliverables (`implementation_plan.md`, `walkthrough.md`, domain reports) under `<appDataDir>/brain/<conversation-id>/`.
 
 A good prompt states the goal and how to verify completion. Leave out a hand-written sequence of skills, because listing skills drops or reorders steps the playbook keeps. Read [`references/prompting.md`](references/prompting.md) before helping word a prompt. [Guide page 2](../../docs/guide/02-poteto-mode.md) has examples.
 
@@ -62,7 +62,7 @@ Antigravity separates user-facing slash commands from programmatic agent primiti
 
 | Command or capability | When to use |
 |---|---|
-| `/agystack` or `/poteto-mode` | Run any non-trivial task under the 23 playbooks and 24 principles |
+| `/agystack` or `/poteto-mode` | Run any non-trivial task under the 22 playbooks and 24 principles |
 | **Orchestrator** (model mode) | Pair a frontier planner (`Gemini 4 Neon`/`Carbon`/`Claude Opus 5.5`) with a fast executor (`Gemini 4 Hydrogen`/`Claude Sonnet 5.5`) in one conversation |
 | `/run-workflow` (`run_workflow`) | Run predictable scripted `parallel()` / `pipeline()` sweeps across files or packages, or staged reviewer-fixer loops |
 | `/goal` with `schedule` | Drive overnight autonomous tasks, queue drains, and periodic audit ticks |
@@ -139,10 +139,10 @@ Playbooks are step lists inside `skills/poteto-mode/playbooks/`, not slash comma
 - `"take over this branch"` runs [Session pickup](../poteto-mode/playbooks/session-pickup.md).
 - `"pause safely"` runs [Pause safely](../poteto-mode/playbooks/pause-safely.md).
 - `"full autopilot on this queue"` runs [Autopilot-full](../poteto-mode/playbooks/autopilot-full.md). `"autopilot, don't merge"` runs [Autopilot-stack](../poteto-mode/playbooks/autopilot-stack.md).
-- `"orchestrate"` for multi-day multi-stack programs runs [Orchestrate](../poteto-mode/playbooks/orchestrate.md).
+- For standing multi-day, multi-milestone programs, pair [`/figure-it-out`](../figure-it-out/SKILL.md) with Antigravity's native `/teamwork`.
 - `"run the eval playbook"` runs [Eval](../poteto-mode/playbooks/eval.md).
 
-The Playbooks section of [`poteto-mode`](../poteto-mode/SKILL.md) lists all 23 playbooks. [Guide page 6](../../docs/guide/06-verify-and-ship.md) covers verification, opening PRs, babysitting, and shipping.
+The Playbooks section of [`poteto-mode`](../poteto-mode/SKILL.md) lists all 22 playbooks. [Guide page 6](../../docs/guide/06-verify-and-ship.md) covers verification, opening PRs, babysitting, and shipping.
 
 agystack has no standalone planning skill because Antigravity provides native `implementation_plan.md` artifacts. For phased or stacked multi-PR work, asking `/agystack` or `/poteto-mode` for a plan triggers the [Multi-phase plan playbook](../poteto-mode/playbooks/multi-phase-plan.md), which writes the plan without implementing it and checks it with `node skills/poteto-mode/scripts/check-plan.mjs`. For design forks, [Prototype](../poteto-mode/playbooks/prototype.md) or `/architect` settles questions in code first.
 

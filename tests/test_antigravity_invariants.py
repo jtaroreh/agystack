@@ -16,16 +16,9 @@ EXPECTED_MODEL_TIERS: dict[str, list[str]] = {
     "hillclimb": ["inherit"],
     "judgment and prose": ["inherit"],
     "hardest tasks": ["inherit"],
-    "how explorer": ["flash"],
-    "how explainer": ["inherit"],
-    "why investigators": ["flash"],
-    "why synthesizer": ["inherit"],
-    "reflect tooling": ["inherit"],
-    "reflect judgment, divergent, synthesizer": ["inherit"],
     "arena runners": ["inherit", "flash", "pro"],
     "arena cross-judge pool": ["inherit", "flash", "pro"],
     "swarm workers": ["flash"],
-    "architect runners": ["inherit", "flash", "pro"],
     "interrogate reviewers": ["inherit", "flash", "pro"],
 }
 
@@ -183,11 +176,12 @@ class TestAntigravityInvariants(unittest.TestCase):
         ):
             self.assertIn(token, tools_ref, f"antigravity-tools.md missing permissioned-github token {token!r}")
 
-    def test_orchestrate_playbook_present(self):
+    def test_orchestrate_playbook_retired_in_favor_of_teamwork(self):
         orchestrate_path = SKILLS_DIR / "poteto-mode" / "playbooks" / "orchestrate.md"
-        self.assertTrue(orchestrate_path.is_file(), "skills/poteto-mode/playbooks/orchestrate.md missing")
-        self.assertTrue(orchestrate_path.read_text(encoding="utf-8").strip())
-        self.assertIn("playbooks/orchestrate.md", _read_repo_file("skills/poteto-mode/SKILL.md"))
+        self.assertFalse(orchestrate_path.exists(), "orchestrate.md should be retired in favor of native /teamwork")
+        poteto_skill = _read_repo_file("skills/poteto-mode/SKILL.md")
+        self.assertNotIn("playbooks/orchestrate.md", poteto_skill)
+        self.assertIn("/teamwork", poteto_skill)
 
     def test_worker_contract_and_ketchup_video_brain_paths(self):
         worker_md = _read_repo_file("skills/poteto-mode/worker.md")
@@ -273,22 +267,19 @@ class TestAntigravityInvariants(unittest.TestCase):
         setup_models = _parse_model_lines(step5_match.group(1))
         self.assertEqual(setup_models, EXPECTED_MODEL_TIERS)
 
-        how_skill = _read_repo_file("skills/how/SKILL.md")
-        self.assertRegex(how_skill, r"how[- ]explorer")
-        self.assertRegex(how_skill, r"how[- ]explainer")
-
-        why_skill = _read_repo_file("skills/why/SKILL.md")
-        self.assertRegex(why_skill, r"why[- ]investigators")
-        self.assertRegex(why_skill, r"why[- ]synthesizer")
-
-        self.assertIn("architect runners", _read_repo_file("skills/architect/SKILL.md"))
         self.assertIn("interrogate reviewers", _read_repo_file("skills/interrogate/SKILL.md"))
         self.assertIn("arena runners", _read_repo_file("skills/arena/SKILL.md"))
         self.assertIn("swarm workers", _read_repo_file("skills/cloud-swarm/SKILL.md"))
         self.assertIn("swarm workers", _read_repo_file("skills/poteto-mode/references/antigravity-tools.md"))
-        reflect_skill = _read_repo_file("skills/reflect/SKILL.md")
-        self.assertRegex(reflect_skill, r"reflect[- ]tooling")
-        self.assertRegex(reflect_skill, r"reflect[- ]judgment")
+
+        for dead_ref_dir in (
+            SKILLS_DIR / "why" / "references",
+            SKILLS_DIR / "how" / "references",
+            SKILLS_DIR / "architect" / "references",
+            SKILLS_DIR / "reflect" / "references",
+            SKILLS_DIR / "interrogate" / "references",
+        ):
+            self.assertFalse(dead_ref_dir.exists(), f"Obsolete references dir should be removed: {dead_ref_dir}")
 
     def test_zero_cursor_leakage_across_skills(self):
         for target_dir in (SKILLS_DIR, REPO_ROOT / "rules", REPO_ROOT / "agents"):

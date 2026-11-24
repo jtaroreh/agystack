@@ -86,8 +86,8 @@ Present two presets to the user (or allow per-role customization):
 ### 4. Map and confirm
 
 Show every role with its model tier and confirm:
-- Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`, `hardest tasks`, `how explorer`, `how explainer`, `why investigators`, `why synthesizer`, `reflect tooling`, `reflect judgment, divergent, synthesizer`, `swarm workers`
-- Panel roles: `arena runners`, `arena cross-judge pool`, `architect runners`, `interrogate reviewers`
+- Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`, `hardest tasks`, `swarm workers`
+- Panel roles: `arena runners`, `arena cross-judge pool`, `interrogate reviewers`
 
 ### 5. Write the model rule
 
@@ -119,16 +119,9 @@ perf-issue: inherit
 hillclimb: inherit
 judgment and prose: inherit
 hardest tasks: inherit
-how explorer: flash
-how explainer: inherit
-why investigators: flash
-why synthesizer: inherit
-reflect tooling: inherit
-reflect judgment, divergent, synthesizer: inherit
 arena runners: inherit, flash, pro
 arena cross-judge pool: inherit, flash, pro
 swarm workers: flash
-architect runners: inherit, flash, pro
 interrogate reviewers: inherit, flash, pro
 ```
 
@@ -141,16 +134,9 @@ perf-issue: gemini-4-carbon-high
 hillclimb: gemini-4-carbon-high
 judgment and prose: gemini-4-neon-high
 hardest tasks: gemini-4-neon-xhigh
-how explorer: gemini-4-hydrogen-medium
-how explainer: gemini-4-neon-high
-why investigators: gemini-4-hydrogen-medium
-why synthesizer: gemini-4-carbon-high
-reflect tooling: gemini-4-hydrogen-medium
-reflect judgment, divergent, synthesizer: gemini-4-neon-high
 arena runners: gemini-4-neon-high, gemini-4-carbon-high, gemini-4-hydrogen-high
 arena cross-judge pool: gemini-4-neon-high, gemini-4-carbon-high, gemini-4-hydrogen-high
 swarm workers: gemini-4-hydrogen-medium
-architect runners: gemini-4-neon-xhigh, gemini-4-carbon-high, gemini-4-hydrogen-high
 interrogate reviewers: gemini-4-neon-high, gemini-4-carbon-high, gemini-4-hydrogen-medium
 ```
 

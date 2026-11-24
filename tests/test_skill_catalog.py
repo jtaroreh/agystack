@@ -165,7 +165,7 @@ def test_readme_has_no_ghost_skills():
     example_slugs = re.findall(r"(?:^|\s)/([a-z0-9-]+)(?=\s|$)", examples_section, re.MULTILINE)
     ghost_examples = sorted({slug for slug in example_slugs if not (REPO_ROOT / "skills" / slug / "SKILL.md").is_file()})
 
-    playbooks_section = _extract_readme_details_section("the 23 playbooks")
+    playbooks_section = _extract_readme_details_section("the 22 playbooks")
     readme_playbooks = set(re.findall(r"\(\./skills/poteto-mode/playbooks/([^)]+)\)", playbooks_section))
     disk_playbooks = {p.name for p in (REPO_ROOT / "skills" / "poteto-mode" / "playbooks").glob("*.md")}
     playbook_drift = sorted(readme_playbooks ^ disk_playbooks)
@@ -174,13 +174,25 @@ def test_readme_has_no_ghost_skills():
     assert not broken_links, f"README.md 'all skills' table has invalid links: {broken_links}"
     assert not duplicates, f"README.md 'all skills' table has duplicate skills: {duplicates}"
     assert not ghost_examples, f"README.md 'all the examples' references non-existent skills: {ghost_examples}"
-    assert not playbook_drift, f"README.md 'the 23 playbooks' out of sync with disk: {playbook_drift}"
+    assert not playbook_drift, f"README.md 'the 22 playbooks' out of sync with disk: {playbook_drift}"
 
 
 def test_pstack_0_15_48_ported_skills_have_disable_model_invocation():
-    for slug in ("reframe", "ketchup-video"):
+    for slug in (
+        "reframe",
+        "ketchup-video",
+        "why",
+        "how",
+        "architect",
+        "in-your-own-words",
+        "reflect",
+        "interrogate",
+        "sharpen",
+        "agystack-help",
+        "maintain-formal-verification-skill",
+    ):
         skill_file = REPO_ROOT / "skills" / slug / "SKILL.md"
-        assert skill_file.is_file(), f"Missing ported skill: {skill_file}"
+        assert skill_file.is_file(), f"Missing skill: {skill_file}"
         content = skill_file.read_text(encoding="utf-8")
         parts = content.split("---", 2)
         assert len(parts) >= 3, f"{skill_file} invalid frontmatter structure"

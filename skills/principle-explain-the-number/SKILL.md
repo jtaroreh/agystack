@@ -1,30 +1,14 @@
 ---
 name: principle-explain-the-number
-description: "Apply when reporting performance numbers, benchmarks, or latency comparisons. Name the physical bottleneck and hardware/kernel root cause rather than guessing from code."
+description: "Apply before you measure, and before you trust, report, or act on a number you measured: a speedup, a regression, a throughput, a latency, or an eval result. Find what limits it, and rule out that it measured something other than the work you think."
 disable-model-invocation: true
 ---
 
 # Explain the Number
 
-When reporting performance numbers, microbenchmarks, or latency comparisons, name the bottleneck and physical cause rather than guessing from code.
+- **Write the decision before you run.** Name the result that would change it, and the noise floor. Stop when the run-to-run spread is larger than the effect.
+- **Ask "why not double?"** Name the resource or code path that bounds the result, from a profile or counters taken during a run. A guess from reading the code is not a limiter.
+- **List what else the number could be measuring** (errors, skipped or cached work, code that never ran, an untuned side, noise, a piece too small to matter) and rule out each one with evidence.
+- **Keep the run count, the spread, and the limiter with the number.**
 
-**Trigger:** Activates on performance reports, benchmarks, latency comparisons, and optimization proposals.
-
-**Why:** A number without a physical mechanism is a coincidence. Inferring performance wins by reading code lines leads to false attribution. Compilers reorder instructions, operating systems buffer I/O, and CPU caches mask algorithmic changes. If you cannot explain the hardware or kernel reason why a number changed, you cannot guarantee the win persists in production.
-
-**Rule:** Every reported performance delta must specify:
-1. The exact metric measured and baseline number.
-2. The measured post-change number and verified delta.
-3. The physical mechanism that caused the shift (reduced memory bandwidth, eliminated disk I/O, lowered cache line contention, pruned serialization overhead, or removed thread synchronization locks).
-
-Do not say "the loop is cleaner so it runs faster". Identify what hardware resource was spared:
-- Memory subsystem: Cache hit rates, allocation churn, memory bandwidth saturation, or pointer dereference stalls.
-- I/O and kernel: System call frequency, file descriptor polling, socket buffer saturation, or context switch volume.
-- CPU pipeline: Branch prediction mispredictions, vectorized SIMD instruction saturation, or instruction cache pressure.
-- Concurrency: Mutex lock contention, false sharing across cache lines, thread pool exhaustion, or atomic contention.
-
-If profiling data or hardware counters cannot confirm the mechanism, label the explanation as an unverified hypothesis and measure the counter before declaring success.
-
-## Pre-Registration & Decision Thresholds
-
-Write the decision before you run. Name the result that would change a decision, and the noise floor. Stop when the run-to-run spread is larger than the effect.
+For a performance number, run the [benchmark-checklist](../benchmark-checklist/SKILL.md) skill. For an eval result, ask whether every run did the task, whether the gap holds across trials and models, and whether the scenario matters.
