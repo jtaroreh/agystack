@@ -175,3 +175,20 @@ def test_readme_has_no_ghost_skills():
     assert not duplicates, f"README.md 'all skills' table has duplicate skills: {duplicates}"
     assert not ghost_examples, f"README.md 'all the examples' references non-existent skills: {ghost_examples}"
     assert not playbook_drift, f"README.md 'the 23 playbooks' out of sync with disk: {playbook_drift}"
+
+
+def test_pstack_0_15_48_ported_skills_have_disable_model_invocation():
+    for slug in ("reframe", "ketchup-video"):
+        skill_file = REPO_ROOT / "skills" / slug / "SKILL.md"
+        assert skill_file.is_file(), f"Missing ported skill: {skill_file}"
+        content = skill_file.read_text(encoding="utf-8")
+        parts = content.split("---", 2)
+        assert len(parts) >= 3, f"{skill_file} invalid frontmatter structure"
+        frontmatter = parts[1]
+        assert re.search(r"^disable-model-invocation:\s*true$", frontmatter, re.MULTILINE), (
+            f"{skill_file} must set disable-model-invocation: true"
+        )
+    assert not (REPO_ROOT / "skills" / "make-bot-ui").exists(), (
+        "Cursor-only make-bot-ui must not be bundled in agystack"
+    )
+

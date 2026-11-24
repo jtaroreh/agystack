@@ -84,6 +84,8 @@ keep going until done
 
 Short works because the mode is sticky and the playbook holds the structure. Your words carry the intent, and the skill carries the rigor.
 
+Before sending a high-stakes prompt, [`/reframe`](../../skills/reframe/SKILL.md) teaches the expert vocabulary and neighboring-field analogies for what you are building, and [`/sharpen`](../../skills/sharpen/SKILL.md) rewrites your ask deeper around raw inputs, external checks, and prototyping empirical choices while leaving product or preference calls to you. When you return to a long run, [`/ketchup`](../../skills/ketchup/SKILL.md) gives a brief under 100 words and [`/ketchup-video`](../../skills/ketchup-video/SKILL.md) renders a short subtitled slide video of what happened above the waiting calls.
+
 ## Switch tasks with "new task"
 
 A long chat accumulates context from the last task. When you change subjects, say so:

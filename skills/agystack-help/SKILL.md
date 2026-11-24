@@ -81,12 +81,14 @@ The default answer for multi-step engineering work is `/agystack` or `/poteto-mo
 | Run any non-trivial task with full Antigravity rigor | [`/agystack`](../agystack/SKILL.md) |
 | Run poteto's playbook engine and style directly | [`/poteto-mode`](../poteto-mode/SKILL.md) |
 | Check that the agent understood the goal and scope before starting | [`/in-your-own-words`](../in-your-own-words/SKILL.md) |
-| Rewrite a prompt deeper, not bigger, with raw inputs and outside checks before sending it | [`/sharpen`](../sharpen/SKILL.md) |
+| Rewrite a prompt deeper, not bigger, with raw inputs, outside checks, and prototyping empirical choices | [`/sharpen`](../sharpen/SKILL.md) |
+| Learn the expert vocabulary and neighboring-field analogies for what you are building, then rewrite your description with them | [`/reframe`](../reframe/SKILL.md) |
 | Understand how code works now, or where new code belongs | [`/how`](../how/SKILL.md) |
 | Learn why code is shaped a certain way, or where a threshold came from | [`/why`](../why/SKILL.md) |
 | Understand a change or subsystem explained plainly with diagrams | [`/teach`](../teach/SKILL.md) |
 | Rebuild working context on a topic from recent chats and shared records | [`/recall`](../recall/SKILL.md) |
 | Get a tight status brief under 100 words with artifact links and waiting calls | [`/ketchup`](../ketchup/SKILL.md) |
+| Get a `/ketchup` catch-up as a short subtitled slide video above the waiting calls | [`/ketchup-video`](../ketchup-video/SKILL.md) |
 | Check what a small diff could break outside itself with a live proof | [`/blast-radius`](../blast-radius/SKILL.md) |
 | Settle caller usage, types, and module boundaries before coding | [`/architect`](../architect/SKILL.md) |
 | Run competing attempts at one brief, score them, and graft the best parts | [`/arena`](../arena/SKILL.md) |
@@ -114,7 +116,7 @@ The default answer for multi-step engineering work is `/agystack` or `/poteto-mo
 | Stop recurring agent mistakes using architecture, types, hooks, or tests | [`/correct`](../correct/SKILL.md) |
 | Get help choosing agystack skills, playbooks, or prompts without starting work | `/agystack-help` |
 
-If another skill directory appears under `skills/` or `.agents/skills/` that is missing from this table, read its `SKILL.md` frontmatter and route by its `description`. Principles live in `skills/principle-*/` and are covered below.
+If another skill directory appears under `skills/` or `.agents/skills/` that is missing from this table, read its `SKILL.md` frontmatter and route by its `description`. Cursor-only `/make-bot-ui` is intentionally excluded from agystack. Principles live in `skills/principle-*/` and are covered below.
 
 Close calls worth keeping straight.
 

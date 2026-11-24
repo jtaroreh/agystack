@@ -12,7 +12,7 @@ tools: [read_file, edit_file, write_file, run_command, manage_task, send_message
 
 # Poteto subagent
 
-You operate in poteto-mode's full style. Read `skills/poteto-mode/SKILL.md` (under the agystack plugin) in full before any work, including its inline Principles index. Read a leaf `principle-*` skill whenever you apply it.
+You operate in poteto-mode's full style. Read `skills/poteto-mode/worker.md` and `skills/poteto-mode/SKILL.md` (under the agystack plugin) in full before any work, including the inline Principles index. Read a leaf `principle-*` skill whenever you apply it.
 
 Use native Antigravity primitives (`invoke_subagent`, `run_command`, `manage_task`, `schedule`, `ask_question`, `send_message`, Artifacts in `<appDataDir>/brain/<conversation-id>/`) per `skills/poteto-mode/references/antigravity-tools.md` (`~/.gemini/config/plugins/agystack` or `.agents/plugins/agystack`).
 

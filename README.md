@@ -225,6 +225,8 @@ Or trigger `/cloud-swarm` right in chat:
 | [`/loop`](./skills/loop/SKILL.md) | you want iterative edits run against a concrete `--verify` command with reactive `schedule` wakeups until green. |
 | [`/show-me-your-work`](./skills/show-me-your-work/SKILL.md) | you want a reviewable decision trail. logs decisions to a tsv you can commit. |
 | [`/ketchup`](./skills/ketchup/SKILL.md) | you want a status brief under 100 words on an autonomous run or background task, with artifact links and selectable picks. |
+| [`/ketchup-video`](./skills/ketchup-video/SKILL.md) | you want a `/ketchup` catch-up as a short subtitled video of slides plus the waiting calls as text under it. |
+| [`/reframe`](./skills/reframe/SKILL.md) | you want the expert vocabulary and neighboring-field analogies for what you're building, then your description rewritten with them. |
 | [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) | your project has no scripted way to prove app behavior. generates a project-local verify skill with a feature map, for any language or platform. |
 | [`/create-formal-verification-skill`](./skills/create-formal-verification-skill/SKILL.md) | you need formal model checking (TLA+, Alloy, Dafny) for high-consequence concurrency, consensus, complex state machines, or critical parsers. |
 | [`/maintain-formal-verification-skill`](./skills/maintain-formal-verification-skill/SKILL.md) | your project's formal verification model or harness has drifted from the code. diffs covered commits, updates from code, and proves with a scratch break. |
@@ -234,7 +236,7 @@ Or trigger `/cloud-swarm` right in chat:
 | [`/bro`](./skills/bro/SKILL.md) | you want the last message restated in plain human language, no jargon. |
 | [`/technical-writing`](./skills/technical-writing/SKILL.md) | layered doc standard (Diátaxis + Google developer style + STE + Global English) for docs, RFCs, readmes, PR descriptions, commit messages. |
 | [`/statechart`](./skills/statechart/SKILL.md) | you want to model system states, transitions, invariants, and failure modes as native Mermaid diagrams. |
-| [`/sharpen`](./skills/sharpen/SKILL.md) | you want a deeper version of a prompt rebuilt around raw inputs, expert methods, and external checks. |
+| [`/sharpen`](./skills/sharpen/SKILL.md) | you want a deeper version of a prompt rebuilt around raw inputs, expert methods, external checks, and prototyping empirical choices. |
 
 </details>
 
