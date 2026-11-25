@@ -221,6 +221,28 @@ class TestAntigravityInvariants(unittest.TestCase):
         ):
             self.assertIn(token, tools_ref, f"antigravity-tools.md missing official docs token {token!r}")
         self.assertNotIn("Subagents: [", tools_ref, "antigravity-tools.md still has stale Subagents array schema")
+
+    def test_worker_contract_and_ketchup_video_brain_paths(self):
+        worker_md = _read_repo_file("skills/poteto-mode/worker.md")
+        for token in (
+            "invoke_subagent",
+            "Read <path>/worker.md before anything else.",
+            "Never call `ask_question`",
+            "<appDataDir>/brain/<conversation-id>/",
+            "`type(scope): subject`",
+        ):
+            self.assertIn(token, worker_md, f"worker.md missing token {token!r}")
+
+        self.assertIn("worker.md", _read_repo_file("skills/poteto-mode/SKILL.md"))
+        self.assertIn("skills/poteto-mode/worker.md", _read_repo_file("agents/poteto-agent.md"))
+
+        ketchup_video = _read_repo_file("skills/ketchup-video/SKILL.md")
+        self.assertIn("<appDataDir>/brain/<conversation-id>/", ketchup_video)
+        self.assertIn("<appDataDir>/brain/<conversation-id>/scratch/", ketchup_video)
+
+        sharpen = _read_repo_file("skills/sharpen/SKILL.md")
+        self.assertIn("prototype any choice an experiment can settle", sharpen)
+
     def test_active_role_keys_defined_and_consumed(self):
         models_path = REPO_ROOT / "agystack-models.md"
         root_models = _parse_model_lines(models_path.read_text(encoding="utf-8"))

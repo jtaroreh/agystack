@@ -6,6 +6,7 @@ Swap in real paths, skills, and finish checks. Informal wording works.
 
 - `/agystack read <thread>. restate the underlying issue in your own words, in plain english.`
 - `/in-your-own-words <long or messy ask>`
+- `/reframe <description of what you're building>`
 - `/sharpen <the prompt you're about to send>`
 - `/poteto-mode investigate why <symptom>. give me what we know, what data you used, and your best hypotheses. don't change any code yet.`
 - `use /how to understand <subsystem>. then use /why to find out why it broke recently.`
@@ -48,6 +49,7 @@ Swap in real paths, skills, and finish checks. Informal wording works.
 - Inner-loop verification hillclimb via `/loop <goal> --verify "<command>" --max-iterations 10`
 - `/show-me-your-work catch me up on what you did last night.` Read its `Attention` section first.
 - `/ketchup` catches you up on this chat since your last message and lists every waiting call decidable from the reply.
+- `/ketchup-video` renders a short subtitled slide video of what happened above the waiting calls.
 - `/poteto-mode full autopilot on this queue. each item is independent.`
 - `/poteto-mode autopilot these changes, but don't merge. i'll land them.`
 - `/reflect capture what we learned so the next run doesn't repeat it.` Approve only edits that change a future decision.
