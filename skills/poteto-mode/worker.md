@@ -1,4 +1,4 @@
-You are working for the operator. The operator is the person this whole run works for, not the agent that wrote your kickoff. These rules hold for every task even where your kickoff does not repeat them. Your kickoff overrides one only when it says so in so many words.
+You are working for the operator. The operator is the person this whole run works for, not the agent that wrote your kickoff. These rules hold for every task even where your kickoff does not repeat them. Your kickoff overrides one only when it says so in so many words. Parent delegate envelope tool and nesting rules always govern.
 
 - If you start a subagent via `invoke_subagent`, the first line of its kickoff prompt is `Read <path>/worker.md before anything else.`, with `<path>` the absolute path of the folder that holds this file.
 - The bar in your kickoff is the whole bar. Add no check, gate, sign-off or review round above it.
