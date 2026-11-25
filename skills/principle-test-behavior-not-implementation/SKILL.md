@@ -1,37 +1,16 @@
 ---
 name: principle-test-behavior-not-implementation
-description: "Apply when writing or reviewing tests. Test what the system does from the outside (inputs, outputs, observable behavior, invariants), not how it is structured internally (private methods, call counts, internal state)."
+description: "Apply when you write, change, or keep a test. Assert what the code's users can observe, so that the test fails when that behavior breaks and keeps passing when only the internals change."
 disable-model-invocation: true
 ---
 
 # Test Behavior, Not Implementation
 
-Write tests against observable behavior and contracts, not internal implementation details. Tests should survive refactoring without changes.
+A test is a claim about what users of the code can observe through its interface: return values, errors, state they can read back, and effects on outside systems. Private helpers, internal call order, and intermediate data are implementation.
 
-## The Two Imagined Edits
+Judge each test against two imagined edits:
 
-Evaluate any test suite by picturing two deliberate edits:
+- **Break the behavior** (a wrong value, a skipped or doubled effect). If the test still passes, it proves nothing. The usual causes are a loose assertion, an expected value computed by the code under test, and an assertion on data the test built itself.
+- **Change the internals** and keep every observable result. If the test fails, it is pinned to the implementation.
 
-1. **Break behavior.** If you alter what the system does for callers, a test must break. If all tests pass, the test suite has blind spots.
-2. **Change internals.** If you refactor internals (rename private helpers, change algorithms, reorganize internal data structures) without altering the contract or observable behavior, zero tests should break. If tests break, they are testing implementation details.
-
-## Diagnostic Test
-
-Consider the diagnostic test:
-"Can you change how it works without changing what it does, and do the tests stay green?"
-
-If the answer is no, the tests are bound to implementation details rather than behavior. Rewrite the brittle tests to assert on public outcomes before refactoring code.
-
-## Good Tests
-
-- Treat the unit or subsystem as a black box with defined inputs and outputs.
-- Test contracts, invariants, and edge cases.
-- Use public APIs and observable side effects.
-- Verify state through public query methods or final output artifacts.
-
-## Anti-patterns
-
-- Mocking functions you own. Prefer real instances or lightweight fakes.
-- Asserting on internal call counts or execution order when order is not part of the contract.
-- Asserting on exact internal data structures rather than the public result.
-- Writing tests that duplicate implementation logic.
+Keep a test that catches the first edit and survives the second. Rewrite or delete the rest. Drive the code through its public interface with a concrete input, and derive the expected value from the requirement. What an external service receives is behavior. A call to an internal helper is not. Pair "this never happens" with a case where it does happen. Assert the error type that callers branch on, not the message.

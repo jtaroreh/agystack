@@ -1,6 +1,6 @@
 ---
 name: poteto-agent
-description: Routing target for /poteto-mode and poteto-style delegates. Use send_message to iterate with an active worker. Spawn a fresh poteto-agent for retries or phase shifts. Reads poteto-mode SKILL.md in full before work. Substituting self skips that read and drifts.
+description: Delegate subagent for /poteto-mode and /agystack tasks. Spawn a fresh poteto-agent with consolidated scope by default for new tasks, retries, fix rounds, and phase shifts; use send_message to iterate with an active worker only when its state is costly to move. Reads worker.md and poteto-mode SKILL.md in full before work. Substituting self skips that read and drifts.
 subagent: true
 mainAgent: true
 model: inherit

@@ -5,56 +5,26 @@ description: "Use for \"how does X work\", code walkthroughs before changing som
 
 # How
 
-Explore the codebase to explain architecture, subsystem mechanics, and runtime flow. Deliver clear mental models at the level of an onboarding senior engineer.
+Explore the codebase to answer "how does X work?" questions and deliver a senior-engineer mental model.
 
-## Step 1. Understand the Question and Assess Complexity
+If the scope is ambiguous, state your interpretation and explore. The user can redirect.
 
-Identify target scope from the request (subsystem, feature flow, architectural overview, or runtime trace). State your interpretation if ambiguous.
+## 1. Classify complexity
 
-Classify complexity:
-- **Simple** (single module, utility, or narrow function): Explainer explores and explains directly in one pass. Skip explorers; go to Step 2b.
-- **Complex** (cross-cutting subsystem, multi-package flow, full architecture): Spawn parallel explorer agents first. Go to Step 2a.
+- **Narrow** (single module, utility, or localized flow): spawn 1 `research` subagent via `invoke_subagent` (`Role: "Codebase Explorer"`, `Workspace: "inherit"`, `Model`: configured `how explorer` model, default `flash`) to trace and explain in one pass.
+- **Cross-cutting** (multi-package flow, subsystem architecture, or ownership across layers): split into 2 to 4 distinct slices (data model/state, request path, configuration/boundaries) and spawn all `research` subagents concurrently in one turn (`Role: "Subsystem Explorer (<slice>)"`, `Workspace: "inherit"`, `Model`: configured `how explorer` model, default `flash`).
 
-## Step 2a. Explore (complex questions)
+Each explorer has read-only access and returns traced call chains, data shapes, `file:line` citations, and non-obvious edge cases.
 
-Decompose the subsystem into 2-4 distinct exploration slices (e.g. data model/state, request path/enforcement, configuration/metrics).
+## 2. Synthesize and present
 
-Spawn all explorers concurrently in a single `invoke_subagent` call:
-- `TypeName`: `research`
-- `Role`: `Subsystem Explorer (<slice>)`
-- `Model`: configured how-explorer model (default `flash`)
-- `Workspace`: `inherit`
+For cross-cutting questions, the coordinator reconciles the explorer findings directly, resolving contradictions and weaving slices into one coherent mental model without spawning a separate explainer subagent.
 
-Each explorer receives `references/explorer-prompt.md` and its assigned slice. Explorers trace call chains, data flow, types, and non-obvious behaviors, returning structured findings. Proceed to Step 3.
+For narrow questions, present directly in chat. For cross-cutting subsystems, write the full explanation to `<appDataDir>/brain/<conversation-id>/architecture_explanation.md` (or `<subsystem>_architecture.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: false }`, then share an executive summary in chat with a link to the artifact.
 
-## Step 2b. Direct Explain (simple questions)
-
-Spawn a single subagent via `invoke_subagent`:
-- `TypeName`: `research`
-- `Role`: `Architecture Explainer`
-- `Model`: configured how-explainer model (default `pro`)
-- `Workspace`: `inherit`
-
-The agent explores code directly and writes the explanation per `references/explainer-prompt.md`. Proceed to Step 4.
-
-## Step 3. Synthesize (complex questions)
-
-Once all explorers return, spawn a synthesizer via `invoke_subagent`:
-- `TypeName`: `self` (or `poteto-agent`)
-- `Role`: `Architecture Synthesizer`
-- `Model`: configured how-explainer model (default `pro`)
-- `Workspace`: `inherit`
-
-The synthesizer reconciles findings, resolves contradictions, and weaves slices into a unified explanation per `references/explainer-prompt.md`.
-
-## Step 4. Present
-
-For complex subsystems, write the full explanation to `<appDataDir>/brain/<conversation-id>/architecture_explanation.md` (or `<subsystem>_architecture.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: false }`. Present an executive summary in chat and link to the artifact. For simple questions, present directly in chat.
-
-### Output Format
-
+Include:
 - **Overview.** Purpose, scope, and why it exists.
-- **Key Concepts.** Core types, abstractions, and services.
-- **How It Works.** Step-by-step runtime flow, data flow, decision branches, and file/symbol references.
-- **Where Things Live.** Concise directory and file map.
-- **Gotchas.** Edge cases, non-obvious constraints, and known hazards.
+- **Key concepts.** Core types, abstractions, and boundaries.
+- **How it works.** Step-by-step runtime and data flow with `file:line` references.
+- **Where things live.** Concise directory and file map.
+- **Gotchas.** Edge cases, constraints, and hazards.

@@ -86,7 +86,7 @@ Present two presets to the user (or allow per-role customization):
 ### 4. Map and confirm
 
 Show every role with its model tier and confirm:
-- Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`, `hardest tasks`, `how explorer`, `how explainer`, `why investigators`, `why synthesizer`, `reflect tooling`, `reflect judgment, divergent, synthesizer`, `swarm workers`
+- Single roles: `feature, refactoring`, `bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`, `hardest tasks`, `how explorer`, `why investigators`, `why synthesizer`, `reflect tooling`, `reflect judgment, divergent, synthesizer`, `swarm workers`
 - Panel roles: `arena runners`, `arena cross-judge pool`, `architect runners`, `interrogate reviewers`
 
 ### 5. Write the model rule
@@ -120,7 +120,6 @@ hillclimb: inherit
 judgment and prose: inherit
 hardest tasks: inherit
 how explorer: flash
-how explainer: inherit
 why investigators: flash
 why synthesizer: inherit
 reflect tooling: inherit
@@ -142,7 +141,6 @@ hillclimb: gemini-4-carbon-high
 judgment and prose: gemini-4-neon-high
 hardest tasks: gemini-4-neon-xhigh
 how explorer: gemini-4-hydrogen-medium
-how explainer: gemini-4-neon-high
 why investigators: gemini-4-hydrogen-medium
 why synthesizer: gemini-4-carbon-high
 reflect tooling: gemini-4-hydrogen-medium

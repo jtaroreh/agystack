@@ -17,7 +17,6 @@ EXPECTED_MODEL_TIERS: dict[str, list[str]] = {
     "judgment and prose": ["inherit"],
     "hardest tasks": ["inherit"],
     "how explorer": ["flash"],
-    "how explainer": ["inherit"],
     "why investigators": ["flash"],
     "why synthesizer": ["inherit"],
     "reflect tooling": ["inherit"],
@@ -282,7 +281,8 @@ class TestAntigravityInvariants(unittest.TestCase):
 
         how_skill = _read_repo_file("skills/how/SKILL.md")
         self.assertRegex(how_skill, r"how[- ]explorer")
-        self.assertRegex(how_skill, r"how[- ]explainer")
+        self.assertNotRegex(how_skill, r"how[- ]explainer")
+        self.assertFalse((SKILLS_DIR / "how" / "references").exists(), "skills/how/references should be removed")
 
         why_skill = _read_repo_file("skills/why/SKILL.md")
         self.assertRegex(why_skill, r"why[- ]investigators")
@@ -296,6 +296,10 @@ class TestAntigravityInvariants(unittest.TestCase):
         reflect_skill = _read_repo_file("skills/reflect/SKILL.md")
         self.assertRegex(reflect_skill, r"reflect[- ]tooling")
         self.assertRegex(reflect_skill, r"reflect[- ]judgment")
+        self.assertIn("<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl", reflect_skill)
+        self.assertIn("~/.gemini/config/plugins/", reflect_skill)
+        self.assertIn(".agents/skills/<skill>/", reflect_skill)
+        self.assertIn("~/.gemini/config/skills/<skill>/", reflect_skill)
 
     def test_zero_cursor_leakage_across_skills(self):
         for target_dir in (SKILLS_DIR, REPO_ROOT / "rules", REPO_ROOT / "agents"):
