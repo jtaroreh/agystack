@@ -22,7 +22,6 @@ hillclimb: inherit
 judgment and prose: inherit
 hardest tasks: inherit
 how explorer: flash
-how explainer: inherit
 why investigators: flash
 why synthesizer: inherit
 reflect tooling: inherit

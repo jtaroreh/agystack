@@ -6,30 +6,10 @@ disable-model-invocation: true
 
 # Make Operations Idempotent
 
-Design operations so they converge to the correct state regardless of how many times they run or where they start from. Every state-mutating operation should answer: "What happens if this runs twice? What happens if the previous run crashed halfway?"
+Design every state-changing operation to converge to the correct state however many times it runs and wherever the previous run stopped.
 
-**Why:** Commands, lifecycle operations, and processing loops run where crashes, restarts, and retries are normal. If partial state changes the next run's outcome, every restart becomes a debugging session.
+Derive each step from the state that exists, not from what the previous run meant to do. Read the current state, compare it to the goal, and apply only the difference.
 
-## Derive State Deltas
+Anything a run leaves behind (a lock, a temporary file, a half-written record, a claimed job) must be recognizable as stale by the next run, by evidence that holds wherever the previous run could have stopped. Write to a temporary path and rename it into place.
 
-Compute state deltas instead of executing imperative mutation sequences.
-
-1. **Inspect actual and desired state.** Given the current actual state and the target desired state, compute `delta = desired - actual`.
-2. **Apply only the delta.** Execute mutations only for the missing or diverged elements. Do not re-run actions for state that already matches the target.
-3. **Safe no-ops on converged state.** Re-running the operation on an already-converged state results in `delta = empty`. The operation exits immediately with zero side effects.
-4. **Crash recovery by design.** An operation that crashes midway leaves a partially converged state. On retry, the reconciliation step computes the remaining delta and finishes the transition without duplicating work.
-
-## Patterns
-
-- **Convergent startup.** Scan for existing state, clean stale artifacts, and adopt live sessions.
-- **Content-based cleanup.** Compare by content equivalence rather than creation order or timestamps.
-- **Self-healing locks.** Use PID-based or lease-based stale lock detection.
-- **Idempotent scheduling.** Ensure failed work respawns cleanly and fresh input is regenerated after each cycle.
-
-## The Test
-
-1. What happens if this operation runs twice in a row?
-2. What happens if the previous run crashed at every possible point?
-3. Does re-execution converge to the same end state?
-
-If any answer is "it depends on what state was left behind," the operation needs a reconciliation step.
+The test: what happens if this runs twice? What if the previous run crashed at every possible point? If the answer depends on what was left behind, add a reconciliation step.

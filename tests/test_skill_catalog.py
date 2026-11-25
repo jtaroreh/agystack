@@ -226,3 +226,30 @@ def test_pstack_0_15_48_ported_skills_have_disable_model_invocation():
     assert not (REPO_ROOT / "skills" / "make-bot-ui").exists(), (
         "Cursor-only make-bot-ui must not be bundled in agystack"
     )
+
+
+def test_core_skills_auto_discoverable_and_boundaries_preserved():
+    skills_dir = REPO_ROOT / "skills"
+    auto_discoverable: list[str] = []
+    for skill_file in sorted(skills_dir.glob("*/SKILL.md")):
+        content = skill_file.read_text(encoding="utf-8")
+        parts = content.split("---", 2)
+        assert len(parts) >= 3, f"{skill_file} invalid frontmatter structure"
+        frontmatter = parts[1]
+        if not re.search(r"^disable-model-invocation:\s*true$", frontmatter, re.MULTILINE):
+            auto_discoverable.append(skill_file.parent.name)
+
+    for core_slug in ("how", "why", "architect", "interrogate", "blast-radius", "correct", "unslop"):
+        assert core_slug in auto_discoverable, (
+            f"skills/{core_slug}/SKILL.md must omit disable-model-invocation: true to remain auto-discoverable"
+        )
+
+    assert len(auto_discoverable) == 18, (
+        f"Expected 18 auto-discoverable skills, found {len(auto_discoverable)}: {auto_discoverable}"
+    )
+
+    unslop_content = (skills_dir / "unslop" / "SKILL.md").read_text(encoding="utf-8")
+    assert "## Scope boundary" in unslop_content, "skills/unslop/SKILL.md must preserve ## Scope boundary"
+
+    orchestrate_path = skills_dir / "poteto-mode" / "playbooks" / "orchestrate.md"
+    assert orchestrate_path.is_file(), "skills/poteto-mode/playbooks/orchestrate.md must exist"

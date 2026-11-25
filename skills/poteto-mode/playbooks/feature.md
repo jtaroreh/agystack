@@ -2,7 +2,7 @@
 
 **You own the design. Plan, review, verify.** Delegate implementation; stay in the lead.
 
-1. `how` over the affected subsystem.
+1. Trace the affected code directly for narrow single-module changes, or run `how` over the affected subsystem for unfamiliar or cross-subsystem work.
 2. `architect` for parallel design exploration. Skipping stays as `architect skipped: <reason>`; do not fold the design decision silently into implementation.
 3. Write the throughput checkpoint as four todo items. A dimension that genuinely does not apply (single file, no fan-out) keeps its item with `n/a: <reason>` rather than being dropped:
    - **Blocking first steps.** Gates run before fan-out.
