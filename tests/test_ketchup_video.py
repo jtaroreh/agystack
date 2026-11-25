@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -13,6 +14,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "skills" / "ketchup-video" / "scripts" / "render_ketchup.py"
+HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+UV_BIN = shutil.which("uv")
 
 sys.path.insert(0, str(SCRIPT_PATH.parent))
 import render_ketchup
@@ -66,36 +69,53 @@ def test_check_env_present() -> None:
         text=True,
         check=False,
     )
-    assert proc.returncode == 0, proc.stderr
+    assert "Traceback" not in proc.stdout and "Traceback" not in proc.stderr
     data = json.loads(proc.stdout)
-    assert data["ok"] is True
-    assert data["ffmpeg"]
-    assert data["ffprobe"]
-    assert data["encoders"] == {"libx264": True, "png": True}
     assert data["text_backend"] in {"pillow-truetype", "bitmap-5x7"}
     if data["text_backend"] == "pillow-truetype":
         assert data["font_path"] and Path(data["font_path"]).is_file()
     else:
         assert data["font_path"] is None
-    assert data["fallback"] is None
-    assert data["error"] is None
+
+    if HAS_FFMPEG:
+        assert proc.returncode == 0, proc.stderr
+        assert data["ok"] is True
+        assert data["ffmpeg"]
+        assert data["ffprobe"]
+        assert data["encoders"] == {"libx264": True, "png": True}
+        assert data["fallback"] is None
+        assert data["error"] is None
+    else:
+        assert proc.returncode == 1
+        assert data["ok"] is False
+        assert data["fallback"] == "generative_ui"
+        assert data["error"]
 
 
+@pytest.mark.skipif(UV_BIN is None, reason="uv not installed")
 def test_check_env_uv_run_truetype() -> None:
     proc = subprocess.run(
-        ["uv", "run", str(SCRIPT_PATH), "--check-env"],
+        [UV_BIN, "run", str(SCRIPT_PATH), "--check-env"],
         capture_output=True,
         text=True,
         check=False,
     )
-    assert proc.returncode == 0, proc.stderr
+    assert "Traceback" not in proc.stdout and "Traceback" not in proc.stderr
     data = json.loads(proc.stdout)
-    assert data["ok"] is True
     assert data["text_backend"] == "pillow-truetype"
     assert data["font_path"] is not None
     assert Path(data["font_path"]).is_file()
-    assert data["fallback"] is None
-    assert data["error"] is None
+
+    if HAS_FFMPEG:
+        assert proc.returncode == 0, proc.stderr
+        assert data["ok"] is True
+        assert data["fallback"] is None
+        assert data["error"] is None
+    else:
+        assert proc.returncode == 1
+        assert data["ok"] is False
+        assert data["fallback"] == "generative_ui"
+        assert data["error"]
 
 
 def test_check_env_missing_ffmpeg(tmp_path: Path) -> None:
@@ -221,6 +241,7 @@ def test_subtitle_strip_isolation_and_wrapping(tmp_path: Path) -> None:
     assert canvases_and_lines[3][1][-1].endswith("...")
 
 
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe not installed")
 def test_render_end_to_end_three_and_five_slides(tmp_path: Path) -> None:
     rgba_shot = tmp_path / "shot.png"
     _make_sample_rgba_png(rgba_shot)
@@ -351,6 +372,7 @@ def test_render_end_to_end_three_and_five_slides(tmp_path: Path) -> None:
     assert sw5 > 0 and sh5 > 0
 
 
+@pytest.mark.skipif(UV_BIN is None, reason="uv not installed")
 def test_uv_run_truetype_render_isolation_and_clamping(tmp_path: Path) -> None:
     shot_path = tmp_path / "shot.png"
     _make_sample_png(shot_path)
@@ -398,49 +420,21 @@ def test_uv_run_truetype_render_isolation_and_clamping(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    out_mp4 = tmp_path / "truetype.mp4"
-    sheet_png = tmp_path / "truetype_sheet.png"
-    proc = subprocess.run(
-        [
-            "uv",
-            "run",
-            str(SCRIPT_PATH),
-            "--spec",
-            str(spec_path),
-            "--out",
-            str(out_mp4),
-            "--contact-sheet",
-            str(sheet_png),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    summary = json.loads(proc.stdout)
-    assert summary["ok"] is True
-    assert summary["text_backend"] == "pillow-truetype"
-    assert summary["font_path"] and Path(summary["font_path"]).is_file()
-    assert summary["slides"][0]["added_words"] == 15
-    assert summary["slides"][0]["hold_seconds"] == 5.0
-    assert len(summary["slides"][1]["subtitle_lines"]) >= 2
-    assert summary["slides"][2]["subtitle_lines"][-1].endswith("...")
-
-    probe = _ffprobe_json(out_mp4)
-    stream = probe["streams"][0]
-    assert stream["codec_name"] == "h264"
-    assert stream["width"] == 1280
-    assert stream["height"] == 720
-    assert stream["pix_fmt"] == "yuv420p"
-    sw, sh, _ = render_ketchup.decode_png_rgba(sheet_png)
-    assert sw > 0 and sh > 0
-
     isolation_check = (
         "import json, sys; from pathlib import Path; "
         f"sys.path.insert(0, {str(SCRIPT_PATH.parent)!r}); "
         "import render_ketchup as rk; "
         "backend = rk.resolve_text_backend(); "
         "assert backend.name == 'pillow-truetype' and backend.font_path; "
+        f"spec_raw = json.loads(Path({str(spec_path)!r}).read_text(encoding='utf-8')); "
+        f"spec_full = rk.parse_spec(spec_raw, Path({str(tmp_path)!r})); "
+        "timings, _ = rk.compute_timings(spec_full); "
+        "assert timings[0].added_words == 15 and timings[0].hold_seconds == 5.0; "
+        "c_full, lines_full = rk.render_slide_canvas(spec_full, spec_full.slides[0], {}, text_backend=backend); "
+        f"png_out = Path({str(tmp_path / 'truetype_slide0.png')!r}); "
+        "png_out.write_bytes(c_full.to_png_bytes(compress_level=1)); "
+        "pw, ph, prgba = rk.decode_png_rgba(png_out); "
+        "assert (pw, ph) == (1280, 720) and len(prgba) == pw * ph * 4 and lines_full; "
         "base = {'title': 'Isolation', 'nodes': [{'id': 'n1', 'label': 'Worker', 'status': 'done'}], 'subtitle': ''}; "
         f"spec = rk.parse_spec({{'width': 1280, 'height': 720, 'strip_height': 96, 'slides': [base, {{**base, 'subtitle': {long_sub!r}}}, {{**base, 'subtitle': {overflow_sub!r}}}]}}, Path({str(tmp_path)!r})); "
         "strip_y = spec.height - spec.strip_height; "
@@ -454,13 +448,51 @@ def test_uv_run_truetype_render_isolation_and_clamping(tmp_path: Path) -> None:
         "print(json.dumps({'ok': True, 'backend': backend.name, 'font_path': backend.font_path}))"
     )
     iso_proc = subprocess.run(
-        ["uv", "run", "--with", "pillow>=10.0.0", "python3", "-c", isolation_check],
+        [UV_BIN, "run", "--with", "pillow>=10.0.0", "python3", "-c", isolation_check],
         capture_output=True,
         text=True,
         check=False,
     )
     assert iso_proc.returncode == 0, iso_proc.stderr
     assert json.loads(iso_proc.stdout)["backend"] == "pillow-truetype"
+
+    if HAS_FFMPEG:
+        out_mp4 = tmp_path / "truetype.mp4"
+        sheet_png = tmp_path / "truetype_sheet.png"
+        proc = subprocess.run(
+            [
+                UV_BIN,
+                "run",
+                str(SCRIPT_PATH),
+                "--spec",
+                str(spec_path),
+                "--out",
+                str(out_mp4),
+                "--contact-sheet",
+                str(sheet_png),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        summary = json.loads(proc.stdout)
+        assert summary["ok"] is True
+        assert summary["text_backend"] == "pillow-truetype"
+        assert summary["font_path"] and Path(summary["font_path"]).is_file()
+        assert summary["slides"][0]["added_words"] == 15
+        assert summary["slides"][0]["hold_seconds"] == 5.0
+        assert len(summary["slides"][1]["subtitle_lines"]) >= 2
+        assert summary["slides"][2]["subtitle_lines"][-1].endswith("...")
+
+        probe = _ffprobe_json(out_mp4)
+        stream = probe["streams"][0]
+        assert stream["codec_name"] == "h264"
+        assert stream["width"] == 1280
+        assert stream["height"] == 720
+        assert stream["pix_fmt"] == "yuv420p"
+        sw, sh, _ = render_ketchup.decode_png_rgba(sheet_png)
+        assert sw > 0 and sh > 0
 
 
 def test_no_pil_fallback_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -493,29 +525,10 @@ def test_no_pil_fallback_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     c1, lines1 = render_ketchup.render_slide_canvas(spec, spec.slides[1], {}, text_backend=backend)
     assert bytes(c1.raw[: strip_y * row_bytes]) == bytes(c0.raw[: strip_y * row_bytes])
     assert len(lines1) >= 2
-
-    spec_path = tmp_path / "fallback_spec.json"
-    spec_path.write_text(
-        json.dumps(
-            {
-                "slides": [
-                    {
-                        "title": "Bitmap Fallback",
-                        "labels": ["No Pillow Needed"],
-                        "subtitle": "Plain python renders cleanly without Pillow installed.",
-                    },
-                    {
-                        "title": "Bitmap Fallback",
-                        "labels": ["No Pillow Needed", "Contact Sheet Valid"],
-                        "subtitle": "Both slides produce a valid MP4 and contact sheet.",
-                    },
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    out_mp4 = tmp_path / "fallback.mp4"
-    sheet_png = tmp_path / "fallback_sheet.png"
+    slide_png = tmp_path / "fallback_slide.png"
+    slide_png.write_bytes(c1.to_png_bytes(compress_level=1))
+    pw, ph, _ = render_ketchup.decode_png_rgba(slide_png)
+    assert (pw, ph) == (1280, 720)
 
     shim = (
         "import sys; "
@@ -530,34 +543,62 @@ def test_no_pil_fallback_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         text=True,
         check=False,
     )
-    assert env_proc.returncode == 0, env_proc.stderr
     assert "Traceback" not in env_proc.stdout and "Traceback" not in env_proc.stderr
     env_data = json.loads(env_proc.stdout)
-    assert env_data["ok"] is True
     assert env_data["text_backend"] == "bitmap-5x7"
     assert env_data["font_path"] is None
+    if HAS_FFMPEG:
+        assert env_proc.returncode == 0, env_proc.stderr
+        assert env_data["ok"] is True
+    else:
+        assert env_proc.returncode == 1
+        assert env_data["ok"] is False
+        assert env_data["fallback"] == "generative_ui"
 
-    render_proc = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            shim,
-            "--spec",
-            str(spec_path),
-            "--out",
-            str(out_mp4),
-            "--contact-sheet",
-            str(sheet_png),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert render_proc.returncode == 0, render_proc.stderr
-    assert "Traceback" not in render_proc.stdout and "Traceback" not in render_proc.stderr
-    summary = json.loads(render_proc.stdout)
-    assert summary["ok"] is True
-    assert summary["text_backend"] == "bitmap-5x7"
-    assert summary["font_path"] is None
-    sw, sh, _ = render_ketchup.decode_png_rgba(sheet_png)
-    assert sw > 0 and sh > 0
+    if HAS_FFMPEG:
+        spec_path = tmp_path / "fallback_spec.json"
+        spec_path.write_text(
+            json.dumps(
+                {
+                    "slides": [
+                        {
+                            "title": "Bitmap Fallback",
+                            "labels": ["No Pillow Needed"],
+                            "subtitle": "Plain python renders cleanly without Pillow installed.",
+                        },
+                        {
+                            "title": "Bitmap Fallback",
+                            "labels": ["No Pillow Needed", "Contact Sheet Valid"],
+                            "subtitle": "Both slides produce a valid MP4 and contact sheet.",
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        out_mp4 = tmp_path / "fallback.mp4"
+        sheet_png = tmp_path / "fallback_sheet.png"
+        render_proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                shim,
+                "--spec",
+                str(spec_path),
+                "--out",
+                str(out_mp4),
+                "--contact-sheet",
+                str(sheet_png),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert render_proc.returncode == 0, render_proc.stderr
+        assert "Traceback" not in render_proc.stdout and "Traceback" not in render_proc.stderr
+        summary = json.loads(render_proc.stdout)
+        assert summary["ok"] is True
+        assert summary["text_backend"] == "bitmap-5x7"
+        assert summary["font_path"] is None
+        sw, sh, _ = render_ketchup.decode_png_rgba(sheet_png)
+        assert sw > 0 and sh > 0
