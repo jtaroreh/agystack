@@ -230,11 +230,18 @@ class TestAntigravityInvariants(unittest.TestCase):
             "Never call `ask_question`",
             "<appDataDir>/brain/<conversation-id>/",
             "`type(scope): subject`",
+            "Parent delegate envelope tool and nesting rules always govern.",
         ):
             self.assertIn(token, worker_md, f"worker.md missing token {token!r}")
 
-        self.assertIn("worker.md", _read_repo_file("skills/poteto-mode/SKILL.md"))
-        self.assertIn("skills/poteto-mode/worker.md", _read_repo_file("agents/poteto-agent.md"))
+        poteto_skill = _read_repo_file("skills/poteto-mode/SKILL.md")
+        self.assertIn("worker.md", poteto_skill)
+        self.assertNotIn("Delegates never call `ask_question`", poteto_skill)
+
+        poteto_agent = _read_repo_file("agents/poteto-agent.md")
+        self.assertIn("skills/poteto-mode/worker.md", poteto_agent)
+        self.assertNotIn("## Standing delegate rules", poteto_agent)
+        self.assertNotIn("Bar discipline", poteto_agent)
 
         ketchup_video = _read_repo_file("skills/ketchup-video/SKILL.md")
         self.assertIn("<appDataDir>/brain/<conversation-id>/", ketchup_video)
