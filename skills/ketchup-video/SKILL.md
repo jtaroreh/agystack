@@ -6,24 +6,59 @@ disable-model-invocation: true
 
 # Ketchup video
 
-Follow [`/ketchup`](../ketchup/SKILL.md), but show what happened in a short subtitled video instead of its summary and visuals. Its window starts at the last message the user wrote before `/ketchup-video`, not before any earlier `/ketchup`. Writing and rendering the video inside `<appDataDir>/brain/<conversation-id>/` (with intermediate frames in `<appDataDir>/brain/<conversation-id>/scratch/`), outside the repo, is the one exception to its read-only rule. The reply is ketchup's opening sentence, the embedded video from `<appDataDir>/brain/<conversation-id>/`, one line naming any work left that you can do yourself, and the action items. When the video shows a call's options, call each option by the name the video gives it. If the render fails, say so in one line and give only the calls.
+Follow [`/ketchup`](../ketchup/SKILL.md), showing what happened in a short subtitled video instead of its summary and inline visuals. Start the window at the last message the user wrote before `/ketchup-video`, not before any earlier `/ketchup`. Writing the spec, contact sheet, and video inside `<appDataDir>/brain/<conversation-id>/` (with intermediate files in `<appDataDir>/brain/<conversation-id>/scratch/`), outside the repo, is the one exception to `/ketchup`'s read-only rule.
+
+The reply contains `/ketchup`'s opening sentence, the embedded video from `<appDataDir>/brain/<conversation-id>/`, one line naming any remaining work you can do yourself, and the action items. When the video shows a call's options, name each option identically to the video.
+
+## Environment Gate and Fallback
+
+Run the environment probe before writing any slide spec:
+
+```bash
+uv run <skill-dir>/scripts/render_ketchup.py --check-env
+```
+
+`uv run` resolves the inline Pillow dependency automatically for antialiased TrueType text (`text_backend: "pillow-truetype"`). Running with plain `python3` without Pillow installed automatically falls back to the built-in `5x7` bitmap font (`text_backend: "bitmap-5x7"`).
+
+- When `--check-env` exits `0` (`ok: true`), render the MP4 with `render_ketchup.py`.
+- When `--check-env` exits non-zero (`ok: false`, such as missing `ffmpeg`, `ffprobe`, or `libx264`), do not attempt MP4 rendering or emit broken video links. State the missing dependency in one line and fall back to a `generative_ui` interactive HTML slide deck paired with [`/ketchup`](../ketchup/SKILL.md) text action items.
 
 ## Slides
 
-Use the screenshots, recordings, diffs, and data the work produced, not the chat's prose about them. Before you draw, write the one sentence the user should leave with and one line per slide. Drop each slide that does not change what the user knows. Use at most 10 slides, and fewer is better. Neither note goes in the reply.
+Draw from the screenshots, recordings, diffs, and data the work produced, not chat prose. Before writing `slides.json`, write the one sentence the user should leave with and one line per slide. Drop any slide that does not change what the user knows. Use at most 10 slides, and fewer is better. Neither note goes in the reply.
 
-Each slide makes one point. Build the slides on one picture and change it from slide to slide, rather than cut to an unrelated one. A color or shape means the same thing on every slide. Show the work in pictures, such as how a system works, a PR stack with each PR's state, a before and after of a fix, or options side by side. Point at what changed with arrows, highlights, and motion. A slide is never a bullet list, a status list, a table, or boxes with nothing connecting them.
+Each slide makes one point. Evolve one picture from slide to slide rather than cutting between unrelated layouts. Keep semantic colors and shapes consistent across every slide (`done`/`merged` green, `running`/`active` amber, `failed`/`blocked` red, `waiting` blue-slate). Show the work in pictures, such as a system flow, a PR stack with each PR's state, a before-and-after diagram, or options side by side. A slide is never a bullet list, a status list, a table, or disconnected boxes.
 
-Keep text to the minimum. Put each label on the thing it names, in plain words a person would say, not tags like "Tests: pass". Never caption what a picture shows, and never give a fact twice, across slides or in the text under them.
+Keep text minimal. Put each label directly on the thing it names in plain words, not tags like `"Tests: pass"`. Never caption what a picture already shows, and never repeat a fact across slides or in the text under them.
 
-Show what came of each thing the user asked for, and whether it is done, still running, failed, or not checked. Never show something done that still waits on the user. Show any bug found and fixed on the way. If a visible change has no screenshot, say so on its slide and name what changed on screen. Draw only from facts you have. Never invent a number, and never draw a screen you did not capture.
+Show the outcome of each item the user asked for: `done`, `still running`, `failed`, or `not checked`. Never mark work waiting on the user as done. Include any bug found and fixed along the way. If a visible change has no screenshot, note that on its slide and name what changed on screen. Never invent numbers or draw fake screens.
 
 ## Subtitles
 
-Give each slide one short subtitle line, about ten words, that says its point the way you would tell the user, from only what that slide shows. Say what the picture means rather than read out its labels. Put the subtitle in a strip below the slide, the same height on every slide and empty except for the subtitle, so it never covers the slide. Set it small, but readable when the video plays at chat size.
+Give each slide one short subtitle sentence, around ten words, stating what the picture means rather than reading out its labels. Place all subtitle text in `subtitle`; `render_ketchup.py` places it in the fixed bottom strip (`y in [height - strip_height, height)`) with automatic word-wrapping and clamping so subtitles never overlap slide content.
 
-## Render
+## Spec Schema (`slides.json`)
 
-Render one silent landscape video, such as an mp4, into `<appDataDir>/brain/<conversation-id>/` with motion between slides. Every frame is the slide itself, edge to edge, above its subtitle strip. Make the frames from the slides in `<appDataDir>/brain/<conversation-id>/scratch/`, never by recording a screen, and burn each subtitle into its slide's frames so it stays on screen for the slide's whole hold. The hold is the time a slide is fully on screen, not counting the motion into or out of it. Hold each slide long enough to read the words it adds, at least one second for each three words. A slide adds its subtitle and each word that was not on the slide before it, including a label it changes. The first slide adds all its words. Words inside a screenshot do not count.
+Write `<appDataDir>/brain/<conversation-id>/scratch/slides.json`:
 
-Before you embed the video, check the rendered file. Extract and inspect one frame from each slide in `<appDataDir>/brain/<conversation-id>/scratch/` at chat size, and check that its subtitle is readable and covers nothing. Measure each hold by matching the file's frames to the slide, not with a still-frame detector, which counts the faint ends of a fade as still. Count the words each slide adds against its measured hold. Fix any slide you cannot read in that time, render again, and check again.
+- Top-level fields: `width` (default `1280`), `height` (default `720`), `strip_height` (default `96`), `fps` (default `30`), `transition_seconds` (default `0.3`), `slides` (non-empty list).
+- Slide fields:
+  - `title`: optional string.
+  - `subtitle`: string rendered into the fixed bottom strip.
+  - `labels`: optional list of short label strings.
+  - `nodes`: optional list of `{id?, label, x?, y?, status?}`.
+  - `edges`: optional list of `{from, to, label?}`.
+  - `screenshots` (or `images`): optional list of string paths or `{path, caption?}` objects (8-bit PNGs composited inside the slide area; words inside screenshots are excluded from hold calculations).
+
+## Render and Verify
+
+Delegate all word-diff hold calculations (`max(2.0, ceil(added_words / 3))`), bottom-strip layout, slide rendering, MP4 encoding (`1280x720`, `30fps`, `libx264`, `yuv420p`, `+faststart`, `0.3s` `xfade` transitions), and contact-sheet extraction to `render_ketchup.py`:
+
+```bash
+uv run <skill-dir>/scripts/render_ketchup.py \
+  --spec <appDataDir>/brain/<conversation-id>/scratch/slides.json \
+  --out <appDataDir>/brain/<conversation-id>/ketchup.mp4 \
+  --contact-sheet <appDataDir>/brain/<conversation-id>/scratch/contact_sheet.png
+```
+
+Before embedding `ketchup.mp4` in your reply, inspect `contact_sheet.png` in a single `read_file` call to verify legibility, clean subtitle wrapping, and zero overlap. Fix any unreadable slide in `slides.json`, re-render, and inspect the updated contact sheet before posting.
