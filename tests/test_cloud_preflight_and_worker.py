@@ -797,7 +797,7 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
                         dry_run=False,
                     )
                 self.assertIn("Tier 3 open-weights model requiring a dedicated GPU cluster endpoint", str(ctx.exception))
-                self.assertIn("gemini-4-argon, gemini-3.8-flash, deepseek-v4.1-flash", str(ctx.exception))
+                self.assertIn("gemini-4-neon, gemini-4-carbon, gemini-4-hydrogen, deepseek-v4.1-flash", str(ctx.exception))
 
     def test_cloud_dispatch_list_models_flag(self):
         import cloud_dispatch
@@ -909,6 +909,16 @@ class TestPreflightGlobalAndRegionalURL(unittest.TestCase):
         # Inherited from GEMINI_MODEL env var
         with patch.dict(os.environ, {"GEMINI_MODEL": "gemini-2.5-flash"}):
             self.assertEqual(resolve_swarm_model(cli_model="inherit"), "gemini-2.5-flash")
+        self.assertEqual(
+            resolve_swarm_model(cli_model="inherit", parent_model="gemini-pro-orchestrator"),
+            "gemini-3.8-flash",
+        )
+        self.assertEqual(
+            resolve_swarm_model(cli_model="inherit", parent_model="gemini-pro-orchestrator-carbon"),
+            "gemini-3.8-flash",
+        )
+        with patch.dict(os.environ, {"ANTIGRAVITY_MODEL": "gemini-pro-orchestrator-carbon"}):
+            self.assertEqual(resolve_swarm_model(cli_model="inherit"), "gemini-3.8-flash")
 
     def test_resolve_swarm_model_runtime_config_and_agystack_models(self):
         # Explicit model in runtime config

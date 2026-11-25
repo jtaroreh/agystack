@@ -815,7 +815,7 @@ def run_preflight(
         raise RuntimeError(
             f"Model '{model}' is a Tier 3 open-weights model requiring a dedicated GPU cluster endpoint.\n"
             "Serverless Cloud Run swarms cannot dispatch directly to deploy-only models without an active dedicated endpoint.\n"
-            "Recommended Tier 1 zero-friction alternatives: gemini-4-argon, gemini-3.8-flash, deepseek-v4.1-flash."
+            "Recommended Tier 1 zero-friction alternatives: gemini-4-neon, gemini-4-carbon, gemini-4-hydrogen, deepseek-v4.1-flash."
         )
 
     if not dry_run and runtime == "cloud-run" and not gcs_bucket:
@@ -1085,8 +1085,10 @@ def resolve_swarm_model(
             "auto",
             "inherit-parent",
             "orchestrator",
+            "gemini-pro-orchestrator",
             "gemini-pro-orchestrator-g1-pro",
             "gemini-pro-orchestrator-neon",
+            "gemini-pro-orchestrator-carbon",
         ):
             parent = None
 
