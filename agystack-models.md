@@ -23,12 +23,10 @@ judgment and prose: inherit
 hardest tasks: inherit
 how explorer: flash
 why investigators: flash
-why synthesizer: inherit
 reflect tooling: inherit
 reflect judgment, divergent, synthesizer: inherit
 arena runners: inherit, flash, pro
 arena cross-judge pool: inherit, flash, pro
 swarm workers: flash
-architect runners: inherit, flash, pro
 interrogate reviewers: inherit, flash, pro
 
