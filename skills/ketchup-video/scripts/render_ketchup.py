@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pillow>=10.0.0"]
+# ///
 from __future__ import annotations
 
 import argparse
@@ -185,6 +189,189 @@ def _build_glyph_runs() -> dict[int, tuple[tuple[tuple[int, int], ...], ...]]:
 
 GLYPH_RUNS = _build_glyph_runs()
 
+SYSTEM_FONT_CANDIDATES: tuple[str, ...] = (
+    "/System/Library/Fonts/SFNS.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+)
+
+TRUETYPE_PIXEL_SIZES: dict[int, int] = {
+    2: 18,
+    3: 26,
+}
+
+
+class TextBackend:
+    def __init__(
+        self,
+        name: str,
+        font_path: str | None,
+        pil_image: Any = None,
+        pil_draw: Any = None,
+        pil_font: Any = None,
+    ) -> None:
+        self.name = name
+        self.font_path = font_path
+        self._pil_image = pil_image
+        self._pil_draw = pil_draw
+        self._pil_font = pil_font
+        self._fonts: dict[int, tuple[Any, int, int]] = {}
+
+    @property
+    def is_truetype(self) -> bool:
+        return self.name == "pillow-truetype" and self.font_path is not None
+
+    def _get_font(self, scale: int) -> tuple[Any, int, int]:
+        cached = self._fonts.get(scale)
+        if cached is not None:
+            return cached
+        px_size = TRUETYPE_PIXEL_SIZES.get(scale, max(12, scale * 9))
+        font = self._pil_font.truetype(self.font_path, px_size)
+        sample_bb = font.getbbox("AgypQ|[]")
+        ink_top = int(sample_bb[1])
+        ink_h = max(1, int(sample_bb[3] - sample_bb[1]))
+        entry = (font, ink_top, ink_h)
+        self._fonts[scale] = entry
+        return entry
+
+    def glyph_height(self, scale: int) -> int:
+        if self.is_truetype:
+            return self._get_font(scale)[2]
+        return 7 * scale
+
+    def line_gap(self, scale: int) -> int:
+        if self.is_truetype:
+            return 6 if scale == 3 else 5
+        return 7 if scale == 3 else 6
+
+    def line_step(self, scale: int) -> int:
+        return self.glyph_height(scale) + self.line_gap(scale)
+
+    def measure_width(self, text: str, scale: int) -> int:
+        if not text:
+            return 0
+        norm = _normalize_text(text)
+        if self.is_truetype:
+            font, _, _ = self._get_font(scale)
+            return int(math.ceil(font.getlength(norm)))
+        return len(norm) * 6 * scale - scale
+
+    def draw_on_canvas(
+        self,
+        canvas: Canvas,
+        x: int,
+        y: int,
+        text: str,
+        rgb: tuple[int, int, int],
+        scale: int = 2,
+    ) -> None:
+        norm = _normalize_text(text)
+        if not norm:
+            return
+
+        if not self.is_truetype:
+            cursor_x = x
+            step_x = 6 * scale
+            raw = canvas.raw
+            row_bytes = canvas.row_bytes
+            cx0, cy0, cx1, cy1 = canvas.clip_x0, canvas.clip_y0, canvas.clip_x1, canvas.clip_y1
+            rgb_bytes = bytes(rgb)
+
+            for ch in norm:
+                code = ord(ch)
+                runs = GLYPH_RUNS.get(code) or GLYPH_RUNS[63]
+                if cursor_x + 5 * scale > cx0 and cursor_x < cx1:
+                    for gy, row_spans in enumerate(runs):
+                        if not row_spans:
+                            continue
+                        py0 = y + gy * scale
+                        py1 = py0 + scale
+                        ry0 = max(cy0, py0)
+                        ry1 = min(cy1, py1)
+                        if ry0 >= ry1:
+                            continue
+                        for sx, slen in row_spans:
+                            px0 = max(cx0, cursor_x + sx * scale)
+                            px1 = min(cx1, cursor_x + (sx + slen) * scale)
+                            if px0 >= px1:
+                                continue
+                            span = rgb_bytes * (px1 - px0)
+                            span_len = len(span)
+                            base_x = 1 + px0 * 3
+                            for py in range(ry0, ry1):
+                                off = py * row_bytes + base_x
+                                raw[off : off + span_len] = span
+                cursor_x += step_x
+            return
+
+        font, ink_top, _ = self._get_font(scale)
+        left, top, right, bottom = font.getbbox(norm)
+        if right <= left or bottom <= top:
+            return
+        pad = 2
+        mw = int(right - left) + 2 * pad
+        mh = int(bottom - top) + 2 * pad
+        mask = self._pil_image.new("L", (mw, mh), 0)
+        self._pil_draw.Draw(mask).text((pad - left, pad - top), norm, fill=255, font=font)
+
+        dst_x = x + int(left) - pad
+        dst_y = y + int(top) - ink_top - pad
+        cx0 = max(canvas.clip_x0, dst_x)
+        cy0 = max(canvas.clip_y0, dst_y)
+        cx1 = min(canvas.clip_x1, dst_x + mw)
+        cy1 = min(canvas.clip_y1, dst_y + mh)
+        if cx0 >= cx1 or cy0 >= cy1:
+            return
+
+        mask_bytes = mask.tobytes()
+        r_fg, g_fg, b_fg = rgb
+        raw = canvas.raw
+        row_bytes = canvas.row_bytes
+        src_x_off = cx0 - dst_x
+        span_w = cx1 - cx0
+
+        for py in range(cy0, cy1):
+            m_row = (py - dst_y) * mw + src_x_off
+            dst_off = py * row_bytes + 1 + cx0 * 3
+            for i in range(span_w):
+                alpha = mask_bytes[m_row + i]
+                if alpha == 255:
+                    raw[dst_off] = r_fg
+                    raw[dst_off + 1] = g_fg
+                    raw[dst_off + 2] = b_fg
+                elif alpha > 0:
+                    inv = 255 - alpha
+                    raw[dst_off] = (r_fg * alpha + raw[dst_off] * inv) // 255
+                    raw[dst_off + 1] = (g_fg * alpha + raw[dst_off + 1] * inv) // 255
+                    raw[dst_off + 2] = (b_fg * alpha + raw[dst_off + 2] * inv) // 255
+                dst_off += 3
+
+
+def resolve_text_backend(font_candidates: tuple[str, ...] = SYSTEM_FONT_CANDIDATES) -> TextBackend:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except (ImportError, OSError):
+        return TextBackend(name="bitmap-5x7", font_path=None)
+
+    for candidate in font_candidates:
+        if not Path(candidate).is_file():
+            continue
+        try:
+            ImageFont.truetype(candidate, TRUETYPE_PIXEL_SIZES[2])
+        except OSError:
+            continue
+        return TextBackend(
+            name="pillow-truetype",
+            font_path=candidate,
+            pil_image=Image,
+            pil_draw=ImageDraw,
+            pil_font=ImageFont,
+        )
+
+    return TextBackend(name="bitmap-5x7", font_path=None)
+
 
 class KetchupRenderError(Exception):
     pass
@@ -197,6 +384,8 @@ class EnvStatus:
     ffprobe: str | None
     encoders: dict[str, bool]
     renderer: str
+    text_backend: str
+    font_path: str | None
     fallback: str | None
     error: str | None
 
@@ -207,6 +396,8 @@ class EnvStatus:
             "ffprobe": self.ffprobe,
             "encoders": self.encoders,
             "renderer": self.renderer,
+            "text_backend": self.text_backend,
+            "font_path": self.font_path,
             "fallback": self.fallback,
             "error": self.error,
         }
@@ -269,6 +460,7 @@ def check_environment() -> EnvStatus:
     ffmpeg_path = shutil.which("ffmpeg")
     ffprobe_path = shutil.which("ffprobe")
     encoders = {"libx264": False, "png": False}
+    text_backend = resolve_text_backend()
 
     if not ffmpeg_path:
         return EnvStatus(
@@ -277,6 +469,8 @@ def check_environment() -> EnvStatus:
             ffprobe=ffprobe_path,
             encoders=encoders,
             renderer="pure-python-png+ffmpeg",
+            text_backend=text_backend.name,
+            font_path=text_backend.font_path,
             fallback="generative_ui",
             error="ffmpeg not found on PATH",
         )
@@ -288,6 +482,8 @@ def check_environment() -> EnvStatus:
             ffprobe=None,
             encoders=encoders,
             renderer="pure-python-png+ffmpeg",
+            text_backend=text_backend.name,
+            font_path=text_backend.font_path,
             fallback="generative_ui",
             error="ffprobe not found on PATH",
         )
@@ -307,6 +503,8 @@ def check_environment() -> EnvStatus:
             ffprobe=ffprobe_path,
             encoders=encoders,
             renderer="pure-python-png+ffmpeg",
+            text_backend=text_backend.name,
+            font_path=text_backend.font_path,
             fallback="generative_ui",
             error=f"failed to probe ffmpeg encoders: {exc}",
         )
@@ -318,6 +516,8 @@ def check_environment() -> EnvStatus:
             ffprobe=ffprobe_path,
             encoders=encoders,
             renderer="pure-python-png+ffmpeg",
+            text_backend=text_backend.name,
+            font_path=text_backend.font_path,
             fallback="generative_ui",
             error=f"ffmpeg -encoders exited with {proc.returncode}",
         )
@@ -338,6 +538,8 @@ def check_environment() -> EnvStatus:
             ffprobe=ffprobe_path,
             encoders=encoders,
             renderer="pure-python-png+ffmpeg",
+            text_backend=text_backend.name,
+            font_path=text_backend.font_path,
             fallback="generative_ui",
             error=f"missing required ffmpeg encoders: {', '.join(missing)}",
         )
@@ -348,6 +550,8 @@ def check_environment() -> EnvStatus:
         ffprobe=ffprobe_path,
         encoders=encoders,
         renderer="pure-python-png+ffmpeg",
+        text_backend=text_backend.name,
+        font_path=text_backend.font_path,
         fallback=None,
         error=None,
     )
@@ -601,56 +805,68 @@ def _normalize_text(text: str) -> str:
     return text.translate(_UNICODE_ASCII_MAP)
 
 
-def _text_width(text: str, scale: int) -> int:
-    if not text:
-        return 0
-    return len(text) * 6 * scale - scale
-
-
-def _wrap_text(text: str, max_width: int, scale: int, max_lines: int) -> list[str]:
+def _wrap_text(
+    text: str,
+    max_width: int,
+    scale: int,
+    max_lines: int,
+    text_backend: TextBackend,
+) -> list[str]:
     clean = " ".join(_normalize_text(text).split())
-    if not clean or max_lines <= 0:
+    if not clean or max_lines <= 0 or max_width <= 0:
         return []
 
-    max_chars = max(1, (max_width + scale) // (6 * scale))
     lines: list[str] = []
     current = ""
+    words = clean.split(" ")
+    truncated = False
 
-    for word in clean.split(" "):
-        while len(word) > max_chars:
+    for idx, word in enumerate(words):
+        if text_backend.measure_width(word, scale) > max_width:
             if current:
                 lines.append(current)
                 current = ""
                 if len(lines) == max_lines:
+                    truncated = True
                     break
-            lines.append(word[:max_chars])
-            word = word[max_chars:]
+            rem = word
+            while rem and text_backend.measure_width(rem, scale) > max_width:
+                cut = 1
+                while cut < len(rem) and text_backend.measure_width(rem[: cut + 1], scale) <= max_width:
+                    cut += 1
+                lines.append(rem[:cut])
+                rem = rem[cut:]
+                if len(lines) == max_lines:
+                    truncated = bool(rem) or (idx + 1 < len(words))
+                    break
             if len(lines) == max_lines:
                 break
-        if len(lines) == max_lines:
-            break
+            current = rem
+            continue
 
         candidate = word if not current else f"{current} {word}"
-        if len(candidate) <= max_chars:
+        if text_backend.measure_width(candidate, scale) <= max_width:
             current = candidate
         else:
             lines.append(current)
             current = word
             if len(lines) == max_lines:
+                truncated = True
                 break
 
-    if current and len(lines) < max_lines:
-        lines.append(current)
-        exhausted = False
-    else:
-        exhausted = bool(current) or len(lines) == max_lines
+    if not truncated and current:
+        if len(lines) < max_lines:
+            lines.append(current)
+        else:
+            truncated = True
 
-    if exhausted and len(lines) == max_lines and clean != " ".join(lines):
-        last = lines[-1]
-        if max_chars >= 3:
-            lines[-1] = (last[: max_chars - 3].rstrip() + "...") if len(last) >= max_chars - 2 else (last + "...")
-            if len(lines[-1]) > max_chars:
-                lines[-1] = lines[-1][:max_chars]
+    if truncated and lines:
+        ellipsis = "..."
+        if text_backend.measure_width(ellipsis, scale) <= max_width:
+            last = lines[-1]
+            while last and text_backend.measure_width(last.rstrip() + ellipsis, scale) > max_width:
+                last = last[:-1]
+            lines[-1] = (last.rstrip() + ellipsis) if last.rstrip() else ellipsis
 
     return lines
 
@@ -804,7 +1020,13 @@ def decode_png_rgba(path: Path) -> tuple[int, int, bytes]:
 
 
 class Canvas:
-    def __init__(self, width: int, height: int, bg_rgb: tuple[int, int, int]) -> None:
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        bg_rgb: tuple[int, int, int],
+        text_backend: TextBackend | None = None,
+    ) -> None:
         self.width = width
         self.height = height
         self.row_bytes = 1 + width * 3
@@ -814,6 +1036,7 @@ class Canvas:
         self.clip_y0 = 0
         self.clip_x1 = width
         self.clip_y1 = height
+        self.text_backend = text_backend if text_backend is not None else resolve_text_backend()
 
     def set_clip(self, x0: int, y0: int, x1: int, y1: int) -> None:
         self.clip_x0 = max(0, x0)
@@ -881,39 +1104,7 @@ class Canvas:
             self.draw_line(x1, y1, ax, ay, rgb, thickness=thickness)
 
     def draw_text(self, x: int, y: int, text: str, rgb: tuple[int, int, int], scale: int = 2) -> None:
-        norm = _normalize_text(text)
-        cursor_x = x
-        step_x = 6 * scale
-        raw = self.raw
-        row_bytes = self.row_bytes
-        cx0, cy0, cx1, cy1 = self.clip_x0, self.clip_y0, self.clip_x1, self.clip_y1
-        rgb_bytes = bytes(rgb)
-
-        for ch in norm:
-            code = ord(ch)
-            runs = GLYPH_RUNS.get(code) or GLYPH_RUNS[63]
-            if cursor_x + 5 * scale > cx0 and cursor_x < cx1:
-                for gy, row_spans in enumerate(runs):
-                    if not row_spans:
-                        continue
-                    py0 = y + gy * scale
-                    py1 = py0 + scale
-                    ry0 = max(cy0, py0)
-                    ry1 = min(cy1, py1)
-                    if ry0 >= ry1:
-                        continue
-                    for sx, slen in row_spans:
-                        px0 = max(cx0, cursor_x + sx * scale)
-                        px1 = min(cx1, cursor_x + (sx + slen) * scale)
-                        if px0 >= px1:
-                            continue
-                        span = rgb_bytes * (px1 - px0)
-                        span_len = len(span)
-                        base_x = 1 + px0 * 3
-                        for py in range(ry0, ry1):
-                            off = py * row_bytes + base_x
-                            raw[off : off + span_len] = span
-            cursor_x += step_x
+        self.text_backend.draw_on_canvas(self, x, y, text, rgb, scale=scale)
 
     def blit_rgba_scaled(
         self,
@@ -1037,30 +1228,35 @@ def _draw_node_diagram(
         if edge.label:
             pending_pills.append(((p0[0] + p1[0]) // 2, (p0[1] + p1[1]) // 2, edge.label))
 
+    backend = canvas.text_backend
+    glyph_h2 = backend.glyph_height(2)
+    gap2 = backend.line_gap(2)
+    line_h2 = backend.line_step(2)
+
     for x0, y0, x1, y1, node in boxes.values():
         fill_rgb, border_rgb, text_rgb = _node_colors(node.status)
         canvas.fill_rect(x0, y0, x1, y1, fill_rgb)
         canvas.stroke_rect(x0, y0, x1, y1, border_rgb, thickness=2)
         inner_w = (x1 - x0) - 20
-        lines = _wrap_text(node.label, inner_w, scale=2, max_lines=3)
-        line_h = 20
-        total_th = len(lines) * line_h - 6 if lines else 0
+        lines = _wrap_text(node.label, inner_w, scale=2, max_lines=3, text_backend=backend)
+        total_th = len(lines) * glyph_h2 + max(0, len(lines) - 1) * gap2 if lines else 0
         ty = y0 + max(8, ((y1 - y0) - total_th) // 2)
         for line in lines:
-            tw = _text_width(line, scale=2)
+            tw = backend.measure_width(line, scale=2)
             tx = x0 + max(8, ((x1 - x0) - tw) // 2)
             canvas.draw_text(tx, ty, line, text_rgb, scale=2)
-            ty += line_h
+            ty += line_h2
 
     for mx, my, label in pending_pills:
-        lines = _wrap_text(label, 140, scale=2, max_lines=1)
+        lines = _wrap_text(label, 140, scale=2, max_lines=1, text_backend=backend)
         if lines:
-            tw = _text_width(lines[0], scale=2)
-            px0, py0 = mx - tw // 2 - 8, my - 12
-            px1, py1 = mx + tw // 2 + 8, my + 12
+            tw = backend.measure_width(lines[0], scale=2)
+            half_h = max(12, glyph_h2 // 2 + 5)
+            px0, py0 = mx - tw // 2 - 8, my - half_h
+            px1, py1 = mx + tw // 2 + 8, my + half_h
             canvas.fill_rect(px0, py0, px1, py1, EDGE_PILL_BG)
             canvas.stroke_rect(px0, py0, px1, py1, EDGE_PILL_BORDER, thickness=1)
-            canvas.draw_text(mx - tw // 2, my - 7, lines[0], TEXT_PRIMARY, scale=2)
+            canvas.draw_text(mx - tw // 2, my - glyph_h2 // 2, lines[0], TEXT_PRIMARY, scale=2)
 
 
 def _draw_labels_row(
@@ -1071,6 +1267,10 @@ def _draw_labels_row(
     zone_x1: int,
     zone_y1: int,
 ) -> None:
+    backend = canvas.text_backend
+    glyph_h2 = backend.glyph_height(2)
+    gap2 = backend.line_gap(2)
+    line_h2 = backend.line_step(2)
     n = len(labels)
     zone_w = max(160, zone_x1 - zone_x0)
     cols = min(n, 3)
@@ -1093,15 +1293,14 @@ def _draw_labels_row(
 
         canvas.fill_rect(x0, y0, x1, y1, LABEL_BG)
         canvas.stroke_rect(x0, y0, x1, y1, LABEL_BORDER, thickness=2)
-        lines = _wrap_text(label, card_w - 20, scale=2, max_lines=2)
-        line_h = 20
-        th = len(lines) * line_h - 6 if lines else 0
+        lines = _wrap_text(label, card_w - 20, scale=2, max_lines=2, text_backend=backend)
+        th = len(lines) * glyph_h2 + max(0, len(lines) - 1) * gap2 if lines else 0
         ty = y0 + max(6, (card_h - th) // 2)
         for line in lines:
-            tw = _text_width(line, scale=2)
+            tw = backend.measure_width(line, scale=2)
             tx = x0 + max(8, (card_w - tw) // 2)
             canvas.draw_text(tx, ty, line, TEXT_PRIMARY, scale=2)
-            ty += line_h
+            ty += line_h2
 
 
 def _draw_screenshots(
@@ -1113,6 +1312,7 @@ def _draw_screenshots(
     zone_y1: int,
     image_cache: dict[Path, tuple[int, int, bytes]],
 ) -> None:
+    backend = canvas.text_backend
     n = len(screenshots)
     cols = 1 if n == 1 else 2
     rows = math.ceil(n / cols)
@@ -1142,24 +1342,34 @@ def _draw_screenshots(
         canvas.stroke_rect(dx - 2, dy - 2, dx + draw_w + 2, dy + draw_h + 2, FRAME_BORDER, thickness=2)
 
         if shot.caption:
-            cap_lines = _wrap_text(shot.caption, slot_w - 8, scale=2, max_lines=1)
+            cap_lines = _wrap_text(shot.caption, slot_w - 8, scale=2, max_lines=1, text_backend=backend)
             if cap_lines:
-                tw = _text_width(cap_lines[0], scale=2)
+                tw = backend.measure_width(cap_lines[0], scale=2)
                 canvas.draw_text(sx0 + max(0, (slot_w - tw) // 2), dy + draw_h + 8, cap_lines[0], TEXT_MUTED, scale=2)
 
 
-def layout_subtitle(subtitle: str, width: int, strip_height: int) -> tuple[int, list[str]]:
+def layout_subtitle(
+    subtitle: str,
+    width: int,
+    strip_height: int,
+    text_backend: TextBackend | None = None,
+) -> tuple[int, list[str]]:
+    backend = text_backend if text_backend is not None else resolve_text_backend()
     pad_x = 32
     avail_w = max(64, width - 2 * pad_x)
     avail_h = max(20, strip_height - 14)
 
-    lines_3 = _wrap_text(subtitle, avail_w, scale=3, max_lines=10)
-    if len(lines_3) <= 2 and (len(lines_3) * 21 + max(0, len(lines_3) - 1) * 7) <= avail_h:
+    lines_3 = _wrap_text(subtitle, avail_w, scale=3, max_lines=10, text_backend=backend)
+    h3 = backend.glyph_height(3)
+    gap3 = backend.line_gap(3)
+    if len(lines_3) <= 2 and (len(lines_3) * h3 + max(0, len(lines_3) - 1) * gap3) <= avail_h:
         return 3, lines_3
 
-    line_h_2 = 20
-    max_lines_2 = max(1, (avail_h + 6) // line_h_2)
-    lines_2 = _wrap_text(subtitle, avail_w, scale=2, max_lines=max_lines_2)
+    h2 = backend.glyph_height(2)
+    gap2 = backend.line_gap(2)
+    line_step_2 = h2 + gap2
+    max_lines_2 = max(1, (avail_h + gap2) // line_step_2)
+    lines_2 = _wrap_text(subtitle, avail_w, scale=2, max_lines=max_lines_2, text_backend=backend)
     return 2, lines_2
 
 
@@ -1167,17 +1377,19 @@ def render_slide_canvas(
     spec: RenderSpec,
     slide: SlideSpec,
     image_cache: dict[Path, tuple[int, int, bytes]],
+    text_backend: TextBackend | None = None,
 ) -> tuple[Canvas, tuple[str, ...]]:
-    canvas = Canvas(spec.width, spec.height, BG_SLIDE)
+    backend = text_backend if text_backend is not None else resolve_text_backend()
+    canvas = Canvas(spec.width, spec.height, BG_SLIDE, text_backend=backend)
     strip_y = spec.height - spec.strip_height
 
     canvas.set_clip(0, 0, spec.width, strip_y)
     content_y0 = 24
     if slide.title:
-        title_lines = _wrap_text(slide.title, spec.width - 72, scale=3, max_lines=1)
+        title_lines = _wrap_text(slide.title, spec.width - 72, scale=3, max_lines=1, text_backend=backend)
         if title_lines:
             canvas.draw_text(36, content_y0, title_lines[0], TEXT_PRIMARY, scale=3)
-            content_y0 += 36
+            content_y0 += max(36, backend.glyph_height(3) + 12)
             canvas.fill_rect(36, content_y0, spec.width - 36, content_y0 + 2, STRIP_DIVIDER)
             content_y0 += 14
 
@@ -1210,17 +1422,17 @@ def render_slide_canvas(
     canvas.fill_rect(0, strip_y, spec.width, strip_y + 2, STRIP_DIVIDER)
     canvas.fill_rect(0, strip_y + 2, spec.width, spec.height, BG_STRIP)
 
-    sub_scale, sub_lines = layout_subtitle(slide.subtitle, spec.width, spec.strip_height)
+    sub_scale, sub_lines = layout_subtitle(slide.subtitle, spec.width, spec.strip_height, text_backend=backend)
     if sub_lines:
-        glyph_h = 7 * sub_scale
-        gap_y = 7 if sub_scale == 3 else 6
+        glyph_h = backend.glyph_height(sub_scale)
+        gap_y = backend.line_gap(sub_scale)
         line_step = glyph_h + gap_y
         total_h = len(sub_lines) * glyph_h + max(0, len(sub_lines) - 1) * gap_y
         strip_inner_y = strip_y + 2
         strip_inner_h = spec.strip_height - 2
         ty = strip_inner_y + max(4, (strip_inner_h - total_h) // 2)
         for line in sub_lines:
-            tw = _text_width(line, sub_scale)
+            tw = backend.measure_width(line, sub_scale)
             tx = max(32, (spec.width - tw) // 2)
             canvas.draw_text(tx, ty, line, TEXT_SUBTITLE, scale=sub_scale)
             ty += line_step
@@ -1326,13 +1538,14 @@ def render_from_spec(spec_path: Path, out_path: Path, contact_sheet_path: Path |
     spec = parse_spec(raw_spec, spec_path.parent)
     timings, total_duration = compute_timings(spec)
     image_cache: dict[Path, tuple[int, int, bytes]] = {}
+    text_backend = resolve_text_backend()
 
     with tempfile.TemporaryDirectory(prefix="ketchup-render-") as tmp_dir:
         tmp = Path(tmp_dir)
         slide_paths: list[Path] = []
         updated_timings: list[SlideTiming] = []
         for idx, slide in enumerate(spec.slides):
-            canvas, sub_lines = render_slide_canvas(spec, slide, image_cache)
+            canvas, sub_lines = render_slide_canvas(spec, slide, image_cache, text_backend=text_backend)
             slide_png = tmp / f"slide_{idx:03d}.png"
             slide_png.write_bytes(canvas.to_png_bytes(compress_level=1))
             slide_paths.append(slide_png)
@@ -1357,6 +1570,8 @@ def render_from_spec(spec_path: Path, out_path: Path, contact_sheet_path: Path |
         "ok": True,
         "out": str(out_path),
         "contact_sheet": str(contact_sheet_path) if contact_sheet_path is not None else None,
+        "text_backend": text_backend.name,
+        "font_path": text_backend.font_path,
         "total_duration": total_duration,
         "slides": [
             {

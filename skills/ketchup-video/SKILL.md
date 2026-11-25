@@ -15,8 +15,10 @@ The reply contains `/ketchup`'s opening sentence, the embedded video from `<appD
 Run the environment probe before writing any slide spec:
 
 ```bash
-python3 <skill-dir>/scripts/render_ketchup.py --check-env
+uv run <skill-dir>/scripts/render_ketchup.py --check-env
 ```
+
+`uv run` resolves the inline Pillow dependency automatically for antialiased TrueType text (`text_backend: "pillow-truetype"`). Running with plain `python3` without Pillow installed automatically falls back to the built-in `5x7` bitmap font (`text_backend: "bitmap-5x7"`).
 
 - When `--check-env` exits `0` (`ok: true`), render the MP4 with `render_ketchup.py`.
 - When `--check-env` exits non-zero (`ok: false`, such as missing `ffmpeg`, `ffprobe`, or `libx264`), do not attempt MP4 rendering or emit broken video links. State the missing dependency in one line and fall back to a `generative_ui` interactive HTML slide deck paired with [`/ketchup`](../ketchup/SKILL.md) text action items.
@@ -53,7 +55,7 @@ Write `<appDataDir>/brain/<conversation-id>/scratch/slides.json`:
 Delegate all word-diff hold calculations (`max(2.0, ceil(added_words / 3))`), bottom-strip layout, slide rendering, MP4 encoding (`1280x720`, `30fps`, `libx264`, `yuv420p`, `+faststart`, `0.3s` `xfade` transitions), and contact-sheet extraction to `render_ketchup.py`:
 
 ```bash
-python3 <skill-dir>/scripts/render_ketchup.py \
+uv run <skill-dir>/scripts/render_ketchup.py \
   --spec <appDataDir>/brain/<conversation-id>/scratch/slides.json \
   --out <appDataDir>/brain/<conversation-id>/ketchup.mp4 \
   --contact-sheet <appDataDir>/brain/<conversation-id>/scratch/contact_sheet.png
