@@ -5,88 +5,51 @@ description: "Use for \"interrogate\", \"adversarial review\", \"multi-model rev
 
 # Interrogate
 
-Spawn one reviewer per configured model to adversarially review code changes. Independent models evaluate code across thinking budgets (`pro`, `flash`, `inherit`) to surface blind spots. Consensus across models represents high-confidence signal; lone-model findings are lower-confidence but worth noting.
+Spawn independent adversarial reviewers across configured model tiers to break a change or design. Multi-model consensus is high-confidence signal; lone-model findings are lower-confidence but still evaluated. The deliverable is a verdict in `<appDataDir>/brain/<conversation-id>/adversarial_review.md` (`RequestFeedback: false`). Do not auto-apply edits.
 
-The deliverable is a synthesized verdict. Do not auto-apply edits.
+## Step 1. Frame Scope and Intent
 
-## Step 1. Determine Scope
+Identify target files or the full branch diff from merge base through the working tree (`git diff main...HEAD`). State what the change intends to accomplish from the user request, commits, and PR context. Reviewers test whether the code satisfies this intent without regressions.
 
-Identify target files or changesets:
-- Specific files or explicit diff from user prompt
-- Full feature branch changeset via `git diff main...HEAD` (or appropriate base)
+## Step 2. Dispatch Reviewers in Isolated Branches
 
-Package the diff and necessary surrounding context files.
-
-## Step 2. State the Intent
-
-State what the code attempts to accomplish based on commit messages, PR descriptions, and code context. Reviewers evaluate whether the implementation achieves this intent without regressions, not whether the intent itself is valid.
-
-## Step 3. Spawn Reviewers
-
-Launch all reviewers in a single turn using `invoke_subagent`. Simulating reviewer personas in-context is strictly prohibited.
-
-Use the `interrogate reviewers` list from `~/.gemini/config/plugins/agystack/agystack-models.md` when present, or fall back to defaults:
-
-| Subagent | Default model tier |
-|---|---|
-| Reviewer A | `pro` |
-| Reviewer B | `flash` |
-| Reviewer C | `inherit` |
+Launch all reviewers in a single turn via `invoke_subagent`. Never simulate reviewer personas in-context. Read `interrogate reviewers` from `~/.gemini/config/plugins/agystack/agystack-models.md` (or `.agents/plugins/agystack/agystack-models.md`), defaulting to `inherit`, `flash`, and `pro` (translating Gemini 4 effort-suffixed entries to `pro`, `inherit`, `flash`, falling back to `inherit` on single-tier accounts or HTTP 429).
 
 For each reviewer:
-- `TypeName`: `research` (or `self`)
+- `TypeName`: `self` (or `research` for read-only design review)
 - `Role`: `Adversarial Reviewer (<model tier>)`
-- `Model`: configured tier (or `pro`, `flash`, `inherit`). When `agystack-models.md` specifies Gemini 4 effort-suffixed entries (`gemini-4-neon-high`, `gemini-4-argon-high`, `gemini-4-hydrogen-medium`), translate them to the `invoke_subagent` enum (`pro`, `inherit`, `flash`). If an account only has access to a single model tier (such as Gemini 3.8 Flash) or hits HTTP 429 `RESOURCE_EXHAUSTED` on `pro` or `flash`, fall back to `Model: "inherit"` so all panel slots complete.
-- `Workspace`: `inherit`
+- `Model`: configured tier
+- `Workspace`: `"branch"` (copying uncommitted scope changes into each branch worktree so repros stay isolated)
 
-Fill `references/reviewer-prompt.md` with:
-1. Stated intent
-2. Diff or file contents
-3. Rubric from `references/rubric.md`, explicitly injecting concrete audit categories:
-   - **Idempotency & Crash Recovery:** Re-execution safety and partial failure state.
-   - **Concurrency & Races:** Shared state serialization and lock invariants.
-   - **Boundary Discipline:** System boundary validation vs internal type trust.
-   - **Contract vs Symptom:** Root cause verification vs shallow guard clauses.
-4. Code-quality lens from `references/code-quality-review.md`
-5. System `{PARENT_CONVERSATION_ID}` for return routing
+Give each reviewer the scope, stated intent, `{PARENT_CONVERSATION_ID}`, and four concrete audit lenses:
+- **Idempotency & Crash Recovery.** Re-execution safety, retries, and partial-failure reconciliation.
+- **Concurrency & Races.** Shared mutable state serialization, lock invariants, and TOCTOU hazards.
+- **Boundary Discipline.** External input validation at system boundaries versus internal type trust.
+- **Contract vs Symptom.** Root-cause fixes versus shallow guard clauses or dual legacy paths.
 
-### Reactive Dispatch & Watchdog Protocol
+Require each reviewer to prove every behavioral defect with an executable repro command (failing test, script, or shell one-liner) run in its own worktree, reporting title, exact command, observed output, and expected output. High-severity non-deterministic or structural defects that cannot be deterministically reproduced (such as race windows or crash-recovery gaps) may be reported only under the `unverified-structural` tag with exact `file:line` and concrete failure mechanism. Style, naming, and subjective nitpicks are banned. Require every reviewer to report via `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"`.
 
-1. **Turn 1 (Dispatch & Arm Watchdog):** Dispatch all reviewers via `invoke_subagent` and arm an unconditional watchdog deadline:
-   `schedule(DurationSeconds: 300..600, Prompt="Watchdog: adversarial reviewers timed out", TimerCondition: "never")`
-2. **Turn 2 (Yield Turn):** Output a status update and call ZERO tools (`tool_calls: []`). Never run busy-wait polling loops (`manage_subagents(list)`).
-3. **Partial Wakeups:** On child `send_message`, record findings. If reviewers remain pending, yield immediately with ZERO tools (`tool_calls: []`). Do NOT alter the watchdog timer.
-4. **Full Arrival:** When all reviewers report, cancel the timer via `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Step 4.
-5. **Watchdog Timeout Fallback:** If the watchdog fires, inspect `manage_subagents(Action: "list")`, terminate unresponsive workers (`manage_subagents(Action: "kill", ConversationIds: [<id>])`), and synthesize surviving findings.
+### Reactive Dispatch and Watchdog Protocol
 
-## Step 4. Empirical Verification Gate & Synthesis
+1. **Dispatch and arm.** Launch all reviewers in one turn and arm one unconditional watchdog:
+   `schedule(DurationSeconds: 300..600, Prompt="Watchdog: interrogate reviewers timed out", TimerCondition: "never")`
+2. **Yield turn.** Output a brief status and call ZERO tools (`tool_calls: []`). Never poll with `manage_subagents(list)`.
+3. **Partial wakeups.** On each arriving `send_message`, record findings and yield with ZERO tools while reviewers remain pending.
+4. **Full arrival.** Cancel the timer with `manage_task(Action: "kill", TaskId: <timer_task_id>)` and proceed to Step 3.
+5. **Watchdog timeout fallback.** If the watchdog fires, inspect `manage_subagents(Action: "list")`, kill unresponsive workers via `manage_subagents(Action: "kill", ConversationIds: [<id>])`, and proceed with `N-1` or surviving reports, noting any dropout in the verdict.
 
-- Parse reviewer findings.
-- **Empirical Gate:** Every actionable finding MUST include an executable repro command, curl call, test snippet, or shell one-liner proving the defect or reproducing the failure against the code. Speculative findings lacking executable reproduction are dropped.
-- **Lead Verifier Rerun:** The coordinator reruns each repro command using `run_command`. If the command does not reproduce the failure against the codebase, the finding is dropped.
-- Identify multi-model consensus (highest confidence).
-- Isolate lone-model findings (lower confidence).
-- Deduplicate overlapping issues.
-- Highlight direct disagreements between models.
+## Step 3. Proof-by-Run Gate and Synthesis
 
-## Step 5. Lead Judgment
+- **Verified repro rerun.** Rerun every behavioral repro command yourself via `run_command`. Mark a finding `verified` only when the rerun reproduces the failure against the codebase and breaks the stated intent. Drop findings whose repro fails to trigger or lacks an executable command.
+- **Unverified-structural exception.** Keep `unverified-structural` findings strictly separate from `verified` repros, accepting them only for high-severity structural or concurrency defects backed by exact `file:line` and a concrete execution path. Drop all style nitpicks, hypotheticals blocked upstream, and "I would have done it differently" preferences.
+- **Consensus and agreement map.** Deduplicate overlapping issues, highlight multi-model consensus, isolate lone-model findings, and record direct disagreements.
 
-Classify surviving verified findings using the framework in `references/lead-judgment.md`:
-- Filter out "Nitpick Gravity" and subjective preferences ("I would have done it differently").
-- **Act on.** Critical defects in correctness, security, or maintainability with verified repros that block landing.
-- **Consider.** Valid tradeoffs worth operator attention.
-- **Noted.** Context-dependent, premature optimization, or low impact.
-- **Dismissed.** Unreproduced findings, false positives, or missing context, with brief rationale.
+## Step 4. Lead Judgment and Verdict
 
-## Output Format
+Classify surviving findings with pragmatic engineering judgment:
+- **Act on.** Critical defects (`verified` repros or high-severity `unverified-structural` flaws) blocking landing.
+- **Consider.** Valid architectural or behavioral tradeoffs worth operator attention.
+- **Noted.** Low-impact or context-dependent observations.
+- **Dismissed.** Failed repros, false positives, nitpicks, or missing-context claims, each with a brief rationale.
 
-Write the complete categorized review, rationales, and agreement map to `<appDataDir>/brain/<conversation-id>/adversarial_review.md` (or `review_verdict.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: false }`. Present an executive summary in chat and link to the artifact.
-
-Structure:
-- **Intent.** Stated goal of the change.
-- **Reviewers.** One bullet per reviewer (model, finding count).
-- **Act On.** Findings requiring resolution, with verified repro commands.
-- **Consider.** Tradeoffs to evaluate.
-- **Noted.** Low-priority items.
-- **Dismissed.** Rejected findings with justification.
-- **Agreement Map.** Consensus patterns and divergences.
+Write `<appDataDir>/brain/<conversation-id>/adversarial_review.md` (`RequestFeedback: false`) and link it in chat with: **Intent**, **Reviewers** (model, counts, dropouts), **Act on**, **Consider**, **Noted**, **Dismissed**, and **Agreement Map**.

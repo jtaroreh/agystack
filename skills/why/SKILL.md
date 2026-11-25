@@ -5,119 +5,55 @@ description: "Use for 'why does X work this way', 'why we picked Y', design rati
 
 # Why
 
-Investigate the motivation, business constraints, and historical intent behind code. Companion to `how`: `how` explains runtime mechanics; `why` uncovers what forces shaped the design.
+Answer from the record, not the code. Companion to `how`: `how` explains runtime mechanics, `why` uncovers the constraints and decisions that shaped the design.
 
-## Operating Posture & Core Epistemics
+## Epistemics
 
-Operate as a rigorous historical investigator. Evidence precedes narrative.
+- **Cite direct evidence.** Every factual claim cites a commit hash, PR number, ticket ID, doc URL, chat permalink, or code comment. Never cite code mechanics as proof of author intent.
+- **Separate inference from fact.** Use direct language only for explicit citations. Mark deductions with hedged language ("appears to", "likely", "suggests") and show the chain.
+- **Keep competing hypotheses and contradictions visible.** When sources disagree or multiple explanations fit, present each with supporting and contrary evidence instead of smoothing into one narrative. Treat a user's embedded hypothesis as one candidate to test, not a conclusion to confirm.
+- **Report null results explicitly.** List every searched source that returned empty and every skipped category with its reason. An empty search is evidence.
 
-- **Cite everything.** Every factual claim must reference a specific commit hash, PR number, ticket ID, document URL, chat permalink, or code comment. Uncited claims are labeled as inference.
-- **Precision over polish.** Quote exact sources rather than smoothing into narrative.
-- **Separate facts from inferences.** Use direct language only for explicit evidence. Use hedged phrasing ("appears to", "likely", "suggests") when inferring intent.
-- **Surface contradictions.** Present conflicting sources side by side without picking favorites.
-- **Document gaps.** Report searched sources that returned empty. A null result is valuable evidence.
-- **Multiple hypotheses.** When evidence supports multiple interpretations, present each with its supporting and contrary evidence.
+## Step 1. Anchor in Git History
 
-Follow the epistemics and confidence framework in `references/epistemics.md`.
-
-## Step 1. Understand Target and Question
-
-Identify the target code and the core question (design rationale, alternatives considered, defensive motivation, dead-code status, or archaeological history). If ambiguous, state your best-guess interpretation and proceed.
-
-## Step 2. Establish Code Anchor
-
-Anchor the investigation in concrete git history before spawning investigators:
+Identify the target code and question, then anchor in git before fanning out:
 
 ```bash
-# Blame target lines for last-touch commits
 git blame -L <start>,<end> <file>
-
-# Full file history through renames
 git log --follow -p -- <file>
-
-# Last N commits touching the file
-git log --oneline -20 -- <file>
-
-# Inspect commit message
-git log -1 --format=%B <commit>
-
-# Fetch PR metadata and review discussions
 gh pr view <number> --json title,body,author,createdAt,mergedAt,labels,closingIssuesReferences,comments,reviews
 ```
 
-Extract symbols, commit hashes, PR numbers, and referenced ticket IDs to seed investigator subagents.
+Extract symbols, commit hashes, PR numbers, and ticket IDs to seed investigators.
 
-## Step 3. Spawn Parallel Investigators
+## Step 2. Parallel Investigator Dispatch
 
-Default to querying all available evidence categories in parallel. Inspect available MCPs and map them to the seven categories:
+Inspect available MCPs and map them to the seven evidence categories:
+1. **Source control** (git, `gh`): commits, PR reviews, inline comments, tests.
+2. **Issue tracker** (Linear, Jira, GitHub Issues): tickets, requests, milestones.
+3. **Long-form docs** (Notion, Confluence, Google Docs): PRDs, RFCs, ADRs, postmortems.
+4. **Real-time chat** (Slack, Discord, Teams): deliberations, incident channels, Q&A.
+5. **Observability** (Datadog, New Relic, Grafana): metrics, monitors, dashboards, alerts.
+6. **Error tracking** (Sentry, Rollbar, Bugsnag): exceptions, stack traces, release regressions.
+7. **Product analytics** (Databricks, Snowflake, BigQuery): telemetry, feature flags, thresholds.
 
-1. **Source control history** (git, `gh`): Commits, PR reviews, inline comments, tests.
-2. **Issue / ticket tracker** (Linear, Jira, GitHub Issues): Tickets, client requests, milestones, labels.
-3. **Long-form documents** (Notion, Confluence, Google Docs): PRDs, RFCs, design docs, ADRs, postmortems.
-4. **Real-time team chat** (Slack, Discord, Teams): Deliberations, incident channels, real-time Q&A.
-5. **Infrastructure observability** (Datadog, New Relic, Grafana): Metric spikes, monitors, dashboards, alerts.
-6. **Error / exception tracking** (Sentry, Rollbar, Bugsnag): Exceptions, stack traces, release regressions.
-7. **Product analytics warehouse** (Databricks, Snowflake, BigQuery): Telemetry, feature-flag exposures, thresholds.
+Launch one investigator per available category in a single turn via `invoke_subagent` (`TypeName: "self"`, `Role: "<Category> Investigator"`, `Model`: configured `why investigators` default `flash`, `Workspace: "inherit"`). Never group multiple MCPs under one investigator. Pass the git anchor, question, and `{PARENT_CONVERSATION_ID}`, requiring each investigator to reply via `send_message` with `Recipient: "{PARENT_CONVERSATION_ID}"`. For defensive code (guards, retries, timeouts, rate limits), include incident and postmortem queries. Skip a category only when no MCP exists or it is provably irrelevant, and record the reason.
 
-Launch matching investigators concurrently via `invoke_subagent`:
-- `TypeName`: `self` (or `poteto-agent`)
-- `Role`: `<Category> Investigator`
-- `Model`: configured why-investigators model (default `flash`)
-- `Workspace`: `inherit`
+### Reactive Wakeup and Watchdog
 
-Each investigator receives:
-1. `references/investigator-prompt.md`
-2. Category playbook `references/sources/<source>.md`
-3. Cross-cutting `references/sources/incident-postmortem.md` if code looks defensive (null guards, timeouts, retries)
-4. Code anchor context from Step 2
-5. User question
+1. Dispatch all investigators in one turn and arm one watchdog: `schedule(DurationSeconds: 300..600, Prompt="Watchdog: why investigators timed out", TimerCondition: "never")`.
+2. Yield immediately with ZERO tools (`tool_calls: []`). Never poll with `manage_subagents(list)`.
+3. On each arriving `send_message`, record findings and yield with ZERO tools while others remain active.
+4. When all arrive, cancel the timer with `manage_task(Action: "kill", TaskId: <timer_task_id>)`. If the watchdog fires, kill unresponsive workers via `manage_subagents` and synthesize surviving reports (proceeding with `N-1` or remaining coverage and logging any dropout as a coverage gap).
 
-### Skipping an Investigator
+## Step 3. Synthesize and Present
 
-Skip a category only with explicit written justification in the final coverage map:
-- No matching MCP available in the environment (document as a coverage gap).
-- Source is provably irrelevant (e.g. error tracking for an offline build tool).
-
-## Step 4. Synthesize
-
-Spawn one synthesizer subagent via `invoke_subagent`:
-- `TypeName`: `self` (or `poteto-agent`)
-- `Role`: `Historical Synthesizer`
-- `Model`: configured why-synthesizer model (default `pro`)
-- `Workspace`: `inherit`
-
-The synthesizer receives investigator findings, code anchor, user question, `references/epistemics.md`, and `references/synthesizer-prompt.md`. It outputs a confidence-weighted, evidence-cited narrative.
-
-## Step 5. Present
-
-Write the full cited report, hypotheses, and coverage map to `<appDataDir>/brain/<conversation-id>/decision_rationale_report.md` (or `<topic>_why.md`) with `ArtifactMetadata: { Summary: "...", UserFacing: true, RequestFeedback: false }`. Present an executive summary in chat and link to the artifact. Preserve all calibrated confidence language.
-
-### Output Format
-
-- **The Question.** Restatement of the user inquiry.
-- **The Code in Question.** File paths, line ranges, and key symbols.
-- **What We Found (direct evidence).** Bulleted claims with explicit citations (commits, PRs, tickets, docs).
-- **What We Can Reasonably Infer.** Inferences supported by indirect evidence, stating the deduction chain with hedged language.
+Synthesize investigator reports directly in the coordinator. Write the full report to `<appDataDir>/brain/<conversation-id>/decision_rationale_report.md` (`RequestFeedback: false`) and link it in chat with:
+- **Question and Anchor.** Target files, lines, symbols, and question.
+- **Direct Evidence.** Cited claims from commits, PRs, tickets, docs, or chat.
+- **Inferences.** Hedged deductions with explicit reasoning chains.
 - **Competing Hypotheses.** Alternative explanations with evidence for and against.
-- **What We Don't Know.** Unresolved questions and null results from searched sources.
-- **Sources Consulted.** Coverage map with one line per investigator:
-  `- <Source>: <what was searched>. <what was found, or "no relevant results," or "skipped: reason">.`
+- **Gaps and Null Results.** Unresolved questions and empty searches.
+- **Sources Consulted.** One line per category: searched query and result, `"no relevant results"`, or `"skipped: <reason>"`.
 
-If the inquiry precedes code modifications, summarize findings as a Preserve / Change / Avoid / Risk constraint set.
-
-## Common Failure Modes
-
-- Confident storytelling without direct citations.
-- Citing code mechanics as evidence of its own intent.
-- Recency bias assuming the latest commit reflects original intent.
-- Sycophantic confirmation of user-suggested explanations.
-- Skipping the gaps section or omitting null search results.
-- Grouping multiple MCPs under a single investigator.
-
-## Reference Files
-
-- `references/epistemics.md`: Confidence tiers and phrasing guide.
-- `references/investigator-prompt.md`: Prompt template for investigator subagents.
-- `references/source-playbook.md`: Category playbook index.
-- `references/sources/*.md`: Category-specific playbooks and `incident-postmortem.md`.
-- `references/synthesizer-prompt.md`: Synthesizer prompt template and rubric.
+When the investigation precedes code edits, close with a **Preserve / Change / Avoid / Risk** constraint summary.

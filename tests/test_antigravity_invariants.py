@@ -18,13 +18,11 @@ EXPECTED_MODEL_TIERS: dict[str, list[str]] = {
     "hardest tasks": ["inherit"],
     "how explorer": ["flash"],
     "why investigators": ["flash"],
-    "why synthesizer": ["inherit"],
     "reflect tooling": ["inherit"],
     "reflect judgment, divergent, synthesizer": ["inherit"],
     "arena runners": ["inherit", "flash", "pro"],
     "arena cross-judge pool": ["inherit", "flash", "pro"],
     "swarm workers": ["flash"],
-    "architect runners": ["inherit", "flash", "pro"],
     "interrogate reviewers": ["inherit", "flash", "pro"],
 }
 
@@ -286,10 +284,22 @@ class TestAntigravityInvariants(unittest.TestCase):
 
         why_skill = _read_repo_file("skills/why/SKILL.md")
         self.assertRegex(why_skill, r"why[- ]investigators")
-        self.assertRegex(why_skill, r"why[- ]synthesizer")
+        self.assertNotRegex(why_skill, r"why[- ]synthesizer")
+        self.assertFalse((SKILLS_DIR / "why" / "references").exists(), "skills/why/references should be removed")
 
-        self.assertIn("architect runners", _read_repo_file("skills/architect/SKILL.md"))
+        architect_skill = _read_repo_file("skills/architect/SKILL.md")
+        self.assertIn("arena runners", architect_skill)
+        self.assertNotIn("architect runners", architect_skill)
+        self.assertFalse(
+            (SKILLS_DIR / "architect" / "references").exists(),
+            "skills/architect/references should be removed",
+        )
+
         self.assertIn("interrogate reviewers", _read_repo_file("skills/interrogate/SKILL.md"))
+        self.assertFalse(
+            (SKILLS_DIR / "interrogate" / "references").exists(),
+            "skills/interrogate/references should be removed",
+        )
         self.assertIn("arena runners", _read_repo_file("skills/arena/SKILL.md"))
         self.assertIn("swarm workers", _read_repo_file("skills/cloud-swarm/SKILL.md"))
         self.assertIn("swarm workers", _read_repo_file("skills/poteto-mode/references/antigravity-tools.md"))
@@ -300,6 +310,95 @@ class TestAntigravityInvariants(unittest.TestCase):
         self.assertIn("~/.gemini/config/plugins/", reflect_skill)
         self.assertIn(".agents/skills/<skill>/", reflect_skill)
         self.assertIn("~/.gemini/config/skills/<skill>/", reflect_skill)
+
+    def test_compressed_why_architect_interrogate_boundaries_and_autodiscovery(self):
+        why_skill = _read_repo_file("skills/why/SKILL.md")
+        for token in (
+            "Source control",
+            "Issue tracker",
+            "Long-form docs",
+            "Real-time chat",
+            "Observability",
+            "Error tracking",
+            "Product analytics",
+            "invoke_subagent",
+            "why investigators",
+            "{PARENT_CONVERSATION_ID}",
+            "send_message",
+            'TimerCondition: "never"',
+            "ZERO tools (`tool_calls: []`)",
+            "N-1",
+            "Direct Evidence",
+            "Inferences",
+            "Competing Hypotheses",
+            "Null Results",
+            "Preserve / Change / Avoid / Risk",
+        ):
+            self.assertIn(token, why_skill, f"skills/why/SKILL.md missing boundary token {token!r}")
+
+        architect_skill = _read_repo_file("skills/architect/SKILL.md")
+        for token in (
+            "Phase A: Ground",
+            "Phase B: Sketch",
+            "Phase C: Agree",
+            "Phase D: Implement",
+            "Phase E: Scrap",
+            "caller's usage first",
+            "two structurally distinct whole-shape candidates",
+            "arena runners",
+            "Shallow modules",
+            "Information leakage",
+            "Temporal decomposition",
+            "Pass-through methods",
+            "Opt-in",
+            "deviations",
+            "Concrete triggers",
+            "Recovery loop",
+        ):
+            self.assertIn(token, architect_skill, f"skills/architect/SKILL.md missing boundary token {token!r}")
+
+        interrogate_skill = _read_repo_file("skills/interrogate/SKILL.md")
+        for token in (
+            "Proof-by-Run Gate",
+            "run_command",
+            "`verified`",
+            '`"branch"`',
+            "{PARENT_CONVERSATION_ID}",
+            "send_message",
+            'TimerCondition: "never"',
+            "ZERO tools (`tool_calls: []`)",
+            "N-1",
+            "Idempotency & Crash Recovery",
+            "Concurrency & Races",
+            "Boundary Discipline",
+            "Contract vs Symptom",
+            "interrogate reviewers",
+            "Agreement Map",
+            "Act on",
+            "Consider",
+            "Noted",
+            "Dismissed",
+            "unverified-structural",
+            "file:line",
+            "nitpicks are banned",
+        ):
+            self.assertIn(token, interrogate_skill, f"skills/interrogate/SKILL.md missing boundary token {token!r}")
+
+        for skill_name in ("why", "architect", "interrogate"):
+            self.assertFalse((SKILLS_DIR / skill_name / "references").exists())
+            content = _read_repo_file(f"skills/{skill_name}/SKILL.md")
+            fm = content.split("---", 2)[1]
+            self.assertNotIn("disable-model-invocation: true", fm, f"{skill_name} must remain auto-discoverable")
+
+        auto_discoverable = []
+        for skill_md in sorted(SKILLS_DIR.glob("*/SKILL.md")):
+            text = skill_md.read_text(encoding="utf-8")
+            fm = text.split("---", 2)[1] if text.startswith("---") else ""
+            if "disable-model-invocation: true" not in fm:
+                auto_discoverable.append(skill_md.parent.name)
+        self.assertEqual(len(auto_discoverable), 18, f"Expected 18 auto-discoverable skills, got {auto_discoverable}")
+        for skill_name in ("why", "architect", "interrogate"):
+            self.assertIn(skill_name, auto_discoverable)
 
     def test_zero_cursor_leakage_across_skills(self):
         for target_dir in (SKILLS_DIR, REPO_ROOT / "rules", REPO_ROOT / "agents"):
